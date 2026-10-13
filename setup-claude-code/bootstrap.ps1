@@ -1073,7 +1073,7 @@ if ($EnableMemorix) {
     $memorixSecPath = Join-Path $templatesDir "memorix-claude-section.md"
     if (Test-Path $memorixSecPath) {
         $memorixSec = Get-Content -Path $memorixSecPath -Raw -Encoding UTF8
-        if ($claudeMdContent -notmatch "Memorix — Memory Tools") {
+        if ($claudeMdContent -notmatch "Memorix.*Memory Tools") {
             $claudeMdContent = $claudeMdContent + "`n`n" + $memorixSec
         }
     }

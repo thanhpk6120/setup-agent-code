@@ -142,7 +142,7 @@ try {
     }
 
     $claudeMdContentD = Get-Content (Join-Path $tempDir "CLAUDE.md") -Raw
-    if ($claudeMdContentD -notmatch "Memorix — Memory Tools") {
+    if ($claudeMdContentD -notmatch "Memorix.*Memory Tools") {
         throw "ASSERTION FAILED: CLAUDE.md should contain Memorix section when -EnableMemorix is specified"
     }
     Write-Host "TEST PASSED: setup-claude-code bootstrap verified." -ForegroundColor Green

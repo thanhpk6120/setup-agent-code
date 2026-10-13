@@ -873,7 +873,7 @@ if ($installMemorix) {
         if (-not $DryRun -and (Test-Path $targetAgents)) {
             $memSectionContent = Get-Content -Path $memSectionPath -Raw -Encoding UTF8
             $currentAgentsContent = Get-Content -Path $targetAgents -Raw -Encoding UTF8
-            if (-not $currentAgentsContent.Contains("# Memorix — Memory Tools for Active Workspaces")) {
+            if ($currentAgentsContent -notmatch "Memorix.*Memory Tools") {
                 Add-Content -Path $targetAgents -Value "`r`n$memSectionContent" -Encoding UTF8
             }
         } else {
