@@ -1,0 +1,846 @@
+# bootstrap.ps1 - Bootstrap .omp environment on fresh machine
+[CmdletBinding()]
+param(
+    [switch]$DryRun,
+    [switch]$SkipInstall,
+    [switch]$Force,
+    [switch]$OverwriteAll,
+    [switch]$EnableMemorix,
+    [switch]$DisableMemorix,
+    [string]$OmpDir = "$env:USERPROFILE\.omp\agent"
+)
+
+$ErrorActionPreference = "Stop"
+Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
+
+# ==============================================================================
+# Helper: Safe-Trash (Di chuyển an toàn vào Recycle Bin)
+# ==============================================================================
+function Safe-Trash {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Safe-Trash: $Path" -ForegroundColor DarkGray
+        return
+    }
+    try {
+        Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
+        $resolved = Convert-Path -LiteralPath $Path
+        if ((Get-Item -LiteralPath $resolved) -is [System.IO.DirectoryInfo]) {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(
+                $resolved,
+                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
+            )
+        } else {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile(
+                $resolved,
+                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
+                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
+            )
+        }
+        Write-Host "  -> [Trash] Da di chuyen vao Recycle Bin: $Path" -ForegroundColor DarkGray
+    } catch {
+        Write-Warning "Khong the di chuyen vao Recycle Bin bang VisualBasic FileIO: $($_.Exception.Message)"
+    }
+}
+function Get-BackupPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    $bak = "$Path.bak"
+    if (Test-Path -LiteralPath $bak) {
+        $timestamp = (Get-Date).ToString("yyyyMMddHHmmss")
+        return "$bak.$timestamp"
+    }
+    return $bak
+}
+
+
+function Confirm-McpInstall {
+    param([string]$Name)
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong cai dat MCP '$Name'." -ForegroundColor Cyan
+        return $true
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP '$Name'." -ForegroundColor DarkGray
+        return $false
+    }
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        return $false
+    }
+    $choice = Read-Host "[?] Cai dat MCP '$Name'? [y/N]"
+    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
+        return $true
+    }
+    return $false
+}
+
+function Get-EnvOrPrompt {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EnvName,
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+        [string]$Default,
+        [switch]$AllowEmpty
+    )
+    $val = [Environment]::GetEnvironmentVariable($EnvName, "Process")
+    if (-not [string]::IsNullOrWhiteSpace($val)) { return $val }
+
+    $hasDefault = $PSBoundParameters.ContainsKey('Default')
+    while ($true) {
+        $promptStr = $Prompt
+        if ($hasDefault) { $promptStr = "$Prompt (Default: $Default)" }
+        $inputVal = Read-Host $promptStr
+        if (-not [string]::IsNullOrWhiteSpace($inputVal)) {
+            return $inputVal.Trim()
+        }
+        if ($hasDefault) {
+            return $Default
+        }
+        if ($AllowEmpty) {
+            return ""
+        }
+        if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive -or $env:CI) {
+            throw "Error: '$EnvName' is required but cannot prompt in non-interactive session."
+        }
+        Write-Host "Error: '$EnvName' is required. Please provide a value." -ForegroundColor Red
+    }
+}
+
+function Load-Env {
+    param([string]$EnvPath = (Join-Path $PSScriptRoot ".env"))
+    if (Test-Path $EnvPath) {
+        Write-Host "  -> Loading environment from $EnvPath..." -ForegroundColor Cyan
+        Get-Content $EnvPath | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith("#")) {
+                $idx = $line.IndexOf("=")
+                if ($idx -gt 0) {
+                    $key = $line.Substring(0, $idx).Trim()
+                    $val = $line.Substring($idx + 1).Trim()
+                    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+                        $val = $val.Substring(1, $val.Length - 2)
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($key) -and -not [string]::IsNullOrWhiteSpace($val)) {
+                        [Environment]::SetEnvironmentVariable($key, $val, "Process")
+                    }
+                }
+            }
+        }
+    }
+}
+
+# ==============================================================================
+# GIAI ĐOẠN 1: HỎI THÔNG TIN VÀ CẤU HÌNH (PROMPTS & ENV GATHERING)
+# ==============================================================================
+Write-Host "==> [Giai doan 1/3] Thu thap thong tin cau hinh..." -ForegroundColor Cyan
+Load-Env
+
+# 1.1 Cau hinh Memorix flag
+if ($EnableMemorix.IsPresent -and $DisableMemorix.IsPresent) {
+    throw "Khong dung dong thoi -EnableMemorix va -DisableMemorix."
+}
+if (-not $PSBoundParameters.ContainsKey('EnableMemorix') -and -not $PSBoundParameters.ContainsKey('DisableMemorix')) {
+    $EnableMemorix = Confirm-McpInstall -Name "memorix"
+    if (-not $EnableMemorix) { Write-Host "Skipped MCP 'memorix' theo lua chon nguoi dung." -ForegroundColor Yellow }
+} elseif ($DisableMemorix.IsPresent) {
+    $EnableMemorix = $false
+    Write-Host "Skipped MCP 'memorix' theo lua chon nguoi dung." -ForegroundColor Yellow
+} else {
+    $EnableMemorix = $EnableMemorix.IsPresent
+}
+
+# 1.2 Xac nhan cai dat cac MCP servers
+Write-Host "==> Xac nhan cai dat cac MCP Server..." -ForegroundColor Cyan
+$installAtlassian = Confirm-McpInstall -Name "company-atlassian"
+if (-not $installAtlassian) { Write-Host "Skipped MCP 'company-atlassian' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installGitnexus = Confirm-McpInstall -Name "gitnexus"
+if (-not $installGitnexus) { Write-Host "Skipped MCP 'gitnexus' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installContext7 = Confirm-McpInstall -Name "context7"
+if (-not $installContext7) { Write-Host "Skipped MCP 'context7' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installGlab = Confirm-McpInstall -Name "glab"
+if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
+if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+# 1.3 Thu thap bien moi truong bat buoc va tuy chon
+$aiBaseUrl = Get-EnvOrPrompt -EnvName "AI_BASE_URL" -Prompt "AI Base URL" -Default "http://localhost:20128/v1"
+$aiKey     = Get-EnvOrPrompt -EnvName "AI_API_KEY" -Prompt "AI API Key"
+
+$jiraUrl   = ""
+$jiraToken = ""
+$confUrl   = ""
+$confToken = ""
+if ($installAtlassian) {
+    $jiraUrl   = Get-EnvOrPrompt -EnvName "JIRA_URL" -Prompt "Jira URL" -Default "https://jira.cybertech.vn"
+    $jiraToken = Get-EnvOrPrompt -EnvName "JIRA_PERSONAL_TOKEN" -Prompt "Jira Personal Token" -Default "YOUR_JIRA_PERSONAL_TOKEN"
+    $confUrl   = Get-EnvOrPrompt -EnvName "CONFLUENCE_URL" -Prompt "Confluence URL" -Default "https://conf.cybertech.vn"
+    $confToken = Get-EnvOrPrompt -EnvName "CONFLUENCE_PERSONAL_TOKEN" -Prompt "Confluence Personal Token" -Default "YOUR_CONFLUENCE_PERSONAL_TOKEN"
+}
+
+$ctxKey = ""
+if ($installContext7) {
+    $ctxKey = Get-EnvOrPrompt -EnvName "CONTEXT7_API_KEY" -Prompt "Context7 API Key" -AllowEmpty
+}
+
+$gitlabHost  = "10.30.1.17"
+$gitlabToken = ""
+if ($installGlab) {
+    $gitlabHost  = Get-EnvOrPrompt -EnvName "GITLAB_HOST" -Prompt "GitLab Host" -Default "10.30.1.17"
+    $gitlabToken = Get-EnvOrPrompt -EnvName "GITLAB_TOKEN" -Prompt "GitLab Personal Token" -AllowEmpty
+}
+
+$isForce = $Force.IsPresent -or $OverwriteAll.IsPresent
+
+# ==============================================================================
+# GIAI ĐOẠN 2: KIỂM TRA MÔI TRƯỜNG & PREREQUISITES (PREREQUISITE CHECK)
+# ==============================================================================
+Write-Host "==> [Giai doan 2/3] Kiem tra moi truong va tien quyet..." -ForegroundColor Cyan
+
+foreach ($tool in @("node", "npm", "git")) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        throw "Missing '$tool' in PATH. Please install it first."
+    }
+}
+
+# MCP tools (context7, gitnexus) require Node >= 22.18.0
+$nodeVerRaw = (node -v 2>$null | Out-String).Trim()
+try {
+    $nodeVer = [version]($nodeVerRaw.TrimStart('v'))
+} catch {
+    throw "Khong the xac dinh version cua Node.js: '$nodeVerRaw'"
+}
+if ($nodeVer -lt [version]"22.18.0") {
+    $toolsList = "gitnexus, context7"
+    if ($EnableMemorix) { $toolsList = "memorix, gitnexus, context7" }
+    throw "Yeu cau Node.js >= 22.18.0 (do $toolsList yeu cau Node.js moi). Phien ban hien tai: '$nodeVerRaw'. Vui long nang cap Node.js."
+}
+Write-Host "  -> Node.js version hop le: $nodeVerRaw (>= 22.18.0)" -ForegroundColor Green
+
+# ==============================================================================
+# GIAI ĐOẠN 3: TRIỂN KHAI & CÀI ĐẶT (DEPLOY & RUNTIME SETUP)
+# ==============================================================================
+Write-Host "==> [Giai doan 3/3] Trien khai cai dat va cau hinh OMP..." -ForegroundColor Cyan
+
+# 3.1 Cài đặt Atlassian MCP qua uv tool
+if ($installAtlassian) {
+    if (-not $SkipInstall -and -not (Get-Command "uv" -ErrorAction SilentlyContinue)) {
+        Write-Host "==> 'uv' not found. Installing uv..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            $installed = $false
+            if (Get-Command "pip" -ErrorAction SilentlyContinue) {
+                try {
+                    pip install uv --quiet
+                    $installed = $true
+                } catch {}
+            }
+            if (-not $installed -and (Get-Command "winget" -ErrorAction SilentlyContinue)) {
+                try {
+                    winget install --id=astral-sh.uv -e --silent --accept-source-agreements --accept-package-agreements
+                    $installed = $true
+                } catch {}
+            }
+            if (-not $installed) {
+                try {
+                    irm https://astral.sh/uv/install.ps1 | iex
+                    $env:Path = "$env:USERPROFILE\.local\bin;$env:USERPROFILE\.cargo\bin;$env:Path"
+                } catch {
+                    Write-Warning "Could not install uv automatically. Please install it manually: https://docs.astral.sh/uv/"
+                }
+            }
+        }
+    }
+    if (-not $SkipInstall) {
+        Write-Host "==> Installing/updating mcp-atlassian globally via uv tool..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            $mcpAtlCmd = Get-Command "mcp-atlassian" -ErrorAction SilentlyContinue
+            $isInstalled = $false
+            if ($mcpAtlCmd) {
+                try {
+                    $verOut = (& mcp-atlassian --version 2>$null) | Out-String
+                    if ($verOut -match "0\.23\.1") {
+                        Write-Host "  -> mcp-atlassian 0.23.1 da san sang. Bo qua cai lai." -ForegroundColor Green
+                        $isInstalled = $true
+                    }
+                } catch {}
+            }
+            if (-not $isInstalled) {
+                if (Get-Command "uv" -ErrorAction SilentlyContinue) {
+                    try {
+                        uv tool install mcp-atlassian==0.23.1 --upgrade
+                    } catch {
+                        Write-Warning "Khong the cap nhat mcp-atlassian: $($_.Exception.Message)"
+                    }
+                } else {
+                    Write-Warning "'uv' is not available. Please install 'mcp-atlassian' manually: uv tool install mcp-atlassian==0.23.1"
+                }
+            }
+        }
+    }
+}
+
+# 3.2 Cài đặt gitnexus
+$absGn = ""
+$gitnexusArgsJson = '"/c", "", "mcp"'
+if ($installGitnexus) {
+    if (-not $SkipInstall) {
+        Write-Host "==> Installing gitnexus globally..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            npm install -g gitnexus --silent
+        }
+    }
+
+    $gn = Get-Command "gitnexus.cmd" -ErrorAction SilentlyContinue
+    if (-not $gn) {
+        $gn = Get-Command "gitnexus" -ErrorAction SilentlyContinue
+    }
+    $gnPath = if ($gn -and $gn.Source) { $gn.Source } else { "" }
+    if ($gnPath -and $gnPath.EndsWith(".ps1", [System.StringComparison]::OrdinalIgnoreCase)) {
+        $cmdCandidate = [System.IO.Path]::ChangeExtension($gnPath, ".cmd")
+        if (Test-Path $cmdCandidate) {
+            $gnPath = $cmdCandidate
+        }
+    }
+    if ($gnPath) {
+        $absGn = $gnPath.Replace('\', '\\')
+        $gitnexusArgsJson = '"/c", "' + $absGn + '", "mcp"'
+    } else {
+        throw "Loi: Khong tim thay gitnexus bang Get-Command. Dung cai dat."
+    }
+}
+
+# 3.3 Cài đặt context7
+$context7Command = '"node"'
+$absCtx2 = ""
+$context7ArgsJson = '""'
+if ($installContext7) {
+    if (-not $SkipInstall) {
+        Write-Host "==> Installing context7 globally..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            npm install -g @upstash/context7-mcp --silent
+        }
+    }
+
+    $npmRoot2 = ""
+    try {
+        $npmRoot2 = (npm root -g 2>$null) | Out-String
+        $npmRoot2 = $npmRoot2.Trim()
+    } catch {}
+
+    if ($npmRoot2) {
+        $ctxP2 = Join-Path $npmRoot2 "@upstash\context7-mcp\dist\index.js"
+        if (Test-Path $ctxP2) {
+            $absCtx2 = ($ctxP2).Replace('\', '\\')
+            $context7ArgsJson = '"' + $absCtx2 + '"'
+        } else {
+            throw "Loi: Khong tim thay file dist\index.js cua context7. Dung cai dat."
+        }
+    } else {
+        throw "Loi: Khong tim thay thu muc npm root -g de lay duong dan context7. Dung cai dat."
+    }
+}
+
+# 3.4 Cài đặt glab
+if ($installGlab) {
+    if (-not $SkipInstall -and -not (Get-Command "glab" -ErrorAction SilentlyContinue)) {
+        Write-Host "==> Installing glab (GitLab CLI) globally..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            if (Get-Command "winget" -ErrorAction SilentlyContinue) {
+                try {
+                    winget install -e --id GLab.GLab --silent --accept-source-agreements --accept-package-agreements | Out-Null
+                    $glabProg = "$env:LOCALAPPDATA\Programs\glab"
+                    if (Test-Path $glabProg) {
+                        $env:Path = "$glabProg;$env:Path"
+                    }
+                } catch {
+                    Write-Warning "Failed to install glab via winget: $($_.Exception.Message)"
+                }
+            } else {
+                Write-Warning "'winget' is not available. Please install glab manually."
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($gitlabToken) -and -not $DryRun) {
+        Write-Host "==> Configuring GitLab authentication for host '$gitlabHost'..." -ForegroundColor Cyan
+        $proto = "https"
+        if ($gitlabHost -match '^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}' -or $gitlabHost -match ':80') { $proto = "http" }
+        $glabCmd = "glab"
+        if (Get-Command "glab" -ErrorAction SilentlyContinue) { $glabCmd = "glab" } elseif (Test-Path "$env:LOCALAPPDATA\Programs\glab\glab.exe") { $glabCmd = "$env:LOCALAPPDATA\Programs\glab\glab.exe" }
+        try {
+            & $glabCmd config set api_protocol $proto -g --host $gitlabHost 2>$null
+            $tokenSec = $gitlabToken.Trim()
+            & $glabCmd auth login --hostname $gitlabHost --token $tokenSec 2>$null
+            Write-Host "  -> Logged in to GitLab ($gitlabHost) successfully." -ForegroundColor Green
+        } catch {
+            Write-Warning "Could not configure glab auth automatically: $($_.Exception.Message)"
+        }
+    }
+}
+
+# 3.5 Cài đặt Memorix nếu chọn
+if ($EnableMemorix) {
+    if (-not $SkipInstall) {
+        Write-Host "==> Dang cai dat / cap nhat Memorix len phien ban moi nhat (npm install -g memorix)..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            try {
+                npm install -g memorix
+            } catch {
+                Write-Warning "Cai dat/cap nhat Memorix gap loi: $($_.Exception.Message)"
+            }
+        }
+    }
+    $shouldSetupHook = $false
+    if (-not $DryRun -and [Environment]::UserInteractive -and -not $env:CI -and -not $SkipInstall) {
+        $hookChoice = Read-Host "[?] Cai dat Hook tich hop Memorix vao OMP? [y/N]"
+        if (-not [string]::IsNullOrWhiteSpace($hookChoice) -and ($hookChoice.Trim().ToLower() -eq 'y' -or $hookChoice.Trim().ToLower() -eq 'yes')) {
+            $shouldSetupHook = $true
+        }
+    }
+
+    if ($shouldSetupHook) {
+        Write-Host "==> Configuring memorix hook for omp..." -ForegroundColor Cyan
+        $npmPrefix = ""
+        try { $npmPrefix = (npm prefix -g 2>$null | Out-String).Trim() } catch {}
+        if ($npmPrefix -and (Test-Path $npmPrefix) -and ($env:Path -notlike "*$npmPrefix*")) {
+            $env:Path = "$npmPrefix;$env:Path"
+        }
+        try {
+            memorix setup --agent omp --global
+        } catch {
+            Write-Warning "Khong the chay hook 'memorix setup --agent omp --global': $($_.Exception.Message)"
+        }
+    }
+}
+
+# 3.6 Cấu hình CloakBrowser
+function Get-CloakBrowserInstallDir {
+    param([string]$EnvVarName = "CLOAKBROWSER_DIR")
+    $envVal = [Environment]::GetEnvironmentVariable($EnvVarName, "Process")
+    if (-not [string]::IsNullOrWhiteSpace($envVal)) { return $envVal.Trim() }
+
+    $drives = @()
+    try {
+        $drives = Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue | Where-Object { $_.DriveType -eq 3 } | Sort-Object FreeSpace -Descending
+    } catch {
+        $drives = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Free -gt 0 } | Sort-Object Free -Descending
+    }
+    if (-not $drives -or $drives.Count -eq 0) { return "$env:USERPROFILE\mcp-servers\cloakbrowser" }
+
+    $defaultDrive = $drives | Where-Object { ($_.DeviceID -eq 'D:' -or $_.Name -eq 'D') } | Select-Object -First 1
+    if (-not $defaultDrive) { $defaultDrive = $drives[0] }
+    $defaultLetter = ""
+    if ($defaultDrive.DeviceID) { $defaultLetter = $defaultDrive.DeviceID } else { $defaultLetter = "$($defaultDrive.Name):" }
+    if ($env:CI -or -not [Environment]::UserInteractive) {
+        return "$defaultLetter\mcp-servers\cloakbrowser"
+    }
+
+    $promptMsg = "Chon so thu tu o dia muon luu CloakBrowser (mac dinh o $defaultLetter)"
+    try {
+        $inputVal = Read-Host $promptMsg
+        if (-not [string]::IsNullOrWhiteSpace($inputVal)) {
+            $choice = $inputVal.Trim()
+            $idx = 0
+            if ([int]::TryParse($choice, [ref]$idx) -and $idx -ge 1 -and $idx -le $drives.Count) {
+                $chosen = $drives[$idx - 1]
+                $chosenLetter = ""
+                if ($chosen.DeviceID) { $chosenLetter = $chosen.DeviceID } else { $chosenLetter = "$($chosen.Name):" }
+                return "$chosenLetter\mcp-servers\cloakbrowser"
+            }
+        }
+    } catch {}
+    return "$defaultLetter\mcp-servers\cloakbrowser"
+}
+
+function Setup-CloakBrowser {
+    param([string]$TargetDir, [string]$SourceDir, [switch]$DryRun, [switch]$SkipInstall)
+    Write-Host "==> Cau hinh CloakBrowser tai: $TargetDir" -ForegroundColor Cyan
+    if (-not (Test-Path $TargetDir)) {
+        if (-not $DryRun) { New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null } else { Write-Host "  -> [WhatIf] Tao thu muc: $TargetDir" -ForegroundColor DarkGray }
+    }
+
+    $mainScript = Join-Path $TargetDir "mcp-server-full.mjs"
+    $pkgJson = Join-Path $TargetDir "package.json"
+    if ((Test-Path $mainScript) -and (Test-Path $pkgJson)) {
+        Write-Host "  -> CloakBrowser da ton tai day du file ma nguon. Giu nguyen du lieu cu." -ForegroundColor Green
+    } else {
+        Write-Host "  -> Copy ma nguon CloakBrowser sang $TargetDir..." -ForegroundColor Green
+        if (-not $DryRun -and (Test-Path $SourceDir)) {
+            Copy-Item -Path "$SourceDir\*" -Destination $TargetDir -Recurse -Force
+        } else {
+            Write-Host "  -> [WhatIf] Sao chep CloakBrowser sang: $TargetDir" -ForegroundColor DarkGray
+        }
+    }
+
+    $nodeModules = Join-Path $TargetDir "node_modules"
+    if (-not $SkipInstall -and -not (Test-Path $nodeModules)) {
+        Write-Host "  -> Dang chay 'npm install' cho CloakBrowser..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            Push-Location $TargetDir
+            try { npm install --omit=dev --silent } catch { Write-Warning "npm install cho CloakBrowser gap loi: $($_.Exception.Message)" } finally { Pop-Location }
+        }
+    }
+    return $mainScript
+}
+
+$escapedCloakScript = ""
+if ($installCloakbrowser) {
+    $cbSourceDir = Join-Path $PSScriptRoot "mcp-servers\cloakbrowser"
+    $cbTargetDir = Get-CloakBrowserInstallDir
+    $cloakScriptPath = Setup-CloakBrowser -TargetDir $cbTargetDir -SourceDir $cbSourceDir -DryRun:$DryRun -SkipInstall:$SkipInstall
+    $escapedCloakScript = ($cloakScriptPath).Replace('\', '\\')
+}
+
+# 3.7 Cài đặt Trash Guard
+function Setup-TrashGuard {
+    param(
+        [string]$OmpDir = "$env:USERPROFILE\.omp\agent",
+        [switch]$DryRun,
+        [switch]$SkipInstall
+    )
+    Write-Host "==> Cai dat Trash Guard (bao ve chan xoa cung cho OMP)..." -ForegroundColor Cyan
+
+    $ompTargetDirs = @(
+        (Join-Path $OmpDir "extensions"),
+        (Join-Path "$env:USERPROFILE\.omp" "extensions")
+    ) | Select-Object -Unique
+
+    $srcExt = Join-Path $PSScriptRoot "extensions\no-hard-delete.ts"
+    if (Test-Path $srcExt) {
+        foreach ($extDir in $ompTargetDirs) {
+            if (-not (Test-Path $extDir)) {
+                if (-not $DryRun) { New-Item -ItemType Directory -Path $extDir -Force | Out-Null } else { Write-Host "  -> [WhatIf] Tao thu muc: $extDir" -ForegroundColor DarkGray }
+            }
+            $targetExt = Join-Path $extDir "no-hard-delete.ts"
+            Write-Host "  -> Cai dat OMP extension sang $targetExt..." -ForegroundColor Green
+            if (-not $DryRun) {
+                Copy-Item -Path $srcExt -Destination $targetExt -Force
+            } else {
+                Write-Host "  -> [WhatIf] Sao chep extension sang: $targetExt" -ForegroundColor DarkGray
+            }
+        }
+    }
+    Write-Host "  -> Hoan tat kich hoat Trash Guard cho OMP." -ForegroundColor Green
+}
+
+# 3.8 Chuẩn bị thư mục đích OMP
+Write-Host "==> Ensuring directory $OmpDir exists..." -ForegroundColor Cyan
+if (-not $DryRun) {
+    New-Item -ItemType Directory -Force -Path $OmpDir | Out-Null
+} else {
+    Write-Host "  -> [WhatIf] Tao thu muc: $OmpDir" -ForegroundColor DarkGray
+}
+
+$templatesDir = Join-Path $PSScriptRoot "templates"
+
+# Đọc config.yml từ templates/
+$configTemplateContent = Get-Content -Path (Join-Path $templatesDir "config.yml") -Raw -Encoding UTF8
+$detectedBash = "C:\Program Files\Git\bin\bash.exe"
+$gitCmd = Get-Command "git" -ErrorAction SilentlyContinue
+if ($gitCmd) {
+    $gitDir = Split-Path (Split-Path $gitCmd.Source -Parent) -Parent
+    $candidate = Join-Path $gitDir "bin\bash.exe"
+    if (Test-Path $candidate) {
+        $detectedBash = $candidate
+    }
+}
+$configContent = $configTemplateContent
+if ($configContent -match '(?m)^shellPath:') {
+    $configContent = [regex]::Replace($configContent, '(?m)^shellPath:\s*.*$', "shellPath: $detectedBash")
+}
+
+# Đọc models.yml từ templates/
+$modelsTemplateContent = Get-Content -Path (Join-Path $templatesDir "models.yml") -Raw -Encoding UTF8
+$modelsContent = $modelsTemplateContent.Replace("__AI_BASE_URL__", $aiBaseUrl).Replace("__AI_API_KEY__", $aiKey)
+
+# Đọc mcp.json từ templates/
+$mcpTemplateContent = Get-Content -Path (Join-Path $templatesDir "mcp.json") -Raw -Encoding UTF8
+$mcpJson = $mcpTemplateContent.Replace("__JIRA_URL__", $jiraUrl).Replace("__JIRA_PERSONAL_TOKEN__", $jiraToken).Replace("__CONFLUENCE_URL__", $confUrl).Replace("__CONFLUENCE_PERSONAL_TOKEN__", $confToken).Replace("__CLOAKBROWSER_SCRIPT__", $escapedCloakScript)
+
+if ($mcpJson.Contains("__GITNEXUS_PATH__")) {
+    $mcpJson = $mcpJson.Replace("__GITNEXUS_PATH__", $absGn)
+}
+if ($mcpJson.Contains("__GITNEXUS_ARGS__")) {
+    $mcpJson = $mcpJson.Replace("__GITNEXUS_ARGS__", $gitnexusArgsJson)
+}
+if ($mcpJson.Contains("__CONTEXT7_PATH__")) {
+    $mcpJson = $mcpJson.Replace("__CONTEXT7_PATH__", $absCtx2)
+}
+if ($mcpJson.Contains("__CONTEXT7_CMD__")) {
+    $mcpJson = $mcpJson.Replace("__CONTEXT7_CMD__", $context7Command)
+}
+if ($mcpJson.Contains("__CONTEXT7_ARGS__")) {
+    $mcpJson = $mcpJson.Replace("__CONTEXT7_ARGS__", $context7ArgsJson)
+}
+if ($ctxKey) {
+    $mcpJson = $mcpJson.Replace("__CONTEXT7_API_KEY__", $ctxKey)
+} else {
+    # Chế độ anonymous: gỡ bỏ block env để không truyền placeholder trống
+    $mcpJson = $mcpJson -replace ',\s*"env":\s*\{\s*"CONTEXT7_API_KEY":\s*"__CONTEXT7_API_KEY__"\s*\}', ''
+}
+
+try {
+    $mcpObj = $mcpJson | ConvertFrom-Json
+    if ($mcpObj -and $mcpObj.mcpServers) {
+        if (-not $installAtlassian -and $mcpObj.mcpServers.PSObject.Properties['company-atlassian']) {
+            $mcpObj.mcpServers.PSObject.Properties.Remove('company-atlassian')
+        }
+        if (-not $installGitnexus -and $mcpObj.mcpServers.PSObject.Properties['gitnexus']) {
+            $mcpObj.mcpServers.PSObject.Properties.Remove('gitnexus')
+        }
+        if (-not $installContext7 -and $mcpObj.mcpServers.PSObject.Properties['context7']) {
+            $mcpObj.mcpServers.PSObject.Properties.Remove('context7')
+        }
+        if (-not $installGlab -and $mcpObj.mcpServers.PSObject.Properties['glab']) {
+            $mcpObj.mcpServers.PSObject.Properties.Remove('glab')
+        }
+        if (-not $installCloakbrowser -and $mcpObj.mcpServers.PSObject.Properties['cloakbrowser']) {
+            $mcpObj.mcpServers.PSObject.Properties.Remove('cloakbrowser')
+        }
+        if ($EnableMemorix) {
+            if (-not $mcpObj.mcpServers.PSObject.Properties['memorix']) {
+                $mcpObj.mcpServers | Add-Member -MemberType NoteProperty -Name "memorix" -Value ([PSCustomObject]@{
+                    command = "memorix"
+                    args    = @("serve", "--mode", "lite")
+                })
+            }
+        } else {
+            if ($mcpObj.mcpServers.PSObject.Properties['memorix']) {
+                $mcpObj.mcpServers.PSObject.Properties.Remove('memorix')
+            }
+        }
+        $mcpJson = $mcpObj | ConvertTo-Json -Depth 10
+    }
+} catch {
+    Write-Warning "Khong the cap nhat cau hinh mcp.json: $($_.Exception.Message)"
+}
+
+# 3.9 Ghi cấu hình với cơ chế sao lưu .bak, Overwrite, Merge, Skip
+$files = [ordered]@{
+    "mcp.json"   = $mcpJson
+    "models.yml" = $modelsContent
+    "config.yml" = $configContent
+}
+
+foreach ($entry in $files.GetEnumerator()) {
+    $targetFileName = $entry.Key
+    $templateContent = $entry.Value
+    $targetPath = Join-Path $OmpDir $targetFileName
+
+    if (Test-Path $targetPath) {
+        $bakPath = Get-BackupPath -Path $targetPath
+        if ($targetFileName -eq "mcp.json") {
+            if ($isForce) {
+                Write-Host "  -> File cau hinh '$targetFileName' da ton tai. [-Force / -OverwriteAll] Tu dong sao luu va ghi de." -ForegroundColor Yellow
+                if (-not $DryRun) {
+                    Copy-Item -Path $targetPath -Destination $bakPath -Force
+                    Write-Host "     Da sao luu sang $bakPath" -ForegroundColor DarkGray
+                    Set-Content -Path $targetPath -Value $templateContent -Encoding UTF8
+                } else {
+                    Write-Host "  -> [WhatIf] Sao luu: $bakPath" -ForegroundColor DarkGray
+                    Write-Host "  -> [WhatIf] Ghi file: $targetPath" -ForegroundColor DarkGray
+                }
+            } else {
+                $choice = Read-Host "[?] File cau hinh 'mcp.json' da ton tai. Ban co muon [O]verwrite (ghi de), [M]erge (hop nhat server cu va moi), hay [S]kip (bo qua)? [O/M/s]"
+                $choice = if ($choice) { $choice.Trim() } else { "" }
+                if ($choice -match '^[mM]$') {
+                    Write-Host "  -> Dang hop nhat $targetFileName (sao luu sang $bakPath)..." -ForegroundColor Cyan
+                    if (-not $DryRun) {
+                        Copy-Item -Path $targetPath -Destination $bakPath -Force
+                        Write-Host "     Da sao luu sang $bakPath" -ForegroundColor DarkGray
+                        try {
+                            $existingJson = Get-Content -Path $targetPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                            $newJson = $templateContent | ConvertFrom-Json
+                            if (-not $existingJson.PSObject.Properties['mcpServers']) {
+                                $existingJson | Add-Member -MemberType NoteProperty -Name "mcpServers" -Value ([PSCustomObject]@{})
+                            }
+                            if ($newJson -and $newJson.mcpServers) {
+                                foreach ($prop in $newJson.mcpServers.PSObject.Properties) {
+                                    if (-not $existingJson.mcpServers.PSObject.Properties[$prop.Name]) {
+                                        $existingJson.mcpServers | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
+                                    }
+                                }
+                            }
+                            $mergedJsonStr = $existingJson | ConvertTo-Json -Depth 10
+                            Set-Content -Path $targetPath -Value $mergedJsonStr -Encoding UTF8
+                            Write-Host "  -> Da hop nhat $targetFileName thanh cong." -ForegroundColor Green
+                        } catch {
+                            Write-Warning "Khong the hop nhat JSON: $($_.Exception.Message). Tien hanh ghi de bang template."
+                            Set-Content -Path $targetPath -Value $templateContent -Encoding UTF8
+                        }
+                    }
+                } elseif ($choice -match '^[oO]$') {
+                    Write-Host "  -> Ghi de file $targetFileName (da sao luu sang $bakPath)" -ForegroundColor Green
+                    if (-not $DryRun) {
+                        Copy-Item -Path $targetPath -Destination $bakPath -Force
+                        Write-Host "     Da sao luu sang $bakPath" -ForegroundColor DarkGray
+                        Set-Content -Path $targetPath -Value $templateContent -Encoding UTF8
+                    } else {
+                    Write-Host "  -> [WhatIf] Sao luu: $bakPath" -ForegroundColor DarkGray
+                    Write-Host "  -> [WhatIf] Ghi file: $targetPath" -ForegroundColor DarkGray
+                }
+                } else {
+                    Write-Host "  -> Bo qua $targetFileName (giu nguyen file hien tai)." -ForegroundColor Yellow
+                }
+            }
+        } else {
+            # File YAML (config.yml, models.yml)
+            if ($isForce) {
+                Write-Host "  -> File cau hinh '$targetFileName' da ton tai. [-Force / -OverwriteAll] Tu dong sao luu va ghi de." -ForegroundColor Yellow
+                if (-not $DryRun) {
+                    Copy-Item -Path $targetPath -Destination $bakPath -Force
+                    Write-Host "     Da sao luu sang $bakPath" -ForegroundColor DarkGray
+                    Set-Content -Path $targetPath -Value $templateContent -Encoding UTF8
+                } else {
+                    Write-Host "  -> [WhatIf] Sao luu: $bakPath" -ForegroundColor DarkGray
+                    Write-Host "  -> [WhatIf] Ghi file: $targetPath" -ForegroundColor DarkGray
+                }
+            } else {
+                $choice = Read-Host "[?] File cau hinh '$targetFileName' da ton tai. Ban co muon [O]verwrite (ghi de) hay [S]kip (bo qua)? [O/s]"
+                $choice = if ($choice) { $choice.Trim() } else { "" }
+                if ($choice -match '^[oO]$') {
+                    Write-Host "  -> Ghi de file $targetFileName (da sao luu sang $bakPath)" -ForegroundColor Green
+                    if (-not $DryRun) {
+                        Copy-Item -Path $targetPath -Destination $bakPath -Force
+                        Write-Host "     Da sao luu sang $bakPath" -ForegroundColor DarkGray
+                        Set-Content -Path $targetPath -Value $templateContent -Encoding UTF8
+                    } else {
+                    Write-Host "  -> [WhatIf] Sao luu: $bakPath" -ForegroundColor DarkGray
+                    Write-Host "  -> [WhatIf] Ghi file: $targetPath" -ForegroundColor DarkGray
+                }
+                } else {
+                    Write-Host "  -> Bo qua $targetFileName (giu nguyen file hien tai)." -ForegroundColor Yellow
+                }
+            }
+        }
+    } else {
+        Write-Host "  -> Creating $targetPath" -ForegroundColor Green
+        if (-not $DryRun) {
+            Set-Content -Path $targetPath -Value $templateContent -Encoding UTF8
+        } else {
+            Write-Host "  -> [WhatIf] Ghi file: $targetPath" -ForegroundColor DarkGray
+        }
+    }
+}
+
+# 3.10 Copy static files (AGENTS.md, RULES.md, SYSTEM.md) và skills/
+Write-Host "==> Copying static files and skills..." -ForegroundColor Cyan
+foreach ($mdFile in @("AGENTS.md", "RULES.md", "SYSTEM.md")) {
+    $srcPath = Join-Path $PSScriptRoot $mdFile
+    $targetPath = Join-Path $OmpDir $mdFile
+    if (-not (Test-Path $srcPath)) { continue }
+
+    if (Test-Path $targetPath) {
+        $bak = Get-BackupPath -Path $targetPath
+        if ($Force -or $OverwriteAll) {
+            Write-Host "  -> File '$targetPath' da ton tai. [-Force / -OverwriteAll] Tu dong sao luu va ghi de." -ForegroundColor Yellow
+            if (-not $DryRun) {
+                Copy-Item -Path $targetPath -Destination $bak -Force
+                Write-Host "     Da sao luu sang $bak" -ForegroundColor DarkGray
+                Copy-Item -Path $srcPath -Destination $targetPath -Force
+            } else {
+                Write-Host "  -> [WhatIf] Sao luu: $bak" -ForegroundColor DarkGray
+                Write-Host "  -> [WhatIf] Sao chep den: $targetPath" -ForegroundColor DarkGray
+            }
+        } else {
+            $choice = Read-Host "[?] File '$targetPath' da ton tai. Ban co muon [O]verwrite (ghi de) hay [S]kip (bo qua)? [O/s]"
+            if (-not [string]::IsNullOrWhiteSpace($choice) -and $choice.Trim().ToLower() -eq 's') {
+                Write-Host "  -> Bo qua file $targetPath." -ForegroundColor DarkGray
+            } else {
+            if (-not $DryRun) {
+                Copy-Item -Path $targetPath -Destination $bak -Force
+                Write-Host "     Da sao luu sang $bak" -ForegroundColor DarkGray
+                Copy-Item -Path $srcPath -Destination $targetPath -Force
+                Write-Host "  -> Ghi de file $targetPath thanh cong." -ForegroundColor Green
+            } else {
+                Write-Host "  -> [WhatIf] Sao luu: $bak" -ForegroundColor DarkGray
+                Write-Host "  -> [WhatIf] Sao chep den: $targetPath" -ForegroundColor DarkGray
+            }
+            }
+        }
+    } else {
+        Write-Host "  -> Tao moi file $targetPath thanh cong." -ForegroundColor Green
+        if (-not $DryRun) {
+            Copy-Item -Path $srcPath -Destination $targetPath -Force
+        } else {
+            Write-Host "  -> [WhatIf] Sao chep den: $targetPath" -ForegroundColor DarkGray
+        }
+    }
+}
+
+$targetAgentsPath = Join-Path $OmpDir "AGENTS.md"
+if ($EnableMemorix) {
+    $memSectionPath = Join-Path $templatesDir "memorix-agents-section.md"
+    if (Test-Path $memSectionPath) {
+        Write-Host "  -> Tich hop huong dan Memorix vao $targetAgentsPath..." -ForegroundColor Green
+        if (-not $DryRun -and (Test-Path $targetAgentsPath)) {
+            $memSectionContent = Get-Content -Path $memSectionPath -Raw -Encoding UTF8
+            Add-Content -Path $targetAgentsPath -Value "`r`n$memSectionContent" -Encoding UTF8
+        } else {
+            Write-Host "  -> [WhatIf] Ghi them vao: $targetAgentsPath" -ForegroundColor DarkGray
+        }
+    }
+}
+
+$srcSkills = Join-Path $PSScriptRoot "skills"
+$targetSkills = Join-Path $OmpDir "skills"
+if (Test-Path $srcSkills) {
+    if (-not (Test-Path $targetSkills)) {
+        if (-not $DryRun) {
+            New-Item -ItemType Directory -Force -Path $targetSkills | Out-Null
+        } else {
+            Write-Host "  -> [WhatIf] Tao thu muc: $targetSkills" -ForegroundColor DarkGray
+        }
+    }
+
+    if ($EnableMemorix) {
+        Write-Host "  -> Copying toan bo skills/ (bao gom memorix) sang $targetSkills (overwrite)" -ForegroundColor Green
+        if (-not $DryRun) {
+            Get-ChildItem -Path $srcSkills -Directory | ForEach-Object {
+                Copy-Item -Path $_.FullName -Destination $targetSkills -Recurse -Force
+            }
+        } else {
+            Write-Host "  -> [WhatIf] Sao chep skills den: $targetSkills" -ForegroundColor DarkGray
+        }
+    } else {
+        Write-Host "  -> Copying skills/ (bo qua memorix-*) sang $targetSkills (overwrite)" -ForegroundColor Green
+        if (-not $DryRun) {
+            Get-ChildItem -Path $srcSkills -Directory | Where-Object { $_.Name -notlike "memorix-*" } | ForEach-Object {
+                Copy-Item -Path $_.FullName -Destination $targetSkills -Recurse -Force
+            }
+        } else {
+            Write-Host "  -> [WhatIf] Sao chep skills den: $targetSkills" -ForegroundColor DarkGray
+        }
+
+        # Dọn dẹp các kỹ năng memorix-* bằng Safe-Trash (Recycle Bin)
+        if (Test-Path $targetSkills) {
+            $existingMemorixSkills = Get-ChildItem -Path $targetSkills -Directory -Filter "memorix-*" -ErrorAction SilentlyContinue
+            foreach ($memSkill in $existingMemorixSkills) {
+                Write-Host "  -> Di chuyen ky nang '$($memSkill.Name)' vao Thung rac (Recycle Bin)..." -ForegroundColor Yellow
+                if (-not $DryRun) {
+                    Safe-Trash -Path $memSkill.FullName
+                }
+            }
+        }
+    }
+}
+
+# 3.11 Kích hoạt Trash Guard Protection cho OMP
+Setup-TrashGuard -OmpDir $OmpDir -DryRun:$DryRun -SkipInstall:$SkipInstall
+
+Write-Host "`nBootstrap finished. Set required environment variables if using Jira or Router:" -ForegroundColor Green
+Write-Host '  $env:AI_API_KEY = "..."'
+Write-Host '  $env:JIRA_PERSONAL_TOKEN = "..."'
+Write-Host '  $env:CONFLUENCE_PERSONAL_TOKEN = "..."'
+Write-Host '  $env:CONTEXT7_API_KEY = "..." (optional, higher rate limits)'
+Write-Host '  gitnexus index empty? run: gitnexus analyze'

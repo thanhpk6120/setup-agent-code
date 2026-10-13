@@ -1,0 +1,32 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "__AI_BASE_URL__",
+    "ANTHROPIC_AUTH_TOKEN": "__AI_API_KEY__",
+    "ANTHROPIC_DEFAULT_FABLE_MODEL": "claude-fable-5",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+    "ANTHROPIC_MODEL": "claude-sonnet-5",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "sonnet[1m]",
+    "API_TIMEOUT_MS": "3000000",
+    "CLAUDE_DANGEROUSLY_SKIP_PERMISSIONS": "1",
+    "CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1",
+    "CLAUDE_CODE_NO_FLICKER": "1",
+    "CLAUDE_CODE_USE_POWERSHELL_TOOL": "1",
+    "MCP_TIMEOUT": "120000",
+    "MCP_TOOL_TIMEOUT": "120000"
+  },
+  "permissions": {
+    "allow": [],
+    "deny": [],
+    "defaultMode": "bypassPermissions"
+  },
+  "model": "sonnet[1m]",
+  "hooks": {},
+  "enableWorkflows": true,
+  "autoUpdatesChannel": "latest",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark",
+  "version": 1,
+  "autoCompactEnabled": false
+}

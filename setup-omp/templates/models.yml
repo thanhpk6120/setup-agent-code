@@ -1,0 +1,19 @@
+providers:
+  custom:
+    baseUrl: __AI_BASE_URL__
+    api: openai-completions
+    apiKey: __AI_API_KEY__
+    compat:
+      supportsDeveloperRole: true
+      supportsReasoningEffort: true
+      disableReasoningOnToolChoice: true
+    models:
+      - id: claude-fable-5
+        contextWindow: 1000000
+      - id: claude-opus-5
+        contextWindow: 1000000
+      - id: claude-sonnet-5
+        contextWindow: 1000000
+      - id: claude-haiku-4-5-20251001
+        contextPromotionTarget: claude-sonnet-5
+    disableStrictTools: true

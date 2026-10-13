@@ -1,0 +1,6 @@
+.env
+logs/
+local_cache/
+*.bak
+.credentials*.yaml
+*.patch.yml

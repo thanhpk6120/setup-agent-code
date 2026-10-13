@@ -1,0 +1,17 @@
+[
+  {
+    "command": "antigravity.cancel",
+    "key": "ctrl+c",
+    "when": "agentRunning"
+  },
+  {
+    "command": "antigravity.acceptReview",
+    "key": "ctrl+y",
+    "when": "artifactReviewPending"
+  },
+  {
+    "command": "antigravity.rejectReview",
+    "key": "ctrl+n",
+    "when": "artifactReviewPending"
+  }
+]

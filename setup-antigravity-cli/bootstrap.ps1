@@ -1,0 +1,658 @@
+# bootstrap.ps1 - Setup Antigravity CLI (Google agy) environment on Windows
+[CmdletBinding()]
+param(
+    [switch]$DryRun,
+    [switch]$SkipInstall,
+    [switch]$Force,
+    [switch]$OverwriteAll,
+    [switch]$EnableMemorix,
+    [switch]$DisableMemorix,
+    [string]$AgyDir = "$env:USERPROFILE\.gemini\antigravity-cli",
+    [string]$AgySettings = "",
+    [string]$AgyKeybindings = ""
+)
+
+$ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
+Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
+
+function Safe-Trash {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Safe-Trash: $Path" -ForegroundColor DarkGray
+        return
+    }
+    if (Get-Command "trash" -ErrorAction SilentlyContinue) {
+        trash $Path
+        return
+    }
+    try {
+        if ([System.IO.Directory]::Exists($Path)) {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($Path, [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs, [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)
+        } elseif ([System.IO.File]::Exists($Path)) {
+            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($Path, [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs, [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin)
+        }
+    } catch {
+        Write-Warning "Khong the di chuyen '$Path' vao Thung rac: $($_.Exception.Message)"
+    }
+}
+
+
+function Get-BackupPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    $bak = "$Path.bak"
+    if (Test-Path -LiteralPath $bak) {
+        $timestamp = (Get-Date).ToString("yyyyMMddHHmmss")
+        return "$bak.$timestamp"
+    }
+    return $bak
+}
+
+function Confirm-McpInstall {
+    param([string]$Name)
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong cai dat MCP '$Name'." -ForegroundColor Cyan
+        return $true
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP '$Name'." -ForegroundColor DarkGray
+        return $false
+    }
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        return $false
+    }
+    $choice = Read-Host "[?] Cai dat MCP '$Name'? [y/N]"
+    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
+        return $true
+    }
+    return $false
+}
+
+# 1. Xu ly lua chon Memorix
+if ($EnableMemorix.IsPresent -and $DisableMemorix.IsPresent) {
+    throw "Khong dung dong thoi -EnableMemorix va -DisableMemorix."
+}
+if (-not $PSBoundParameters.ContainsKey('EnableMemorix') -and -not $PSBoundParameters.ContainsKey('DisableMemorix')) {
+    $installMemorix = Confirm-McpInstall -Name "memorix"
+    if (-not $installMemorix) { Write-Host "Skipped MCP 'memorix' theo lua chon nguoi dung." -ForegroundColor Yellow }
+    if ($installMemorix) {
+        $EnableMemorix = $true
+    } else {
+        $DisableMemorix = $true
+    }
+} elseif ($DisableMemorix.IsPresent) {
+    $installMemorix = $false
+    Write-Host "Skipped MCP 'memorix' theo lua chon nguoi dung." -ForegroundColor Yellow
+} else {
+    $installMemorix = $EnableMemorix.IsPresent
+}
+
+# 2. Xac nhan cai dat cac MCP Server khac
+Write-Host "==> Xac nhan cai dat cac MCP Server khac..." -ForegroundColor Cyan
+$installAtlassian = Confirm-McpInstall -Name "company-atlassian"
+if (-not $installAtlassian) { Write-Host "Skipped MCP 'company-atlassian' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installGitnexus = Confirm-McpInstall -Name "gitnexus"
+if (-not $installGitnexus) { Write-Host "Skipped MCP 'gitnexus' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installContext7 = Confirm-McpInstall -Name "context7"
+if (-not $installContext7) { Write-Host "Skipped MCP 'context7' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installGlab = Confirm-McpInstall -Name "glab"
+if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
+if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$isForce = $Force.IsPresent -or $OverwriteAll.IsPresent
+
+# 3. Load .env (neu khong co se tham chieu templates/.env.example)
+function Load-Env {
+    param([string]$EnvPath = (Join-Path $PSScriptRoot ".env"))
+    if (Test-Path $EnvPath) {
+        Write-Host "  -> Nap bien moi truong tu $EnvPath..." -ForegroundColor Cyan
+        Get-Content $EnvPath | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith("#")) {
+                $idx = $line.IndexOf("=")
+                if ($idx -gt 0) {
+                    $key = $line.Substring(0, $idx).Trim()
+                    $val = $line.Substring($idx + 1).Trim()
+                    if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+                        $val = $val.Substring(1, $val.Length - 2)
+                    }
+                    if (-not [string]::IsNullOrWhiteSpace($key) -and -not [string]::IsNullOrWhiteSpace($val)) {
+                        [Environment]::SetEnvironmentVariable($key, $val, "Process")
+                    }
+                }
+            }
+        }
+    } else {
+        $templateEnv = Join-Path $PSScriptRoot "templates\.env.example"
+        if (Test-Path $templateEnv) {
+            Write-Host "  -> File .env chua tao, tham chieu gia tri mac dinh tu $templateEnv..." -ForegroundColor DarkGray
+            Get-Content $templateEnv | ForEach-Object {
+                $line = $_.Trim()
+                if ($line -and -not $line.StartsWith("#")) {
+                    $idx = $line.IndexOf("=")
+                    if ($idx -gt 0) {
+                        $key = $line.Substring(0, $idx).Trim()
+                        $val = $line.Substring($idx + 1).Trim()
+                        if (($val.StartsWith('"') -and $val.EndsWith('"')) -or ($val.StartsWith("'") -and $val.EndsWith("'"))) {
+                            $val = $val.Substring(1, $val.Length - 2)
+                        }
+                        if (-not [string]::IsNullOrWhiteSpace($key) -and -not [string]::IsNullOrWhiteSpace($val)) {
+                            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($key, "Process"))) {
+                                [Environment]::SetEnvironmentVariable($key, $val, "Process")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+Load-Env
+
+# 4. Ham nhap lieu Get-EnvOrPrompt
+function Get-EnvOrPrompt {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$EnvName,
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+        [string]$Default,
+        [switch]$AllowEmpty,
+        [switch]$Required
+    )
+    $val = [Environment]::GetEnvironmentVariable($EnvName, "Process")
+    if (-not [string]::IsNullOrWhiteSpace($val)) { return $val }
+
+    $hasDefault = $PSBoundParameters.ContainsKey('Default')
+    while ($true) {
+        $promptStr = $Prompt
+        if ($hasDefault) { $promptStr = "$Prompt (Default: $Default)" }
+        $inputVal = Read-Host $promptStr
+        if (-not [string]::IsNullOrWhiteSpace($inputVal)) {
+            return $inputVal.Trim()
+        }
+        if ($hasDefault) {
+            return $Default
+        }
+        if ($AllowEmpty) {
+            return ""
+        }
+        if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
+            if ($Required) {
+                throw "Error: '$EnvName' is required but cannot prompt in non-interactive session."
+            }
+            return ""
+        }
+        Write-Host "Error: '$EnvName' is required. Please provide a value." -ForegroundColor Red
+    }
+}
+
+# 5. Kiem tra moi truong runtime
+Write-Host "==> Kiem tra moi truong runtime..." -ForegroundColor Cyan
+foreach ($tool in @("node", "npm", "git")) {
+    if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
+        Write-Warning "Khong tim thay '$tool' trong PATH. Mot so tinh nang MCP co the gap loi."
+    }
+}
+
+# 6. Cai dat / cap nhat cac MCP Server
+if ($EnableMemorix) {
+    if (-not $SkipInstall) {
+        Write-Host "==> Installing/updating Memorix globally..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            try { npm install -g memorix } catch { Write-Warning "Cai dat Memorix gap loi: $($_.Exception.Message)" }
+        }
+    }
+}
+
+$targetAtlassianVer = "0.23.1"
+if ($installAtlassian) {
+    if (-not $SkipInstall) {
+        $alreadyInstalled = $false
+        if (Get-Command "uv" -ErrorAction SilentlyContinue) {
+            try {
+                $uvToolList = (uv tool list 2>$null | Out-String)
+                if ($uvToolList -match "mcp-atlassian\s+v?$targetAtlassianVer") {
+                    Write-Host "  -> mcp-atlassian $targetAtlassianVer da co san trong uv tools." -ForegroundColor Green
+                    $alreadyInstalled = $true
+                }
+            } catch {}
+        }
+        if (-not $alreadyInstalled -and (Get-Command "mcp-atlassian" -ErrorAction SilentlyContinue)) {
+            $alreadyInstalled = $true
+        }
+        if (-not $alreadyInstalled) {
+            Write-Host "==> Installing/updating mcp-atlassian globally via uv tool..." -ForegroundColor Cyan
+            if (-not $DryRun) {
+                try { uv tool install --force "mcp-atlassian==$targetAtlassianVer" } catch { Write-Warning "uv tool install mcp-atlassian failed: $($_.Exception.Message)" }
+            }
+        }
+    }
+}
+
+$absGn = ""
+if ($installGitnexus) {
+    if (-not $SkipInstall) {
+        Write-Host "==> Installing/updating gitnexus globally..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            try { npm install -g gitnexus } catch { Write-Warning "Cai dat gitnexus gap loi: $($_.Exception.Message)" }
+        }
+    }
+    $gn = Get-Command "gitnexus.cmd" -ErrorAction SilentlyContinue
+    if (-not $gn) { $gn = Get-Command "gitnexus" -ErrorAction SilentlyContinue }
+    $absGn = if ($gn -and $gn.Source) { $gn.Source } else { "gitnexus" }
+}
+
+$absCtx = ""
+if ($installContext7) {
+    if (-not $SkipInstall) {
+        Write-Host "==> Installing @upstash/context7-mcp globally..." -ForegroundColor Cyan
+        if (-not $DryRun) {
+            try { npm install -g @upstash/context7-mcp } catch { Write-Warning "Cai dat context7 gap loi: $($_.Exception.Message)" }
+        }
+    }
+    $npmRoot = ""
+    try { $npmRoot = (npm root -g 2>$null | Out-String).Trim() } catch {}
+    if ($npmRoot) {
+        $candidate = Join-Path $npmRoot "@upstash\context7-mcp\dist\index.js"
+        if (Test-Path $candidate) { $absCtx = $candidate }
+    }
+}
+
+function Get-CloakBrowserInstallDir {
+    param([string]$EnvVarName = "CLOAKBROWSER_DIR")
+    $envVal = [Environment]::GetEnvironmentVariable($EnvVarName, "Process")
+    if (-not [string]::IsNullOrWhiteSpace($envVal)) { return $envVal.Trim() }
+    return "$env:USERPROFILE\mcp-servers\cloakbrowser"
+}
+
+function Setup-CloakBrowser {
+    param(
+        [Parameter(Mandatory = $true)][string]$TargetDir,
+        [Parameter(Mandatory = $true)][string]$SourceDir,
+        [switch]$DryRun,
+        [switch]$SkipInstall
+    )
+    $mainScript = Join-Path $TargetDir "mcp-server-full.mjs"
+    if (-not $DryRun) {
+        if (-not (Test-Path $TargetDir)) { if (-not $DryRun) { New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null } else { Write-Host "  -> [WhatIf] Tao thu muc: $TargetDir" -ForegroundColor DarkGray } }
+        if (Test-Path $SourceDir) {
+            if (-not $DryRun) { Copy-Item -Path "$SourceDir\*" -Destination $TargetDir -Recurse -Force } else { Write-Host "  -> [WhatIf] Sao chep CloakBrowser sang: $TargetDir" -ForegroundColor DarkGray }
+        }
+        $nodeModules = Join-Path $TargetDir "node_modules"
+        if (-not $SkipInstall -and -not (Test-Path $nodeModules)) {
+            Write-Host "  -> Dang chay npm install tai $TargetDir..." -ForegroundColor Cyan
+            Push-Location $TargetDir
+            try { npm install } catch { Write-Warning "npm install cloakbrowser failed: $($_.Exception.Message)" }
+            finally { Pop-Location }
+        }
+    }
+    return $mainScript
+}
+
+$cloakScript = ""
+if ($installCloakbrowser) {
+    $cbSourceDir = Join-Path $PSScriptRoot "mcp-servers\cloakbrowser"
+    if (-not (Test-Path $cbSourceDir)) {
+        $cbSourceDir = Join-Path (Split-Path $PSScriptRoot -Parent) "setup-omp\mcp-servers\cloakbrowser"
+    }
+    $cbTargetDir = Get-CloakBrowserInstallDir
+    $cloakScriptPath = Setup-CloakBrowser -TargetDir $cbTargetDir -SourceDir $cbSourceDir -DryRun:$DryRun -SkipInstall:$SkipInstall
+    $cloakScript = $cloakScriptPath.Replace('\', '/')
+}
+
+# 7. Thu thap bien cau hinh
+$aiBaseUrl = Get-EnvOrPrompt -EnvName "AI_BASE_URL" -Prompt "AI Base URL" -Default "http://localhost:20128/v1"
+$aiKey     = Get-EnvOrPrompt -EnvName "AI_API_KEY" -Prompt "AI API Key" -Required
+$agyModel  = Get-EnvOrPrompt -EnvName "AGY_MODEL" -Prompt "Antigravity Model" -Default "custom/claude-sonnet-5"
+
+$jiraUrl   = ""
+$jiraToken = ""
+$confUrl   = ""
+$confToken = ""
+if ($installAtlassian) {
+    $jiraUrl   = Get-EnvOrPrompt -EnvName "JIRA_URL" -Prompt "Jira URL" -Default "https://jira.cybertech.vn"
+    $jiraToken = Get-EnvOrPrompt -EnvName "JIRA_PERSONAL_TOKEN" -Prompt "Jira Personal Token" -Default "YOUR_JIRA_PERSONAL_TOKEN"
+    $confUrl   = Get-EnvOrPrompt -EnvName "CONFLUENCE_URL" -Prompt "Confluence URL" -Default "https://conf.cybertech.vn"
+    $confToken = Get-EnvOrPrompt -EnvName "CONFLUENCE_PERSONAL_TOKEN" -Prompt "Confluence Personal Token" -Default "YOUR_CONFLUENCE_PERSONAL_TOKEN"
+}
+
+$ctxKey = ""
+if ($installContext7) {
+    $ctxKey = Get-EnvOrPrompt -EnvName "CONTEXT7_API_KEY" -Prompt "Context7 API Key" -AllowEmpty
+}
+
+$gitlabHost  = "10.30.1.17"
+$gitlabToken = ""
+if ($installGlab) {
+    $gitlabHost  = Get-EnvOrPrompt -EnvName "GITLAB_HOST" -Prompt "GitLab Host" -Default "10.30.1.17"
+    $gitlabToken = Get-EnvOrPrompt -EnvName "GITLAB_TOKEN" -Prompt "GitLab Personal Token" -AllowEmpty
+    if (-not [string]::IsNullOrWhiteSpace($gitlabToken) -and -not $DryRun) {
+        try {
+            $env:GITLAB_TOKEN = $gitlabToken
+            glab auth login --hostname $gitlabHost --token $gitlabToken
+        } catch {}
+    }
+}
+
+# 8. Chuan bi thu muc Antigravity CLI
+if (-not $AgySettings) {
+    $AgySettings = Join-Path $AgyDir "settings.json"
+}
+if (-not $AgyKeybindings) {
+    $AgyKeybindings = Join-Path $AgyDir "keybindings.json"
+}
+
+Write-Host "==> Preparing configuration files..." -ForegroundColor Cyan
+if (-not (Test-Path $AgyDir)) {
+    if (-not $DryRun) {
+        New-Item -ItemType Directory -Force -Path $AgyDir | Out-Null
+    } else {
+        Write-Host "  -> [WhatIf] Tao thu muc: $AgyDir" -ForegroundColor DarkGray
+    }
+}
+
+# 9. Ghi file keybindings.json
+$keybindingsSrc = Join-Path $PSScriptRoot "templates\keybindings.json"
+if (Test-Path $keybindingsSrc) {
+    if (Test-Path $AgyKeybindings) {
+        if ($isForce) {
+            Write-Host "  -> File '$AgyKeybindings' da ton tai. [-Force / -OverwriteAll] Tu dong sao luu va ghi de." -ForegroundColor Yellow
+            $bakKey = Get-BackupPath -Path $AgyKeybindings
+            if (-not $DryRun) {
+                Copy-Item -Path $AgyKeybindings -Destination $bakKey -Force
+                Write-Host "     Da sao luu sang $bakKey" -ForegroundColor DarkGray
+                Copy-Item -Path $keybindingsSrc -Destination $AgyKeybindings -Force
+            } else {
+                Write-Host "  -> [WhatIf] Sao luu: $bakKey" -ForegroundColor DarkGray
+                Write-Host "  -> [WhatIf] Sao chep den: $AgyKeybindings" -ForegroundColor DarkGray
+            }
+        } else {
+            $choice = Read-Host "[?] File '$AgyKeybindings' da ton tai. Ban co muon [O]verwrite hay [S]kip? [O/s]"
+            if (-not [string]::IsNullOrWhiteSpace($choice) -and $choice.Trim().ToLower() -eq 's') {
+                Write-Host "  -> Bo qua file $AgyKeybindings." -ForegroundColor DarkGray
+            } else {
+                $bakKey = Get-BackupPath -Path $AgyKeybindings
+                if (-not $DryRun) {
+                Copy-Item -Path $AgyKeybindings -Destination $bakKey -Force
+                Write-Host "     Da sao luu sang $bakKey" -ForegroundColor DarkGray
+                Copy-Item -Path $keybindingsSrc -Destination $AgyKeybindings -Force
+            } else {
+                Write-Host "  -> [WhatIf] Sao luu: $bakKey" -ForegroundColor DarkGray
+                Write-Host "  -> [WhatIf] Sao chep den: $AgyKeybindings" -ForegroundColor DarkGray
+            }
+                Write-Host "  -> Ghi de file $AgyKeybindings thanh cong." -ForegroundColor Green
+            }
+        }
+    } else {
+        Write-Host "  -> Tao moi file $AgyKeybindings thanh cong." -ForegroundColor Green
+        if (-not $DryRun) {
+            Copy-Item -Path $keybindingsSrc -Destination $AgyKeybindings -Force
+        } else {
+            Write-Host "  -> [WhatIf] Sao chep den: $AgyKeybindings" -ForegroundColor DarkGray
+        }
+    }
+}
+
+# 10. Xay dung va ghi file settings.json
+$settingsTemplatePath = Join-Path $PSScriptRoot "templates\settings.json"
+$settingsContent = Get-Content -Path $settingsTemplatePath -Raw -Encoding UTF8
+
+$escapedGn = $absGn.Replace('\', '/')
+$escapedCtx = $absCtx.Replace('\', '/')
+
+$settingsContent = $settingsContent `
+    -replace '__AGY_MODEL__', $agyModel `
+    -replace '__AI_BASE_URL__', $aiBaseUrl `
+    -replace '__AI_API_KEY__', $aiKey `
+    -replace '__JIRA_URL__', $jiraUrl `
+    -replace '__JIRA_PERSONAL_TOKEN__', $jiraToken `
+    -replace '__CONFLUENCE_URL__', $confUrl `
+    -replace '__CONFLUENCE_PERSONAL_TOKEN__', $confToken `
+    -replace '__GITNEXUS_PATH__', $escapedGn `
+    -replace '__CONTEXT7_PATH__', $escapedCtx `
+    -replace '__CONTEXT7_API_KEY__', $ctxKey `
+    -replace '__CLOAKBROWSER_SCRIPT__', $cloakScript
+
+$settingsObj = $settingsContent | ConvertFrom-Json
+if (-not $settingsObj.mcpServers) {
+    $settingsObj | Add-Member -MemberType NoteProperty -Name 'mcpServers' -Value ([PSCustomObject]@{}) -Force
+}
+
+# Loc bo MCP neu khong duoc chon
+if (-not $installAtlassian -and $settingsObj.mcpServers.PSObject.Properties['company-atlassian']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('company-atlassian')
+}
+if (-not $installGitnexus -and $settingsObj.mcpServers.PSObject.Properties['gitnexus']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('gitnexus')
+}
+if (-not $installContext7 -and $settingsObj.mcpServers.PSObject.Properties['context7']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('context7')
+}
+if (-not $installGlab -and $settingsObj.mcpServers.PSObject.Properties['glab']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('glab')
+}
+if (-not $installCloakbrowser -and $settingsObj.mcpServers.PSObject.Properties['cloakbrowser']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('cloakbrowser')
+}
+if (-not $installMemorix -and $settingsObj.mcpServers.PSObject.Properties['memorix']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('memorix')
+}
+
+# Tich hop hook Trash Guard vao settings.json
+$agyPreToolPath = (Join-Path $AgyDir "hooks\antigravity-pre-tool.cmd").Replace('\', '/')
+if (-not $settingsObj.hooks) {
+    $settingsObj | Add-Member -MemberType NoteProperty -Name 'hooks' -Value ([PSCustomObject]@{}) -Force
+}
+$preToolHooks = @(
+    [ordered]@{
+        matcher = "Bash"
+        command = $agyPreToolPath
+        timeout = 15
+    },
+    [ordered]@{
+        matcher = "PowerShell"
+        command = $agyPreToolPath
+        timeout = 15
+    }
+)
+$settingsObj.hooks | Add-Member -MemberType NoteProperty -Name 'PreToolUse' -Value $preToolHooks -Force
+
+$finalSettingsJson = $settingsObj | ConvertTo-Json -Depth 10
+
+if (Test-Path $AgySettings) {
+    $bakSettings = Get-BackupPath -Path $AgySettings
+    if ($isForce) {
+        Write-Host "  -> File '$AgySettings' da ton tai. [-Force / -OverwriteAll] Tu dong sao luu va ghi de." -ForegroundColor Yellow
+                if (-not $DryRun) {
+            Copy-Item -Path $AgySettings -Destination $bakSettings -Force
+            Write-Host "     Da sao luu sang $bakSettings" -ForegroundColor DarkGray
+            [System.IO.File]::WriteAllText($AgySettings, $finalSettingsJson, [System.Text.UTF8Encoding]::new($false))
+        } else {
+            Write-Host "  -> [WhatIf] Sao luu: $bakSettings" -ForegroundColor DarkGray
+            Write-Host "  -> [WhatIf] Ghi file: $AgySettings" -ForegroundColor DarkGray
+        }
+    } else {
+        $choice = Read-Host "[?] File '$AgySettings' da ton tai. Ban co muon [O]verwrite, [M]erge hay [S]kip? [O/M/s]"
+        $choice = if ($choice) { $choice.Trim() } else { "" }
+        if ($choice -match '^[mM]$') {
+            Write-Host "  -> Dang hop nhat cau hinh settings.json (sao luu sang $bakSettings)..." -ForegroundColor Cyan
+            if (-not $DryRun) {
+                Copy-Item -Path $AgySettings -Destination $bakSettings -Force
+                Write-Host "     Da sao luu sang $bakSettings" -ForegroundColor DarkGray
+                try {
+                    $existingObj = Get-Content -Path $AgySettings -Raw -Encoding UTF8 | ConvertFrom-Json
+                    if (-not $existingObj.mcpServers) {
+                        $existingObj | Add-Member -MemberType NoteProperty -Name 'mcpServers' -Value ([PSCustomObject]@{}) -Force
+                    }
+                    foreach ($prop in $settingsObj.mcpServers.PSObject.Properties) {
+                        if (-not $existingObj.mcpServers.PSObject.Properties[$prop.Name]) {
+                            $existingObj.mcpServers | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value
+                        }
+                    }
+                    if (-not $installMemorix -and $existingObj.mcpServers.PSObject.Properties['memorix']) {
+                        $existingObj.mcpServers.PSObject.Properties.Remove('memorix')
+                    }
+                    if ($settingsObj.hooks) {
+                        $existingObj | Add-Member -MemberType NoteProperty -Name 'hooks' -Value $settingsObj.hooks -Force
+                    }
+                    $mergedJson = $existingObj | ConvertTo-Json -Depth 10
+                    [System.IO.File]::WriteAllText($AgySettings, $mergedJson, [System.Text.UTF8Encoding]::new($false))
+                    Write-Host "  -> Hop nhat settings.json thanh cong." -ForegroundColor Green
+                } catch {
+                    Write-Warning "Hop nhat gap loi, ghi de noi dung moi: $($_.Exception.Message)"
+                    [System.IO.File]::WriteAllText($AgySettings, $finalSettingsJson, [System.Text.UTF8Encoding]::new($false))
+                }
+            }
+        } elseif ($choice -match '^[sS]$') {
+            Write-Host "  -> Bo qua file $AgySettings." -ForegroundColor DarkGray
+        } else {
+            Write-Host "  -> Ghi de settings.json (sao luu sang $bakSettings)..." -ForegroundColor Yellow
+            if (-not $DryRun) {
+                Copy-Item -Path $AgySettings -Destination $bakSettings -Force
+                Write-Host "     Da sao luu sang $bakSettings" -ForegroundColor DarkGray
+                [System.IO.File]::WriteAllText($AgySettings, $finalSettingsJson, [System.Text.UTF8Encoding]::new($false))
+            } else {
+                Write-Host "  -> [WhatIf] Sao luu: $bakSettings" -ForegroundColor DarkGray
+                Write-Host "  -> [WhatIf] Ghi file: $AgySettings" -ForegroundColor DarkGray
+            }
+        }
+    }
+} else {
+    Write-Host "  -> Tao moi file $AgySettings thanh cong." -ForegroundColor Green
+    if (-not $DryRun) {
+        [System.IO.File]::WriteAllText($AgySettings, $finalSettingsJson, [System.Text.UTF8Encoding]::new($false))
+    } else {
+        Write-Host "  -> [WhatIf] Ghi file: $AgySettings" -ForegroundColor DarkGray
+    }
+}
+
+# 11. Sao chep hooks, AGENTS.md va skills
+Write-Host "==> Sao chep hooks, AGENTS.md va skills..." -ForegroundColor Cyan
+
+# Sao chep hooks
+$srcHooks = Join-Path $PSScriptRoot "hooks"
+$targetHooks = Join-Path $AgyDir "hooks"
+if (Test-Path $srcHooks) {
+    if (-not (Test-Path $targetHooks)) {
+    if (-not $DryRun) {
+        New-Item -ItemType Directory -Force -Path $targetHooks | Out-Null
+    } else {
+        Write-Host "  -> [WhatIf] Tao thu muc: $targetHooks" -ForegroundColor DarkGray
+    }
+}
+    Write-Host "  -> Sao chep cac script hooks sang $targetHooks..." -ForegroundColor Green
+    if (-not $DryRun) {
+        Copy-Item -Path "$srcHooks\*" -Destination $targetHooks -Recurse -Force
+    } else {
+        Write-Host "  -> [WhatIf] Sao chep hooks sang: $targetHooks" -ForegroundColor DarkGray
+    }
+}
+
+# Sao chep AGENTS.md
+$srcAgents = Join-Path $PSScriptRoot "AGENTS.md"
+$targetAgents = Join-Path $AgyDir "AGENTS.md"
+if (Test-Path $srcAgents) {
+    if (Test-Path $targetAgents) {
+        $bakAg = Get-BackupPath -Path $targetAgents
+        if ($isForce) {
+            Write-Host "  -> File '$targetAgents' da ton tai. [-Force / -OverwriteAll] Tu dong sao luu va ghi de." -ForegroundColor Yellow
+            if (-not $DryRun) {
+                Copy-Item -Path $targetAgents -Destination $bakAg -Force
+                Copy-Item -Path $srcAgents -Destination $targetAgents -Force
+            }
+        } else {
+            $choice = Read-Host "[?] File '$targetAgents' da ton tai. Ban co muon [O]verwrite hay [S]kip? [O/s]"
+            if (-not [string]::IsNullOrWhiteSpace($choice) -and $choice.Trim().ToLower() -eq 's') {
+                Write-Host "  -> Bo qua file $targetAgents." -ForegroundColor DarkGray
+            } else {
+                if (-not $DryRun) {
+                    Copy-Item -Path $targetAgents -Destination $bakAg -Force
+                    Copy-Item -Path $srcAgents -Destination $targetAgents -Force
+                }
+                Write-Host "  -> Ghi de file $targetAgents thanh cong." -ForegroundColor Green
+            }
+        }
+    } else {
+        Write-Host "  -> Tao moi file $targetAgents thanh cong." -ForegroundColor Green
+        if (-not $DryRun) {
+            Copy-Item -Path $srcAgents -Destination $targetAgents -Force
+        }
+    }
+}
+
+# Tich hop / go bo huong dan Memorix trong AGENTS.md (copy y tu OMP)
+$memSectionPath = Join-Path $PSScriptRoot "templates\memorix-agents-section.md"
+if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $memSectionPath)) {
+    $memMarker = "Memorix: Memory and Safety Gate"
+    $currentAgents = Get-Content -Path $targetAgents -Raw -Encoding UTF8
+    if ($installMemorix) {
+        if ($currentAgents -notmatch [regex]::Escape($memMarker)) {
+            Write-Host "  -> Tich hop huong dan Memorix vao $targetAgents..." -ForegroundColor Green
+            $memSectionContent = Get-Content -Path $memSectionPath -Raw -Encoding UTF8
+            Add-Content -Path $targetAgents -Value ("`r`n" + $memSectionContent) -Encoding UTF8
+        }
+    } else {
+        if ($currentAgents -match [regex]::Escape($memMarker)) {
+            Write-Host "  -> Go bo huong dan Memorix khoi $targetAgents..." -ForegroundColor Yellow
+            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Memorix: Memory and Safety Gate.*\z", "")
+            [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+}
+
+# Sao chep skills
+$srcSkills = Join-Path $PSScriptRoot "skills"
+if (-not (Test-Path $srcSkills)) {
+    $srcSkills = Join-Path (Split-Path $PSScriptRoot -Parent) "setup-omp\skills"
+}
+$targetSkills = Join-Path $AgyDir "skills"
+if (Test-Path $srcSkills) {
+    if (-not (Test-Path $targetSkills)) {
+    if (-not $DryRun) {
+        New-Item -ItemType Directory -Force -Path $targetSkills | Out-Null
+    } else {
+        Write-Host "  -> [WhatIf] Tao thu muc: $targetSkills" -ForegroundColor DarkGray
+    }
+}
+    if ($EnableMemorix) {
+        Write-Host "  -> Copying toan bo skills/ (bao gom memorix) sang $targetSkills..." -ForegroundColor Green
+        if (-not $DryRun) {
+        Get-ChildItem -Path $srcSkills -Directory | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $targetSkills -Recurse -Force
+        }
+    } else {
+        Write-Host "  -> [WhatIf] Sao chep skills den: $targetSkills" -ForegroundColor DarkGray
+    }
+    } else {
+        Write-Host "  -> Copying skills/ (bo qua memorix-*) sang $targetSkills..." -ForegroundColor Green
+        if (-not $DryRun) {
+        Get-ChildItem -Path $srcSkills -Directory | Where-Object { $_.Name -notlike "memorix-*" } | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination $targetSkills -Recurse -Force
+        }
+    } else {
+        Write-Host "  -> [WhatIf] Sao chep skills den: $targetSkills" -ForegroundColor DarkGray
+    }
+        # Don dep cac ky nang memorix-* neu co
+        if (Test-Path $targetSkills) {
+            Get-ChildItem -Path $targetSkills -Directory -Filter "memorix-*" -ErrorAction SilentlyContinue | ForEach-Object {
+                Safe-Trash $_.FullName
+            }
+        }
+    }
+}
+
+Write-Host "`n[OK] Bootstrap Antigravity CLI hoan tat thanh cong!" -ForegroundColor Green

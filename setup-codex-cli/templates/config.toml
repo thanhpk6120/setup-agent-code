@@ -1,0 +1,44 @@
+# OpenAI Codex CLI Configuration
+model_provider = "custom"
+model = "codex-5"
+base_url = "__AI_BASE_URL__"
+api_key = "__AI_API_KEY__"
+project_doc_fallback_filenames = ["AGENTS.md", "CODEX.md"]
+
+[model_providers.custom]
+name = "custom"
+base_url = "__AI_BASE_URL__"
+api_key = "__AI_API_KEY__"
+wire_specification = "openai"
+
+[mcp_servers.company-atlassian]
+command = "mcp-atlassian"
+args = []
+[mcp_servers.company-atlassian.env]
+JIRA_URL = "__JIRA_URL__"
+JIRA_PERSONAL_TOKEN = "__JIRA_PERSONAL_TOKEN__"
+CONFLUENCE_URL = "__CONFLUENCE_URL__"
+CONFLUENCE_PERSONAL_TOKEN = "__CONFLUENCE_PERSONAL_TOKEN__"
+TOOLSETS = "default"
+
+[mcp_servers.gitnexus]
+command = "cmd"
+args = ["/c", "__GITNEXUS_PATH__", "mcp"]
+
+[mcp_servers.context7]
+command = "node"
+args = ["__CONTEXT7_PATH__"]
+[mcp_servers.context7.env]
+CONTEXT7_API_KEY = "__CONTEXT7_API_KEY__"
+
+[mcp_servers.glab]
+command = "glab"
+args = ["mcp", "serve"]
+
+[mcp_servers.cloakbrowser]
+command = "node"
+args = ["__CLOAKBROWSER_SCRIPT__"]
+
+[mcp_servers.memorix]
+command = "memorix"
+args = ["serve", "--mode", "lite"]
