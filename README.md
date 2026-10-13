@@ -125,7 +125,7 @@ Trước khi ghi đè bất kỳ file cấu hình nào đã tồn tại trên m�
 - Triển khai chặn xóa cứng:
   - OMP: Extension `setup-omp/extensions/no-hard-delete.ts` cài vào `~/.omp/extensions/`.
   - Claude Code: Hook tiền xử lý lệnh công cụ `setup-claude-code/trash-guard/claude-pre-tool.ps1` / `claude-pre-tool.js` và script tiện ích `trash-cli.ps1`, kèm `trash-guard.ps1` / `trash-guard.sh`.
-  - Tất cả 5 script `bootstrap.ps1` đều nhúng hàm chuyển vào Recycle Bin qua API .NET `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile` / `DeleteDirectory` với tham số `SendToRecycleBin`.
+  - Tất cả 7 script `bootstrap.ps1` đều nhúng hàm chuyển vào Recycle Bin qua API .NET `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile` / `DeleteDirectory` với tham số `SendToRecycleBin`.
 
 ### 3.5. Kho kỹ năng nghiệp vụ chuyên sâu (`skills/`)
 Nằm tại `setup-omp/skills/`, cung cấp 36 kỹ năng tiêu chuẩn cho các quy trình phát triển phần mềm:

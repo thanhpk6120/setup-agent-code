@@ -11,4 +11,4 @@
 
 # Quy tac
 - SkipInstall / DryRun / non-interactive: tat ca MCP bi loai khoi settings.json.
-- Memorix: khong phai MCP entry trong settings.json; cau hinh qua `memorix hooks install --agent antigravity --global` (neu CLI ho tro) hoac bo qua.
+- Memorix: entry `memorix` trong settings.json (command `memorix`, args `serve --mode lite`); bootstrap loc `memorix` khi tat, chen section `memorix-agents-section.md` vao AGENTS.md khi bat, go khi tat.
