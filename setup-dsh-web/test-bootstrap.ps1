@@ -109,7 +109,7 @@ try {
     # Test 2: Chay bootstrap voi Pipeline Y (dong y tat ca MCP servers)
     # =========================================================================
     Write-Host "`nRunning DSH Web bootstrap (Test 2: Pipeline Y - Accept MCPs) into: $tempProfile2"
-    $acceptAll = "n`ny`ny`ny`ny`ny`n"
+    $acceptAll = "n`ny`ny`ny`ny`ny`ny`n"
     $psScript = "$PSScriptRoot\bootstrap.ps1"
     $cmd = @"
         `$env:CI = `$null
@@ -149,6 +149,25 @@ try {
     if (-not $yamlRaw2.Contains("serverName: gitnexus")) {
         throw "ASSERTION FAILED: gitnexus should be configured in Test 2"
     }
+
+    
+    # Test Agency MCP assertions
+    Write-Host "--- Test Agency MCP on/off ---" -ForegroundColor Cyan
+    $testHomeOn = Join-Path $tempHome "agency-home-on"
+    $testProfileOn = Join-Path $tempProfile "agency-profile-on"
+    $testCredsOn = Join-Path $tempCredsDir "agency-creds-on.yaml"
+    & "$PSScriptRoot\bootstrap.ps1" -SkipInstall -EnableAgency -DshHome $testHomeOn -DshProfileDir $testProfileOn -CredentialsPath $testCredsOn -AgencyPath "C:/nvm4w/nodejs/agency-mcp-server.cmd"
+    $cordisOn = Get-Content (Join-Path $testProfileOn "cordis.patch.yml") -Raw
+    if ($cordisOn -notmatch 'id:\s*mcp-agency') { throw "Assert failed: mcp-agency missing when -EnableAgency" }
+    $agentsOn = Get-Content (Join-Path $testHomeOn "AGENTS.md") -Raw
+    if ($agentsOn -notmatch 'Sử dụng Agency Agents MCP') { throw "Assert failed: agency marker missing in AGENTS.md" }
+
+    $testHomeOff = Join-Path $tempHome "agency-home-off"
+    $testProfileOff = Join-Path $tempProfile "agency-profile-off"
+    $testCredsOff = Join-Path $tempCredsDir "agency-creds-off.yaml"
+    & "$PSScriptRoot\bootstrap.ps1" -SkipInstall -DisableAgency -DshHome $testHomeOff -DshProfileDir $testProfileOff -CredentialsPath $testCredsOff
+    $cordisOff = Get-Content (Join-Path $testProfileOff "cordis.patch.yml") -Raw
+    if ($cordisOff -match 'id:\s*mcp-agency') { throw "Assert failed: mcp-agency present when -DisableAgency" }
 
     Write-Host "`n[OK] All isolated tests for setup-dsh-web passed successfully!" -ForegroundColor Green
 }

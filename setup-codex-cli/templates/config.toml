@@ -42,3 +42,7 @@ args = ["__CLOAKBROWSER_SCRIPT__"]
 [mcp_servers.memorix]
 command = "memorix"
 args = ["serve", "--mode", "lite"]
+
+[mcp_servers.agency]
+command = "__AGENCY_PATH__"
+args = []

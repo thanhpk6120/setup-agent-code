@@ -7,6 +7,9 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
+    [string]$AgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd",
     [string]$OmpDir = "$env:USERPROFILE\.omp\agent"
 )
 
@@ -75,6 +78,25 @@ function Confirm-McpInstall {
         return $false
     }
     $choice = Read-Host "[?] Cai dat MCP '$Name'? [y/N]"
+    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
+        return $true
+    }
+    return $false
+}
+
+function Confirm-Agency {
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong bat MCP 'agency'." -ForegroundColor Cyan
+        return $true
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP 'agency'." -ForegroundColor DarkGray
+        return $false
+    }
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        return $false
+    }
+    $choice = Read-Host "[?] Bat MCP 'agency' (multi-agent orchestration)? [y/N]"
     if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
         return $true
     }
@@ -155,6 +177,20 @@ if (-not $PSBoundParameters.ContainsKey('EnableMemorix') -and -not $PSBoundParam
     Write-Host "Skipped MCP 'memorix' theo lua chon nguoi dung." -ForegroundColor Yellow
 } else {
     $EnableMemorix = $EnableMemorix.IsPresent
+}
+
+# 1.1b Cau hinh Agency MCP flag
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if (-not $PSBoundParameters.ContainsKey('EnableAgency') -and -not $PSBoundParameters.ContainsKey('DisableAgency')) {
+    $EnableAgency = Confirm-Agency
+    if (-not $EnableAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+} elseif ($DisableAgency.IsPresent) {
+    $EnableAgency = $false
+    Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow
+} else {
+    $EnableAgency = $EnableAgency.IsPresent
 }
 
 # 1.2 Xac nhan cai dat cac MCP servers
@@ -567,7 +603,21 @@ $modelsContent = $modelsTemplateContent.Replace("__AI_BASE_URL__", $aiBaseUrl).R
 $mcpTemplateContent = Get-Content -Path (Join-Path $templatesDir "mcp.json") -Raw -Encoding UTF8
 $mcpJson = $mcpTemplateContent.Replace("__JIRA_URL__", $jiraUrl).Replace("__JIRA_PERSONAL_TOKEN__", $jiraToken).Replace("__CONFLUENCE_URL__", $confUrl).Replace("__CONFLUENCE_PERSONAL_TOKEN__", $confToken).Replace("__CLOAKBROWSER_SCRIPT__", $escapedCloakScript)
 
-if ($mcpJson.Contains("__GITNEXUS_PATH__")) {
+if ($mcpJson.Contains("__AGENCY_PATH__")) {
+    $agencyCmd = $AgencyPath
+    if (-not (Test-Path -LiteralPath $agencyCmd)) {
+        $foundAgency = Get-Command "agency-mcp-server.cmd" -ErrorAction SilentlyContinue
+        if (-not $foundAgency) { $foundAgency = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue }
+        if ($foundAgency -and $foundAgency.Source) {
+            $agencyCmd = $foundAgency.Source
+        } else {
+            Write-Warning "Khong tim thay 'agency-mcp-server'; su dung duong dan mac dinh: $AgencyPath"
+        }
+    }
+    $escapedAgency = $agencyCmd.Replace('\', '\\')
+    $mcpJson = $mcpJson.Replace("__AGENCY_PATH__", $escapedAgency)
+}
+    if ($mcpJson.Contains("__GITNEXUS_PATH__")) {
     $mcpJson = $mcpJson.Replace("__GITNEXUS_PATH__", $absGn)
 }
 if ($mcpJson.Contains("__GITNEXUS_ARGS__")) {
@@ -617,6 +667,18 @@ try {
         } else {
             if ($mcpObj.mcpServers.PSObject.Properties['memorix']) {
                 $mcpObj.mcpServers.PSObject.Properties.Remove('memorix')
+            }
+        }
+        if ($EnableAgency) {
+            if (-not $mcpObj.mcpServers.PSObject.Properties['agency']) {
+                $mcpObj.mcpServers | Add-Member -MemberType NoteProperty -Name "agency" -Value ([PSCustomObject]@{
+                    command = $agencyCmd
+                    args    = @()
+                })
+            }
+        } else {
+            if ($mcpObj.mcpServers.PSObject.Properties['agency']) {
+                $mcpObj.mcpServers.PSObject.Properties.Remove('agency')
             }
         }
         $mcpJson = $mcpObj | ConvertTo-Json -Depth 10
@@ -788,6 +850,34 @@ if ($EnableMemorix) {
             Add-Content -Path $targetAgentsPath -Value "`r`n$memSectionContent" -Encoding UTF8
         } else {
             Write-Host "  -> [WhatIf] Ghi them vao: $targetAgentsPath" -ForegroundColor DarkGray
+        }
+    }
+}
+
+$agencySectionPath = Join-Path $templatesDir "agency-agents-section.md"
+$agencyMarkerStart = "<!-- agency-agents-section -->"
+$agencyMarkerEnd = "<!-- /agency-agents-section -->"
+if ($EnableAgency) {
+    if (Test-Path $agencySectionPath) {
+        Write-Host "  -> Tich hop huong dan Agency vao $targetAgentsPath..." -ForegroundColor Green
+        if (-not $DryRun -and (Test-Path $targetAgentsPath)) {
+            $agentsContent = Get-Content -Path $targetAgentsPath -Raw -Encoding UTF8
+            if (-not $agentsContent.Contains($agencyMarkerStart)) {
+                $agencySectionContent = Get-Content -Path $agencySectionPath -Raw -Encoding UTF8
+                Add-Content -Path $targetAgentsPath -Value "`r`n$agencySectionContent" -Encoding UTF8
+            }
+        } else {
+            Write-Host "  -> [WhatIf] Ghi them vao: $targetAgentsPath" -ForegroundColor DarkGray
+        }
+    }
+} else {
+    if (-not $DryRun -and (Test-Path $targetAgentsPath)) {
+        $agentsContent = Get-Content -Path $targetAgentsPath -Raw -Encoding UTF8
+        if ($agentsContent.Contains($agencyMarkerStart)) {
+            $agencyPattern = '(?s)\r?\n?' + [regex]::Escape($agencyMarkerStart) + '.*?' + [regex]::Escape($agencyMarkerEnd)
+            $agentsContent = [regex]::Replace($agentsContent, $agencyPattern, '')
+            Set-Content -Path $targetAgentsPath -Value $agentsContent -Encoding UTF8
+            Write-Host "  -> Da go bo huong dan Agency khoi $targetAgentsPath." -ForegroundColor Green
         }
     }
 }

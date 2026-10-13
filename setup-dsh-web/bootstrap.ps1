@@ -3,6 +3,9 @@
 param(
     [switch]$DryRun,
     [switch]$SkipInstall,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
+    [string]$AgencyPath = "",
     [switch]$Force,
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
@@ -107,6 +110,19 @@ if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung
 
 $installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
 if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installAgency = $false
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if ($EnableAgency) {
+    $installAgency = $true
+} elseif ($DisableAgency) {
+    $installAgency = $false
+} else {
+    $installAgency = Confirm-McpInstall -Name "agency"
+    if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+}
 
 $isForce = $Force.IsPresent -or $OverwriteAll.IsPresent
 
@@ -443,6 +459,38 @@ if ($installCloakbrowser) {
     $cordisTemplate = $cordisTemplate -replace '__CLOAKBROWSER_SCRIPT__', $cloakScript
 }
 
+# Resolve duong dan binary cho Agency MCP
+$resolvedAgencyPath = ""
+if ($installAgency) {
+    if ($AgencyPath) {
+        $resolvedAgencyPath = $AgencyPath
+    } else {
+        $agencyCmd = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue
+        if ($agencyCmd) {
+            $resolvedAgencyPath = $agencyCmd.Source
+        } else {
+            $commonPaths = @(
+                "C:\nvm4w\nodejs\agency-mcp-server.cmd",
+                "$env:APPDATA\npm\agency-mcp-server.cmd",
+                "C:\Program Files\nodejs\agency-mcp-server.cmd"
+            )
+            foreach ($cp in $commonPaths) {
+                if (Test-Path $cp) {
+                    $resolvedAgencyPath = $cp
+                    break
+                }
+            }
+        }
+    }
+    if (-not $resolvedAgencyPath) {
+        $resolvedAgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd"
+    }
+}
+if ($installAgency) {
+    $escapedAgency = $resolvedAgencyPath.Replace('\', '/')
+    $cordisTemplate = $cordisTemplate -replace '__AGENCY_PATH__', $escapedAgency
+}
+
 # Loc bo cac block MCP bi tu choi
 function Remove-CordisBlock {
     param([string]$Yaml, [string]$Id)
@@ -455,6 +503,7 @@ if (-not $installAtlassian) { $cordisTemplate = Remove-CordisBlock -Yaml $cordis
 if (-not $installContext7) { $cordisTemplate = Remove-CordisBlock -Yaml $cordisTemplate -Id "mcp-context7" }
 if (-not $installGlab) { $cordisTemplate = Remove-CordisBlock -Yaml $cordisTemplate -Id "mcp-glab" }
 if (-not $installCloakbrowser) { $cordisTemplate = Remove-CordisBlock -Yaml $cordisTemplate -Id "mcp-cloakbrowser" }
+if (-not $installAgency) { $cordisTemplate = Remove-CordisBlock -Yaml $cordisTemplate -Id "mcp-agency" }
 
 # 9. Tao credentials yaml
 $credentialsYaml = @"
@@ -606,6 +655,26 @@ if (Test-Path $sourceAgents) {
         }
     }
 }
+# Tich hop / go bo huong dan Agency trong AGENTS.md
+$agencySectionPath = Join-Path $PSScriptRoot "templates\agency-agents-section.md"
+if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $agencySectionPath)) {
+    $agencyMarker = "## Sử dụng Agency Agents MCP"
+    $currentAgents = Get-Content -Path $targetAgents -Raw -Encoding UTF8
+    if ($installAgency) {
+        if ($currentAgents -notmatch [regex]::Escape($agencyMarker)) {
+            Write-Host "  -> Tich hop huong dan Agency vao $targetAgents..." -ForegroundColor Green
+            $agencySectionContent = Get-Content -Path $agencySectionPath -Raw -Encoding UTF8
+            Add-Content -Path $targetAgents -Value ("`r`n" + $agencySectionContent) -Encoding UTF8
+        }
+    } else {
+        if ($currentAgents -match [regex]::Escape($agencyMarker)) {
+            Write-Host "  -> Go bo huong dan Agency khoi $targetAgents..." -ForegroundColor Yellow
+            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Sử dụng Agency Agents MCP.*\z", "")
+            [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+}
+
 # Tich hop / go bo huong dan Memorix trong AGENTS.md (copy y tu OMP)
 $memSectionPath = Join-Path $PSScriptRoot "templates\memorix-agents-section.md"
 if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $memSectionPath)) {

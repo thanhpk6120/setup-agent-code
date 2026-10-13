@@ -34,6 +34,7 @@ $tempDir = Join-Path $env:TEMP ("omp-test-" + [System.Guid]::NewGuid().ToString(
 $tempDir2 = Join-Path $env:TEMP ("omp-test-force-" + [System.Guid]::NewGuid().ToString("N"))
 $mockBinDir = Join-Path $env:TEMP ("omp-mock-bin-" + [System.Guid]::NewGuid().ToString("N"))
 $mockNpmDir = Join-Path $env:TEMP ("omp-mock-npm-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDir3 = Join-Path $env:TEMP ("omp-test-agency-" + [System.Guid]::NewGuid().ToString("N"))
 
 $oldPath = $env:Path
 
@@ -182,8 +183,64 @@ try {
     # =========================================================================
     Write-Host "`n[Buoc 5/5] Kiem tra templates/ la nguon duy nhat va day du..." -ForegroundColor Cyan
     $mcpTemplate = Get-Content "$PSScriptRoot\templates\mcp.json" -Raw | ConvertFrom-Json
-    if (-not $mcpTemplate.mcpServers.gitnexus -or -not $mcpTemplate.mcpServers.'company-atlassian' -or -not $mcpTemplate.mcpServers.context7 -or -not $mcpTemplate.mcpServers.cloakbrowser -or -not $mcpTemplate.mcpServers.memorix) {
+    if (-not $mcpTemplate.mcpServers.gitnexus -or -not $mcpTemplate.mcpServers.'company-atlassian' -or -not $mcpTemplate.mcpServers.context7 -or -not $mcpTemplate.mcpServers.cloakbrowser -or -not $mcpTemplate.mcpServers.memorix -or -not $mcpTemplate.mcpServers.agency) {
         throw "ASSERTION FAILED: templates/mcp.json missing base MCP definitions"
+    }
+
+    # =========================================================================
+    # Test 3: Chay bootstrap voi -EnableAgency
+    # =========================================================================
+    Write-Host "`n[Test 3] Chay bootstrap that voi -EnableAgency..." -ForegroundColor Cyan
+    Write-Host "  -> Dich muc tieu: $tempDir3" -ForegroundColor DarkGray
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -EnableAgency -OmpDir $tempDir3
+
+    $mcpRaw3 = Get-Content (Join-Path $tempDir3 "mcp.json") -Raw
+    $mcpObj3 = $mcpRaw3 | ConvertFrom-Json
+    if (-not $mcpObj3.mcpServers.agency) {
+        throw "ASSERTION FAILED: mcp.json missing 'agency' server under -EnableAgency"
+    }
+    if ($mcpObj3.mcpServers.agency.command -match '__AGENCY_PATH__') {
+        throw "ASSERTION FAILED: agency command placeholder was not replaced"
+    }
+    if ($mcpObj3.mcpServers.agency.args.Count -ne 0) {
+        throw "ASSERTION FAILED: agency args must be an empty array"
+    }
+
+    $agentsRaw3 = Get-Content (Join-Path $tempDir3 "AGENTS.md") -Raw
+    if (-not $agentsRaw3.Contains("<!-- agency-agents-section -->")) {
+        throw "ASSERTION FAILED: AGENTS.md missing agency marker under -EnableAgency"
+    }
+    if (-not $agentsRaw3.Contains("## Agency: Multi-Agent Orchestration")) {
+        throw "ASSERTION FAILED: AGENTS.md missing agency heading under -EnableAgency"
+    }
+
+    # Idempotent: chay lai -EnableAgency khong duoc tao marker trung lap
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -EnableAgency -OmpDir $tempDir3
+    $agentsRaw3b = Get-Content (Join-Path $tempDir3 "AGENTS.md") -Raw
+    $agencyMarkerCount = ([regex]::Matches($agentsRaw3b, [regex]::Escape("<!-- agency-agents-section -->"))).Count
+    if ($agencyMarkerCount -ne 1) {
+        throw "ASSERTION FAILED: agency marker duplicated (count=$agencyMarkerCount)"
+    }
+
+    # =========================================================================
+    # Test 4: Chay bootstrap voi -DisableAgency tren cung thu muc
+    # =========================================================================
+    Write-Host "`n[Test 4] Chay bootstrap that voi -DisableAgency..." -ForegroundColor Cyan
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -DisableAgency -OmpDir $tempDir3
+
+    $mcpObj4 = (Get-Content (Join-Path $tempDir3 "mcp.json") -Raw) | ConvertFrom-Json
+    if ($mcpObj4.mcpServers.agency) {
+        throw "ASSERTION FAILED: mcp.json still contains 'agency' server under -DisableAgency"
+    }
+    $agentsRaw4 = Get-Content (Join-Path $tempDir3 "AGENTS.md") -Raw
+    if ($agentsRaw4.Contains("<!-- agency-agents-section -->")) {
+        throw "ASSERTION FAILED: AGENTS.md still contains agency marker under -DisableAgency"
+    }
+
+    # Test 1 da chay non-interactive khong bat agency: xac nhan mac dinh la vang
+    $mcpObj1 = (Get-Content (Join-Path $tempDir "mcp.json") -Raw) | ConvertFrom-Json
+    if ($mcpObj1.mcpServers.agency) {
+        throw "ASSERTION FAILED: mcp.json unexpectedly contains 'agency' without -EnableAgency"
     }
 
     Write-Host "`n================================================================" -ForegroundColor Green
@@ -197,4 +254,6 @@ finally {
     Safe-Trash -Path $tempDir2
     Safe-Trash -Path $mockBinDir
     Safe-Trash -Path $mockNpmDir
+    Safe-Trash -Path $tempDir3
 }
+

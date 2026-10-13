@@ -7,6 +7,9 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
+    [string]$AgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd",
     [string]$OpenCodeDir = "$env:USERPROFILE\.config\opencode",
     [string]$OpenCodeConfig = ""
 )
@@ -81,6 +84,25 @@ function Confirm-McpInstall {
     }
     return $false
 }
+function Confirm-Agency {
+    param([string]$Name)
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong cai dat MCP '$Name'." -ForegroundColor Cyan
+        return $true
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP '$Name'." -ForegroundColor DarkGray
+        return $false
+    }
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        return $false
+    }
+    $choice = Read-Host "[?] Cai dat MCP '$Name'? [y/N]"
+    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
+        return $true
+    }
+    return $false
+}
 
 # 1. Xu ly lua chon Memorix
 if ($EnableMemorix.IsPresent -and $DisableMemorix.IsPresent) {
@@ -99,6 +121,25 @@ if (-not $PSBoundParameters.ContainsKey('EnableMemorix') -and -not $PSBoundParam
     Write-Host "Skipped MCP 'memorix' theo lua chon nguoi dung." -ForegroundColor Yellow
 } else {
     $EnableMemorix = $EnableMemorix.IsPresent
+}
+
+# 1b. Xu ly lua chon Agency
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if (-not $PSBoundParameters.ContainsKey('EnableAgency') -and -not $PSBoundParameters.ContainsKey('DisableAgency')) {
+    $installAgency = Confirm-Agency -Name "agency"
+    if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+    if ($installAgency) {
+        $EnableAgency = $true
+    } else {
+        $DisableAgency = $true
+    }
+} elseif ($DisableAgency.IsPresent) {
+    $EnableAgency = $false
+    Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow
+} else {
+    $EnableAgency = $EnableAgency.IsPresent
 }
 
 # 2. Xac nhan cai dat cac MCP Server khac
@@ -357,6 +398,27 @@ if ($EnableMemorix) {
     }
 }
 
+# Cai dat Agency MCP
+$absAgency = ""
+if ($EnableAgency) {
+    $agy = Get-Command "agency-mcp-server.cmd" -ErrorAction SilentlyContinue
+    if (-not $agy) {
+        $agy = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue
+    }
+    if ($agy -and $agy.Source) {
+        $absAgency = $agy.Source
+    } elseif (-not [string]::IsNullOrWhiteSpace($AgencyPath) -and (Test-Path -LiteralPath $AgencyPath)) {
+        $absAgency = (Resolve-Path -LiteralPath $AgencyPath).Path
+    } else {
+        $absAgency = $AgencyPath
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Resolve agency command: $absAgency" -ForegroundColor DarkGray
+    } else {
+        Write-Host "  -> Agency MCP command: $absAgency" -ForegroundColor Green
+    }
+}
+
 # Ham cai dat CloakBrowser
 function Get-CloakBrowserInstallDir {
     param([string]$EnvVarName = "CLOAKBROWSER_DIR")
@@ -494,6 +556,7 @@ $configRaw = $configRaw.Replace("__CONTEXT7_PATH__", $absCtx.Replace('\', '/'))
 $configRaw = $configRaw.Replace("__CONTEXT7_API_KEY__", $ctxKey)
 $configRaw = $configRaw.Replace("__GITNEXUS_PATH__", $absGn.Replace('\', '/'))
 $configRaw = $configRaw.Replace("__CLOAKBROWSER_SCRIPT__", $cloakScript)
+$configRaw = $configRaw.Replace("__AGENCY_PATH__", $absAgency.Replace('\', '/'))
 
 $configObj = $configRaw | ConvertFrom-Json
 
@@ -515,6 +578,9 @@ if (-not $installCloakbrowser -and $configObj.mcp.PSObject.Properties['cloakbrow
 }
 if (-not $EnableMemorix -and $configObj.mcp.PSObject.Properties['memorix']) {
     $configObj.mcp.PSObject.Properties.Remove('memorix')
+}
+if (-not $EnableAgency -and $configObj.mcp.PSObject.Properties['agency']) {
+    $configObj.mcp.PSObject.Properties.Remove('agency')
 }
 
 # Ghi file cau hinh opencode.json
@@ -648,6 +714,27 @@ if (-not $DryRun) {
                     Set-Content -Path $dstAgents -Value $updatedContent -Encoding UTF8
                     Write-Host "  -> Da append Memorix section vao $dstAgents." -ForegroundColor Green
                 }
+            }
+        }
+
+        # Agency section: chen khi bat, go khi tat (cap marker start/end giong cac setup khac)
+        $agencyMarkerStart = "<!-- agency-agents-section -->"
+        $agencyMarkerEnd = "<!-- /agency-agents-section -->"
+        $agencySection = Join-Path $templatesDir "agency-agents-section.md"
+        if ($EnableAgency -and (Test-Path $agencySection)) {
+            $currentContent = Get-Content $dstAgents -Raw -Encoding UTF8
+            if (-not $currentContent.Contains($agencyMarkerStart)) {
+                $sectionText = Get-Content $agencySection -Raw -Encoding UTF8
+                Add-Content -Path $dstAgents -Value "`r`n$sectionText" -Encoding UTF8
+                Write-Host "  -> Da append Agency section vao $dstAgents." -ForegroundColor Green
+            }
+        } elseif (-not $EnableAgency) {
+            $currentContent = Get-Content $dstAgents -Raw -Encoding UTF8
+            if ($currentContent.Contains($agencyMarkerStart)) {
+                $agencyPattern = '(?s)\r?\n?' + [regex]::Escape($agencyMarkerStart) + '.*?' + [regex]::Escape($agencyMarkerEnd)
+                $updatedContent = [regex]::Replace($currentContent, $agencyPattern, '')
+                Set-Content -Path $dstAgents -Value $updatedContent.TrimEnd() -Encoding UTF8
+                Write-Host "  -> Da go Agency section khoi $dstAgents." -ForegroundColor Green
             }
         }
     }

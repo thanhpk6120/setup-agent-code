@@ -6,6 +6,9 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
+    [string]$AgencyPath = "",
     [string]$CodexDir = "$env:USERPROFILE\.codex",
     [string]$CodexConfig = ""
 )
@@ -109,6 +112,20 @@ if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung
 
 $installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
 if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+# Xu ly lua chon Agency
+$installAgency = $false
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if ($EnableAgency) {
+    $installAgency = $true
+} elseif ($DisableAgency) {
+    $installAgency = $false
+} else {
+    $installAgency = Confirm-McpInstall -Name "agency"
+    if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+}
 
 # 3. Doc cau hinh tu .env neu ton tai
 $envMap = @{}
@@ -454,6 +471,34 @@ if ($installGlab) {
     }
 }
 
+# 6.5 Resolve duong dan binary cho Agency MCP
+$resolvedAgencyPath = ""
+if ($installAgency) {
+    if ($AgencyPath) {
+        $resolvedAgencyPath = $AgencyPath
+    } else {
+        $agencyCmd = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue
+        if ($agencyCmd) {
+            $resolvedAgencyPath = $agencyCmd.Source
+        } else {
+            $commonPaths = @(
+                "C:\nvm4w\nodejs\agency-mcp-server.cmd",
+                "$env:APPDATA\npm\agency-mcp-server.cmd",
+                "C:\Program Files\nodejs\agency-mcp-server.cmd"
+            )
+            foreach ($cp in $commonPaths) {
+                if (Test-Path $cp) {
+                    $resolvedAgencyPath = $cp
+                    break
+                }
+            }
+        }
+    }
+    if (-not $resolvedAgencyPath) {
+        $resolvedAgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd"
+    }
+}
+
 # 7. Cai dat CloakBrowser (dat SAU phan hoi env giong het setup-omp)
 $cloakScript = ""
 if ($installCloakbrowser) {
@@ -526,6 +571,14 @@ if (-not $installGlab) {
 if (-not $installCloakbrowser) {
     $tomlContent = Remove-TomlServer -Content $tomlContent -ServerName 'cloakbrowser'
 }
+
+# Thay the placeholder agency
+if ($installAgency) {
+    $escapedAgency = $resolvedAgencyPath.Replace('\', '/')
+    $tomlContent = $tomlContent.Replace("__AGENCY_PATH__", $escapedAgency)
+} else {
+    $tomlContent = Remove-TomlServer -Content $tomlContent -ServerName 'agency'
+}
 if (-not $EnableMemorix) {
     $tomlContent = Remove-TomlServer -Content $tomlContent -ServerName 'memorix'
 }
@@ -596,6 +649,30 @@ if (-not $DryRun) {
         } else {
             Copy-Item -Path $srcAgents -Destination $dstAgents -Force
             Write-Host "  -> Tao moi file $dstAgents thanh cong." -ForegroundColor Green
+        }
+
+        # Neu bat Agency, tich hop them huong dan agency vao AGENTS.md
+        if ($installAgency) {
+            $agencySec = Join-Path $templatesDir "agency-agents-section.md"
+            if (Test-Path $agencySec) {
+                $agencyMarker = "<!-- agency-agents-section -->"
+                $currDoc = Get-Content -Path $dstAgents -Raw -Encoding UTF8
+                if ($currDoc -notmatch [regex]::Escape($agencyMarker)) {
+                    Write-Host "  -> Tich hop huong dan Agency vao $dstAgents..." -ForegroundColor Green
+                    $agencyBak = Get-BackupPath -Path $dstAgents
+                    Copy-Item -Path $dstAgents -Destination $agencyBak -Force
+                    Write-Host "     Da sao luu sang $agencyBak" -ForegroundColor DarkGray
+                    $agencyContent = Get-Content -Path $agencySec -Raw -Encoding UTF8
+                    Add-Content -Path $dstAgents -Value "`r`n$agencyContent" -Encoding UTF8
+                }
+            }
+        } else {
+            $currDoc = Get-Content -Path $dstAgents -Raw -Encoding UTF8
+            if ($currDoc -match [regex]::Escape("<!-- agency-agents-section -->")) {
+                Write-Host "  -> Go bo huong dan Agency khoi $dstAgents..." -ForegroundColor Yellow
+                $cleaned = [regex]::Replace($currDoc, '(?s)\r?\n?<!-- agency-agents-section -->.*?<!-- /agency-agents-section -->', '')
+                [System.IO.File]::WriteAllText($dstAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
+            }
         }
 
         # Neu bat Memorix, tich hop them huong dan memorix vao AGENTS.md

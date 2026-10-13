@@ -24,6 +24,7 @@ function Safe-Trash-Test {
 
 $tempDir = Join-Path $env:TEMP ("opencode-test-" + [System.Guid]::NewGuid().ToString("N"))
 $tempDir2 = Join-Path $env:TEMP ("opencode-test2-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDir3 = Join-Path $env:TEMP ("opencode-test3-" + [System.Guid]::NewGuid().ToString("N"))
 
 try {
     $env:AI_BASE_URL = "https://test.local"
@@ -38,6 +39,7 @@ try {
     $mockBinDir = Join-Path $env:TEMP ("opencode-mock-bin-" + [System.Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $mockBinDir | Out-Null
     Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+    Set-Content -Path (Join-Path $mockBinDir "agency-mcp-server.cmd") -Value "@echo off`necho agency"
     Set-Content -Path (Join-Path $mockBinDir "npm.cmd") -Value "@echo off`nif `"%1`"==`"root`" if `"%2`"==`"-g`" (echo $mockNpmDir& exit /b 0)`nexit /b 0"
     $oldPath = $env:Path
     $env:Path = "$mockBinDir;$env:Path"
@@ -107,6 +109,15 @@ try {
         throw "ASSERTION FAILED: Missing Trash Guard plugin/hook in $tempDir"
     }
 
+    # Kiem tra agency vang mat khi khong chon cai dat (Test 1)
+    if ($configObj.mcp.PSObject.Properties['agency']) {
+        throw "ASSERTION FAILED: agency should be absent in mcp block when not enabled"
+    }
+    $agentsContent1 = Get-Content (Join-Path $tempDir "AGENTS.md") -Raw -Encoding UTF8
+    if ($agentsContent1 -match [regex]::Escape("<!-- agency-agents-section -->")) {
+        throw "ASSERTION FAILED: AGENTS.md should NOT contain agency section when not enabled"
+    }
+
     # =========================================================================
     # Test 2: Chay bootstrap voi -Force (Tu dong cai dat tat ca 6 MCP servers)
     # =========================================================================
@@ -154,6 +165,62 @@ try {
         throw "ASSERTION FAILED: AGENTS.md should contain Memorix section when -Force (EnableMemorix)"
     }
 
+    # =========================================================================
+    # Test 2b: Assert agency merge shape + instruction marker khi -Force
+    # =========================================================================
+    if (-not $configObj2.mcp.agency) {
+        throw "ASSERTION FAILED: agency missing in mcp block when -Force"
+    }
+    if ($configObj2.mcp.agency.type -ne "local") {
+        throw "ASSERTION FAILED: agency.type should be 'local', got '$($configObj2.mcp.agency.type)'"
+    }
+    if ($configObj2.mcp.agency.enabled -ne $true) {
+        throw "ASSERTION FAILED: agency.enabled should be true"
+    }
+    if ($configObj2.mcp.agency.timeout -ne 10000) {
+        throw "ASSERTION FAILED: agency.timeout should be 10000, got '$($configObj2.mcp.agency.timeout)'"
+    }
+    if (-not $configObj2.mcp.agency.command -or $configObj2.mcp.agency.command.Count -lt 1) {
+        throw "ASSERTION FAILED: agency.command should be a non-empty array"
+    }
+    if (-not [System.IO.Path]::IsPathRooted([string]$configObj2.mcp.agency.command[0])) {
+        throw "ASSERTION FAILED: agency.command[0] should be an absolute path, got '$($configObj2.mcp.agency.command[0])'"
+    }
+    if ($configObj2.mcp.agency.command[0] -match "__AGENCY_PATH__") {
+        throw "ASSERTION FAILED: agency.command[0] placeholder was not resolved"
+    }
+    $agencyMarker = "<!-- agency-agents-section -->"
+    if ($agentsContent2 -notmatch [regex]::Escape($agencyMarker)) {
+        throw "ASSERTION FAILED: AGENTS.md should contain agency section when enabled"
+    }
+    if ($agentsContent2 -notmatch [regex]::Escape("## Agency: Multi-Agent Orchestration")) {
+        throw "ASSERTION FAILED: AGENTS.md should contain '## Agency: Multi-Agent Orchestration' heading"
+    }
+
+    # =========================================================================
+    # Test 3: Chay bootstrap voi -DisableAgency (agency vang mat)
+    # =========================================================================
+    Write-Host "`nRunning OpenCode bootstrap (Test 3: -DisableAgency) into: $tempDir3"
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -DisableAgency -OpenCodeDir $tempDir3
+
+    $configFile3 = Join-Path $tempDir3 "opencode.json"
+    if (-not (Test-Path $configFile3)) {
+        throw "ASSERTION FAILED: Missing generated file: $configFile3"
+    }
+    $configObj3 = Get-Content $configFile3 -Raw | ConvertFrom-Json
+    if ($configObj3.mcp.PSObject.Properties['agency']) {
+        throw "ASSERTION FAILED: agency should be absent in mcp block when -DisableAgency"
+    }
+    foreach ($legacyMcp in @("company-atlassian", "gitnexus", "context7", "glab", "cloakbrowser", "memorix")) {
+        if (-not $configObj3.mcp.PSObject.Properties[$legacyMcp]) {
+            throw "ASSERTION FAILED: legacy MCP '$legacyMcp' missing when -DisableAgency"
+        }
+    }
+    $agentsContent3 = Get-Content (Join-Path $tempDir3 "AGENTS.md") -Raw -Encoding UTF8
+    if ($agentsContent3 -match [regex]::Escape($agencyMarker)) {
+        throw "ASSERTION FAILED: AGENTS.md should NOT contain agency section when -DisableAgency"
+    }
+
     Write-Host "`nAll isolated tests passed successfully for setup-opencode!" -ForegroundColor Green
 }
 finally {
@@ -161,5 +228,5 @@ finally {
     Safe-Trash-Test -Path $tempDir
     Safe-Trash-Test -Path $tempDir2
     Safe-Trash-Test -Path $mockBinDir
-    Safe-Trash-Test -Path $mockNpmDir
+    Safe-Trash-Test -Path $tempDir3
 }

@@ -155,3 +155,10 @@ __CONTEXT7_CONFIG__
     command: node
     args:
       - "__CLOAKBROWSER_SCRIPT__"
+- id: mcp-agency
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: agency
+    transport: stdio
+    command: __AGENCY_PATH__
+    args: []

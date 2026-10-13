@@ -96,7 +96,7 @@ try {
     # Test 2: Mock pipeline Y/N - Case 1: Tu choi het (pipe n cho 6 MCP prompts)
     Write-Host "`nRunning DSH bootstrap (Test 2: Pipeline Y/N - Refuse all MCPs) into $tempProfile2"
     $psScript = "$PSScriptRoot\bootstrap.ps1"
-    $refuseAll = "n`nn`nn`nn`nn`nn`n"
+    $refuseAll = "n`nn`nn`nn`nn`nn`nn`n"
     $refuseAll | pwsh -NoProfile -ExecutionPolicy Bypass -Command @"
         `$env:CI = `$null
         [Environment]::SetEnvironmentVariable('CI', `$null, 'Process')
@@ -111,7 +111,7 @@ try {
         throw "ASSERTION FAILED: Missing generated file: $path2"
     }
     $yamlRaw2 = Get-Content $path2 -Raw
-    if ($yamlRaw2.Contains("serverName: gitnexus") -or $yamlRaw2.Contains("serverName: memorix") -or $yamlRaw2.Contains("serverName: company-atlassian") -or $yamlRaw2.Contains("serverName: context7") -or $yamlRaw2.Contains("serverName: cloakbrowser") -or $yamlRaw2.Contains("serverName: glab")) {
+    if ($yamlRaw2.Contains("serverName: gitnexus") -or $yamlRaw2.Contains("serverName: memorix") -or $yamlRaw2.Contains("serverName: company-atlassian") -or $yamlRaw2.Contains("serverName: context7") -or $yamlRaw2.Contains("serverName: cloakbrowser") -or $yamlRaw2.Contains("serverName: glab") -or $yamlRaw2.Contains("serverName: agency")) {
         throw "ASSERTION FAILED: cordis.patch.yml should NOT contain any MCP server when user chooses 'n' to all"
     }
 
@@ -125,7 +125,7 @@ try {
     # 6. MCP 'cloakbrowser'? -> n
     # 7. Hook memorix vao DSH? -> n
     Write-Host "`nRunning DSH bootstrap (Test 3: Pipeline Y/N - Accept memorix, refuse hook & other MCPs) into $tempProfile3"
-    $acceptMemorixOnly = "y`nn`nn`nn`nn`nn`nn`n"
+    $acceptMemorixOnly = "y`nn`nn`nn`nn`nn`nn`nn`n"
     $acceptMemorixOnly | pwsh -NoProfile -ExecutionPolicy Bypass -Command @"
         `$env:CI = `$null
         [Environment]::SetEnvironmentVariable('CI', `$null, 'Process')
@@ -143,12 +143,12 @@ try {
     if (-not $yamlRaw3.Contains("serverName: memorix") -or -not $yamlRaw3.Contains("- id: mcp-memorix")) {
         throw "ASSERTION FAILED: cordis.patch.yml should contain memorix when user chose 'y'"
     }
-    if ($yamlRaw3.Contains("serverName: gitnexus") -or $yamlRaw3.Contains("serverName: company-atlassian") -or $yamlRaw3.Contains("serverName: context7") -or $yamlRaw3.Contains("serverName: cloakbrowser") -or $yamlRaw3.Contains("serverName: glab")) {
+    if ($yamlRaw3.Contains("serverName: gitnexus") -or $yamlRaw3.Contains("serverName: company-atlassian") -or $yamlRaw3.Contains("serverName: context7") -or $yamlRaw3.Contains("serverName: cloakbrowser") -or $yamlRaw3.Contains("serverName: glab") -or $yamlRaw3.Contains("serverName: agency")) {
         throw "ASSERTION FAILED: cordis.patch.yml should NOT contain other MCPs when rejected"
     }
     # Test 4: Mock pipeline Y/N - Case 3: Chap nhan tat ca MCPs (pipe y cho 6 MCP prompts + y cho hook)
     Write-Host "`nRunning DSH bootstrap (Test 4: Pipeline Y/N - Accept ALL MCPs) into $tempProfile4"
-    $acceptAll = "y`ny`ny`ny`ny`ny`ny`n"
+    $acceptAll = "y`ny`ny`ny`ny`ny`ny`ny`n"
     $acceptAll | pwsh -NoProfile -ExecutionPolicy Bypass -Command @"
         `$env:CI = `$null
         [Environment]::SetEnvironmentVariable('CI', `$null, 'Process')
@@ -168,7 +168,7 @@ try {
         throw "ASSERTION FAILED: Missing generated file: $path4"
     }
     $yamlRaw4 = Get-Content $path4 -Raw
-    foreach ($srv in @("memorix", "gitnexus", "company-atlassian", "context7", "glab", "cloakbrowser")) {
+    foreach ($srv in @("memorix", "gitnexus", "company-atlassian", "context7", "glab", "cloakbrowser", "agency")) {
         if (-not $yamlRaw4.Contains("serverName: $srv")) {
             throw "ASSERTION FAILED: In Test 4, cordis.patch.yml must contain MCP '$srv'"
         }

@@ -40,6 +40,10 @@
       "args": [
         "__CLOAKBROWSER_SCRIPT__"
       ]
+    },
+    "agency": {
+      "command": "__AGENCY_PATH__",
+      "args": []
     }
   }
 }

@@ -7,6 +7,7 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [string]$AgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd",
     [string]$AgyDir = "$env:USERPROFILE\.gemini\antigravity-cli",
     [string]$AgySettings = "",
     [string]$AgyKeybindings = ""
@@ -111,6 +112,9 @@ if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung
 
 $installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
 if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installAgency = Confirm-McpInstall -Name "agency"
+if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
 
 $isForce = $Force.IsPresent -or $OverwriteAll.IsPresent
 
@@ -314,6 +318,18 @@ if ($installCloakbrowser) {
     $cloakScript = $cloakScriptPath.Replace('\', '/')
 }
 
+$absAgency = ""
+if ($installAgency) {
+    $agencyCmd = $AgencyPath
+    if (-not (Test-Path -LiteralPath $agencyCmd)) {
+        $foundAgency = Get-Command "agency-mcp-server.cmd" -ErrorAction SilentlyContinue
+        if (-not $foundAgency) { $foundAgency = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue }
+        if ($foundAgency -and $foundAgency.Source) {
+            $agencyCmd = $foundAgency.Source
+        }
+    }
+    $absAgency = $agencyCmd
+}
 # 7. Thu thap bien cau hinh
 $aiBaseUrl = Get-EnvOrPrompt -EnvName "AI_BASE_URL" -Prompt "AI Base URL" -Default "http://localhost:20128/v1"
 $aiKey     = Get-EnvOrPrompt -EnvName "AI_API_KEY" -Prompt "AI API Key" -Required
@@ -425,8 +441,8 @@ $settingsContent = $settingsContent `
     -replace '__GITNEXUS_PATH__', $escapedGn `
     -replace '__CONTEXT7_PATH__', $escapedCtx `
     -replace '__CONTEXT7_API_KEY__', $ctxKey `
-    -replace '__CLOAKBROWSER_SCRIPT__', $cloakScript
-
+    -replace '__CLOAKBROWSER_SCRIPT__', $cloakScript `
+    -replace '__AGENCY_PATH__', ($absAgency.Replace('\', '/'))
 $settingsObj = $settingsContent | ConvertFrom-Json
 if (-not $settingsObj.mcpServers) {
     $settingsObj | Add-Member -MemberType NoteProperty -Name 'mcpServers' -Value ([PSCustomObject]@{}) -Force
@@ -450,6 +466,9 @@ if (-not $installCloakbrowser -and $settingsObj.mcpServers.PSObject.Properties['
 }
 if (-not $installMemorix -and $settingsObj.mcpServers.PSObject.Properties['memorix']) {
     $settingsObj.mcpServers.PSObject.Properties.Remove('memorix')
+}
+if (-not $installAgency -and $settingsObj.mcpServers.PSObject.Properties['agency']) {
+    $settingsObj.mcpServers.PSObject.Properties.Remove('agency')
 }
 
 # Tich hop hook Trash Guard vao settings.json
@@ -609,6 +628,26 @@ if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $memSectionPat
         if ($currentAgents -match [regex]::Escape($memMarker)) {
             Write-Host "  -> Go bo huong dan Memorix khoi $targetAgents..." -ForegroundColor Yellow
             $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Memorix: Memory and Safety Gate.*\z", "")
+            [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
+        }
+    }
+}
+
+# Tich hop / go bo huong dan Agency trong AGENTS.md
+$agencySectionPath = Join-Path $PSScriptRoot "templates\agency-agents-section.md"
+if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $agencySectionPath)) {
+    $agencyMarker = "Su dung Agency Agents MCP"
+    $currentAgents = Get-Content -Path $targetAgents -Raw -Encoding UTF8
+    if ($installAgency) {
+        if ($currentAgents -notmatch [regex]::Escape($agencyMarker)) {
+            Write-Host "  -> Tich hop huong dan Agency vao $targetAgents..." -ForegroundColor Green
+            $agencySectionContent = Get-Content -Path $agencySectionPath -Raw -Encoding UTF8
+            Add-Content -Path $targetAgents -Value ("`r`n" + $agencySectionContent) -Encoding UTF8
+        }
+    } else {
+        if ($currentAgents -match [regex]::Escape($agencyMarker)) {
+            Write-Host "  -> Go bo huong dan Agency khoi $targetAgents..." -ForegroundColor Yellow
+            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Su dung Agency Agents MCP.*\z", "")
             [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }

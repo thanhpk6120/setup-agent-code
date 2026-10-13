@@ -19,6 +19,8 @@ try {
     Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
     $oldPath = $env:Path
     $env:Path = "$mockBinDir;$env:Path"
+    $mockAgencyPath = Join-Path $mockBinDir "agency-mcp-server.cmd"
+    Set-Content -Path $mockAgencyPath -Value "@echo off`necho agency"
 
     $mockNpmDir = Join-Path $env:TEMP ("claude-mock-npm-" + [System.Guid]::NewGuid().ToString("N"))
     $mockContext7Path = Join-Path $mockNpmDir "@upstash\context7-mcp\dist"
@@ -100,6 +102,9 @@ try {
     if ($claudeTemplate.mcpServers.cloakbrowser.command -ne "node") {
         throw "ASSERTION FAILED: cloakbrowser command should be 'node', but was '$($claudeTemplate.mcpServers.cloakbrowser.command)'"
     }
+    if ($claudeTemplate.mcpServers.agency.command -ne "__AGENCY_PATH__") {
+        throw "ASSERTION FAILED: agency command in template should be '__AGENCY_PATH__'"
+    }
 
     $claudeMd = Join-Path $tempDir "CLAUDE.md"
     if (-not (Test-Path $claudeMd)) { throw "ASSERTION FAILED: CLAUDE.md missing" }
@@ -146,6 +151,65 @@ try {
         throw "ASSERTION FAILED: CLAUDE.md should contain Memorix section when -EnableMemorix is specified"
     }
     Write-Host "TEST PASSED: setup-claude-code bootstrap verified." -ForegroundColor Green
+
+    # Case E: EnableAgency -> config co agency + instruction co marker + giu nguyen 5 MCP cu
+    Write-Host "Running bootstrap into temp dir (Case E: EnableAgency): $tempDir"
+    $tempJsonE = Join-Path $env:TEMP ("claude-test-e-" + [System.Guid]::NewGuid().ToString("N") + ".json")
+    $seedJson = @'
+{
+  "mcpServers": {
+    "gitnexus": { "command": "cmd", "args": ["/c", "gitnexus.cmd", "mcp"] },
+    "company-atlassian": { "command": "mcp-atlassian", "args": [] },
+    "context7": { "command": "node", "args": ["ctx.js"] },
+    "glab": { "command": "glab", "args": ["mcp", "serve"] },
+    "cloakbrowser": { "command": "node", "args": ["cloak.js"] }
+  }
+}
+'@
+    [System.IO.File]::WriteAllText($tempJsonE, $seedJson, [System.Text.UTF8Encoding]::new($false))
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -EnableAgency -AgencyPath $mockAgencyPath -ClaudeDir $tempDir -ClaudeJson $tempJsonE
+
+    $mcpRawE = Get-Content $tempJsonE -Raw | ConvertFrom-Json
+    if (-not $mcpRawE.mcpServers.agency) {
+        throw "ASSERTION FAILED: agency mcpServer should exist when -EnableAgency is specified"
+    }
+    if ($mcpRawE.mcpServers.agency.command -ne $mockAgencyPath) {
+        throw "ASSERTION FAILED: agency command mismatch: $($mcpRawE.mcpServers.agency.command)"
+    }
+    if ($mcpRawE.mcpServers.agency.args.Count -ne 0) {
+        throw "ASSERTION FAILED: agency args should be empty"
+    }
+    foreach ($kept in @("gitnexus", "company-atlassian", "context7", "glab", "cloakbrowser")) {
+        if (-not $mcpRawE.mcpServers.PSObject.Properties[$kept]) {
+            throw "ASSERTION FAILED: existing MCP '$kept' should be preserved when enabling agency"
+        }
+    }
+
+    $claudeMdE = Get-Content (Join-Path $tempDir "CLAUDE.md") -Raw
+    if ($claudeMdE -notmatch "<!-- agency-agents-section -->" -or $claudeMdE -notmatch "agency_search") {
+        throw "ASSERTION FAILED: CLAUDE.md should contain agency instruction section when -EnableAgency is specified"
+    }
+
+    # Case F: DisableAgency -> config vang agency + instruction sach marker
+    Write-Host "Running bootstrap into temp dir (Case F: DisableAgency): $tempDir"
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -DisableAgency -ClaudeDir $tempDir -ClaudeJson $tempJsonE
+
+    $mcpRawF = Get-Content $tempJsonE -Raw | ConvertFrom-Json
+    if ($mcpRawF.mcpServers.PSObject.Properties['agency']) {
+        throw "ASSERTION FAILED: agency mcpServer should NOT exist when -DisableAgency is specified"
+    }
+    foreach ($kept in @("gitnexus", "company-atlassian", "context7", "glab", "cloakbrowser")) {
+        if (-not $mcpRawF.mcpServers.PSObject.Properties[$kept]) {
+            throw "ASSERTION FAILED: existing MCP '$kept' should be preserved when disabling agency"
+        }
+    }
+    $claudeMdF = Get-Content (Join-Path $tempDir "CLAUDE.md") -Raw
+    if ($claudeMdF -match "agency-agents-section" -or $claudeMdF -match "agency_search") {
+        throw "ASSERTION FAILED: CLAUDE.md should NOT contain agency section when -DisableAgency is specified"
+    }
+    if ($claudeMdF -notmatch "Pre-flight Task Complexity") {
+        throw "ASSERTION FAILED: CLAUDE.md base content should be preserved after removing agency section"
+    }
 } finally {
     Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
     function Safe-Trash($p) {
@@ -159,6 +223,7 @@ try {
         }
     }
     Safe-Trash $tempDir
+    Safe-Trash $tempJsonE
     Safe-Trash $mockTrashGuardDir
     Remove-Item env:TRASH_GUARD_HOOK_PATH -ErrorAction SilentlyContinue
     Safe-Trash $mockBinDir

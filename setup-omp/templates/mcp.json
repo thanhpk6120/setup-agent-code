@@ -48,6 +48,10 @@
         "--mode",
         "lite"
       ]
+    },
+    "agency": {
+      "command": "__AGENCY_PATH__",
+      "args": []
     }
   }
 }

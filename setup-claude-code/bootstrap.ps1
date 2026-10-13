@@ -7,6 +7,9 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
+    [string]$AgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd",
     [string]$ClaudeDir = "$env:USERPROFILE\.claude",
     [string]$ClaudeJson = "$env:USERPROFILE\.claude.json"
 )
@@ -79,6 +82,25 @@ function Confirm-McpInstall {
     return $false
 }
 
+function Confirm-Agency {
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong cai dat MCP 'agency'." -ForegroundColor Cyan
+        return $true
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP 'agency'." -ForegroundColor DarkGray
+        return $false
+    }
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        return $false
+    }
+    $choice = Read-Host "[?] Cai dat MCP 'agency'? [y/N]"
+    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
+        return $true
+    }
+    return $false
+}
+
 # 1. Xu ly lua chon Memorix
 if ($EnableMemorix.IsPresent -and $DisableMemorix.IsPresent) {
     throw "Khong dung dong thoi -EnableMemorix va -DisableMemorix."
@@ -109,6 +131,19 @@ if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung
 
 $installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
 if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installAgency = $false
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if ($EnableAgency.IsPresent) {
+    $installAgency = $true
+} elseif ($DisableAgency.IsPresent) {
+    $installAgency = $false
+} else {
+    $installAgency = Confirm-Agency
+    if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+}
 
 # Doc cau hinh tu .env neu ton tai
 $envMap = @{}
@@ -342,6 +377,22 @@ if ($installContext7) {
     }
 }
 
+# Chuan bi duong dan agency-mcp-server
+$escapedAgency = ""
+if ($installAgency) {
+    $agencyCmd = $AgencyPath
+    if (-not (Test-Path -LiteralPath $agencyCmd)) {
+        $foundAgency = Get-Command "agency-mcp-server.cmd" -ErrorAction SilentlyContinue
+        if (-not $foundAgency) { $foundAgency = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue }
+        if ($foundAgency -and $foundAgency.Source) {
+            $agencyCmd = $foundAgency.Source
+        } else {
+            throw "Loi: Khong tim thay agency-mcp-server. Dung cai dat hoac truyen -AgencyPath."
+        }
+    }
+    $escapedAgency = $agencyCmd.Replace('\', '\\')
+}
+
 # Cau hinh CloakBrowser
 function Get-CloakBrowserInstallDir {
     if ($env:CLOAKBROWSER_DIR) { return $env:CLOAKBROWSER_DIR }
@@ -495,7 +546,8 @@ if (Test-Path $claudeTemplatePath) {
         -replace '__CONFLUENCE_PERSONAL_TOKEN__', $confToken `
         -replace '__CONTEXT7_PATH__', $absCtx2 `
         -replace '__CONTEXT7_API_KEY__', $ctxKey `
-        -replace '__CLOAKBROWSER_SCRIPT__', $cloakScript
+        -replace '__CLOAKBROWSER_SCRIPT__', $cloakScript `
+        -replace '__AGENCY_PATH__', $escapedAgency
 } else {
     # Fallback mcp JSON string
     $mcpJsonStr = @"
@@ -527,6 +579,10 @@ if (Test-Path $claudeTemplatePath) {
     "cloakbrowser": {
       "command": "node",
       "args": ["$cloakScript"]
+    },
+    "agency": {
+      "command": "$escapedAgency",
+      "args": []
     }
   }
 }
@@ -553,6 +609,9 @@ if (-not $installGlab -and $mcpObj.mcpServers.PSObject.Properties['glab']) {
 }
 if (-not $installCloakbrowser -and $mcpObj.mcpServers.PSObject.Properties['cloakbrowser']) {
     $mcpObj.mcpServers.PSObject.Properties.Remove('cloakbrowser')
+}
+if (-not $installAgency -and $mcpObj.mcpServers.PSObject.Properties['agency']) {
+    $mcpObj.mcpServers.PSObject.Properties.Remove('agency')
 }
 if ($installContext7 -and [string]::IsNullOrWhiteSpace($ctxKey) -and $mcpObj.mcpServers.context7 -and $mcpObj.mcpServers.context7.PSObject.Properties['env']) {
     $mcpObj.mcpServers.context7.PSObject.Properties.Remove('env')
@@ -618,6 +677,9 @@ if (Test-Path $ClaudeJson) {
                     }
                     if (-not $EnableMemorix -and $existing.mcpServers.PSObject.Properties['memorix']) {
                         $existing.mcpServers.PSObject.Properties.Remove('memorix')
+                    }
+                    if (-not $installAgency -and $existing.mcpServers.PSObject.Properties['agency']) {
+                        $existing.mcpServers.PSObject.Properties.Remove('agency')
                     }
                     $outJson = $existing | ConvertTo-Json -Depth 10
                     [System.IO.File]::WriteAllText($ClaudeJson, $outJson, [System.Text.UTF8Encoding]::new($false))
@@ -1077,6 +1139,18 @@ if ($EnableMemorix) {
             $claudeMdContent = $claudeMdContent + "`n`n" + $memorixSec
         }
     }
+}
+
+if ($installAgency) {
+    $agencySecPath = Join-Path $templatesDir "agency-agents-section.md"
+    if (Test-Path $agencySecPath) {
+        $agencySec = (Get-Content -Path $agencySecPath -Raw -Encoding UTF8).Trim()
+        if ($claudeMdContent -notmatch "agency-agents-section") {
+            $claudeMdContent = $claudeMdContent.TrimEnd() + "`r`n`r`n<!-- agency-agents-section -->`r`n" + $agencySec + "`r`n<!-- /agency-agents-section -->`r`n"
+        }
+    }
+} else {
+    $claudeMdContent = [regex]::Replace($claudeMdContent, '(?s)<!-- agency-agents-section -->.*?<!-- /agency-agents-section -->\r?\n?', '')
 }
 
 $targetClaudeMd = Join-Path $ClaudeDir "CLAUDE.md"

@@ -111,6 +111,7 @@ Tất cả các agent CLI đều được chuẩn hóa cấu hình để sử d�
 | **glab** | Thao tác dự án GitLab, Issues, Merge Requests, Pipelines | `glab mcp serve` | GitLab CLI (`glab`) |
 | **cloakbrowser** | Trình duyệt stealth tự động hóa, cào dữ liệu, chụp màn hình | `node mcp-server-full.mjs` | Node.js, Playwright |
 | **memorix** *(Opt-in)* | Trí nhớ phiên làm việc, reasoning memory cho agent | `memorix serve --mode lite` | npm `memorix` / `@memorix/core` |
+| **agency** | Kho chuyên gia đa tác vụ từ dự án agency-agents (agency_search, agency_browse) | `<abs-path>\agency-mcp-server.cmd` | npm `agency-mcp-server` toàn cầu (Node.js) |
 
 ### 3.3. Cơ chế giải quyết xung đột thông minh (Smart Conflict Resolution)
 Trước khi ghi đè bất kỳ file cấu hình nào đã tồn tại trên máy người dùng, script cung cấp các lựa chọn:

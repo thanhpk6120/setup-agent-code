@@ -7,6 +7,9 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
+    [string]$AgencyPath = "",
     [string]$DshHome = "$env:USERPROFILE\.dsh",
     [string]$DshProfileDir = "$env:APPDATA\dsh-desktop\harness\profiles\web",
     [string]$CredentialsPath = "$env:APPDATA\dsh-desktop\harness\.credentials.yaml"
@@ -65,6 +68,19 @@ if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung
 
 $installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
 if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
+
+$installAgency = $false
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if ($EnableAgency) {
+    $installAgency = $true
+} elseif ($DisableAgency) {
+    $installAgency = $false
+} else {
+    $installAgency = Confirm-McpInstall -Name "agency"
+    if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+}
 
 $isForce = $Force.IsPresent -or $OverwriteAll.IsPresent
 
@@ -512,7 +528,7 @@ if ($installCloakbrowser) {
     $cbSourceDir = Join-Path $PSScriptRoot "mcp-servers\cloakbrowser"
     $cbTargetDir = Get-CloakBrowserInstallDir
     $cloakScriptPath = Setup-CloakBrowser -TargetDir $cbTargetDir -SourceDir $cbSourceDir -DryRun:$DryRun -SkipInstall:$SkipInstall
-    $escapedCloakScript = ($cloakScriptPath).Replace('\', '\\')
+    $escapedCloakScript = if ($cloakScriptPath) { ($cloakScriptPath).Replace('\', '\\') } else { '' }
 }
 
 # 9. Khoi tao va xay dung cordis.patch.yml va .credentials.yaml tu templates
@@ -659,6 +675,13 @@ __CONTEXT7_CONFIG__
     command: node
     args:
       - "__CLOAKBROWSER_SCRIPT__"
+- id: mcp-agency
+  name: "@deepseek-ai/dsh-mcp-client"
+  config:
+    serverName: agency
+    transport: stdio
+    command: __AGENCY_PATH__
+    args: []
 "@
 }
 
@@ -714,6 +737,40 @@ if ($installCloakbrowser) {
     $baseCordisYaml = $baseCordisYaml.Replace("__CLOAKBROWSER_SCRIPT__", $escapedCloakScript)
 } else {
     $baseCordisYaml = [regex]::Replace($baseCordisYaml, '(?m)^-\s+id:\s+mcp-cloakbrowser[\s\S]*?(?=(^-\s+id:|\Z))', '')
+}
+
+# Resolve duong dan binary cho Agency MCP
+$resolvedAgencyPath = ""
+if ($installAgency) {
+    if ($AgencyPath) {
+        $resolvedAgencyPath = $AgencyPath
+    } else {
+        $agencyCmd = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue
+        if ($agencyCmd) {
+            $resolvedAgencyPath = $agencyCmd.Source
+        } else {
+            $commonPaths = @(
+                "C:\nvm4w\nodejs\agency-mcp-server.cmd",
+                "$env:APPDATA\npm\agency-mcp-server.cmd",
+                "C:\Program Files\nodejs\agency-mcp-server.cmd"
+            )
+            foreach ($cp in $commonPaths) {
+                if (Test-Path $cp) {
+                    $resolvedAgencyPath = $cp
+                    break
+                }
+            }
+        }
+    }
+    if (-not $resolvedAgencyPath) {
+        $resolvedAgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd"
+    }
+}
+if ($installAgency) {
+    $escapedAgency = $resolvedAgencyPath.Replace('\', '/')
+    $baseCordisYaml = $baseCordisYaml.Replace("__AGENCY_PATH__", $escapedAgency)
+} else {
+    $baseCordisYaml = [regex]::Replace($baseCordisYaml, '(?m)^-\s+id:\s+mcp-agency[\s\S]*?(?=(^-\s+id:|\Z))', '')
 }
 
 $credsTplPath = Join-Path $templatesDir ".credentials.yaml"
@@ -878,6 +935,26 @@ if ($installMemorix) {
             }
         } else {
             Write-Host "  -> [WhatIf] Ghi them vao: $targetAgents" -ForegroundColor DarkGray
+        }
+    }
+}
+
+# Tich hop / go bo huong dan Agency trong AGENTS.md
+$agencySectionPath = Join-Path $PSScriptRoot "templates\agency-agents-section.md"
+if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $agencySectionPath)) {
+    $agencyMarker = "## Sử dụng Agency Agents MCP"
+    $currentAgents = Get-Content -Path $targetAgents -Raw -Encoding UTF8
+    if ($installAgency) {
+        if ($currentAgents -notmatch [regex]::Escape($agencyMarker)) {
+            Write-Host "  -> Tich hop huong dan Agency vao $targetAgents..." -ForegroundColor Green
+            $agencySectionContent = Get-Content -Path $agencySectionPath -Raw -Encoding UTF8
+            Add-Content -Path $targetAgents -Value ("`r`n" + $agencySectionContent) -Encoding UTF8
+        }
+    } else {
+        if ($currentAgents -match [regex]::Escape($agencyMarker)) {
+            Write-Host "  -> Go bo huong dan Agency khoi $targetAgents..." -ForegroundColor Yellow
+            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Sử dụng Agency Agents MCP.*\z", "")
+            [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }
 }

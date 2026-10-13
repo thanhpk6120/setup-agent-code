@@ -92,7 +92,7 @@ try {
     # Test 2: Chay bootstrap voi Pipeline Y (dong y tat ca MCP servers)
     # =========================================================================
     Write-Host "`nRunning Antigravity bootstrap (Test 2: Pipeline Y - Accept MCPs) into: $tempDir2"
-    $acceptAll = "n`ny`ny`ny`ny`ny`n"
+    $acceptAll = "n`ny`ny`ny`ny`ny`ny`n"
     $psScript = "$PSScriptRoot\bootstrap.ps1"
     $cmd = @"
         `$env:CI = `$null
@@ -129,7 +129,9 @@ try {
     if (-not $settingsJson2.mcpServers.PSObject.Properties['gitnexus']) {
         throw "ASSERTION FAILED: gitnexus should be configured in Test 2"
     }
-
+    if (-not $settingsJson2.mcpServers.PSObject.Properties['agency']) {
+        throw "ASSERTION FAILED: agency should be configured in Test 2"
+    }
     Write-Host "`n[OK] All isolated tests for setup-antigravity-cli passed successfully!" -ForegroundColor Green
 }
 finally {
