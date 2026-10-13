@@ -1,9 +1,9 @@
-# Setup DSH Web Runner (`dsh --profile web`)
+# Setup DSH Web Runner (`dsh --profile web-runner`)
 
 Bộ công cụ thiết lập môi trường cho **DeepSeek Harness Web Runner (Headless Server)**, phân biệt với profile desktop.
 
 ## Cấu trúc thư mục đích
-- Profile web: `%APPDATA%\dsh-desktop\harness\profiles\web\cordis.patch.yml`
+- Profile web runner: `%APPDATA%\dsh-desktop\harness\profiles\web-runner\cordis.patch.yml`
 - Credentials: `%APPDATA%\dsh-desktop\harness\.credentials.yaml`
 - DSH Home: `~/.dsh/AGENTS.md`
 - Skills: `~/.dsh/skills/`
