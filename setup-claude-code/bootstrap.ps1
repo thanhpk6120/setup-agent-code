@@ -1135,8 +1135,7 @@ if ($EnableMemorix) {
         }
     }
 } else {
-    $claudeMdContent = [regex]::Replace($claudeMdContent, '(?s)\r?\n?---\r?\n\r?\n# Memorix.*?(?=\r?\n## |\r?\n# |\z)', "`r`n")
-    $claudeMdContent = [regex]::Replace($claudeMdContent, '(?s)\r?\n?# Memorix — Memory Tools for Active Workspaces.*?(?=\r?\n## |\r?\n# |\z)', "`r`n")
+    $claudeMdContent = [regex]::Replace($claudeMdContent, '(?ms)\r?\n(?:---\r?\n\r?\n)?#+ Memorix.*?(?=(?:\r?\n<!-- agency-agents-section -->|\r?\n#+ Using Agency Agents MCP|\z))', '')
 }
 
 if ($installAgency) {

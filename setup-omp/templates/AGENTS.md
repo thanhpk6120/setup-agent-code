@@ -23,7 +23,7 @@ Before executing actions or calling tool sequences, classify the incoming task:
 2. **Tier 2: Moderate / Focused Tasks (Direct Execution Preferred, Subagent when SPECIALIZED)**
    - **Scope:** Editing 2–5 files in the same module; local bug debugging; writing tests or documentation; narrow refactoring.
    - **Action:** Default to Main Agent direct execution. Only delegate (Single Subagent) when:
-     - A deep specialized role is required (e.g., `security-reviewer` for in-depth security scans, `dely-reviewer` for independent quality gate checks).
+     - A deep specialized role is required (e.g., `security-reviewer` for in-depth security scans, `reviewer` for independent quality gate checks).
      - Or an isolated mock test environment is required to ensure absolute safety for the real server/environment.
 
 3. **Tier 3: Complex / Multi-system / Broad Investigations (Subagent when PARALLELIZATION is needed)**
@@ -83,8 +83,8 @@ Define success criteria and verify. Do not stop mid-task unless blocked by safet
 - `architect`: Overall architecture design, large module decomposition planning.
 - `plan-reviewer`: Independent review and approval of technical plans (`plan.md`).
 - `sonic`: Fast mechanical edits, bulk data transformations.
-- `dely-implementer`: Autonomous coding, TDD following approved design contracts.
-- `dely-reviewer`: Independent code review, test-gate reproduction, and counterexample evaluation.
+- `implementer`: Autonomous coding, TDD following approved design contracts.
+- `reviewer`: Independent code review, test-gate reproduction, and counterexample evaluation.
 - `docs-*`: Full lifecycle management of Spec-Driven documentation.
 
 ### Multi-Agent Spawning Guidelines
