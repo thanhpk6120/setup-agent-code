@@ -2,5 +2,6 @@
 logs/
 local_cache/
 *.bak
+*.log
 /.credentials*.yaml
 /*.patch.yml
