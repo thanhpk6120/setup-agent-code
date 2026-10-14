@@ -19,6 +19,8 @@ try {
     New-Item -ItemType Directory -Force -Path $mockBinDir | Out-Null
     Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
     Set-Content -Path (Join-Path $mockBinDir "npm.cmd") -Value "@echo off`necho %* | findstr /i `"root -g`" >nul && echo $mockNpmDir& exit /b 0`nexit /b 0"
+    $hookLog = Join-Path $env:TEMP ("agy-hooklog-" + [System.Guid]::NewGuid().ToString("N"))
+    Set-Content -Path (Join-Path $mockBinDir "memorix.cmd") -Value "@echo off`r`necho %* >> `"$hookLog`""
     $oldPath = $env:Path
     $env:Path = "$mockBinDir;$env:Path"
 
@@ -94,7 +96,7 @@ try {
     # Test 2: Chay bootstrap voi Pipeline Y (dong y tat ca MCP servers)
     # =========================================================================
     Write-Host "`nRunning Antigravity bootstrap (Test 2: Pipeline Y - Accept MCPs) into: $tempDir2"
-    $acceptAll = "n`ny`ny`ny`ny`ny`ny`n"
+    $acceptAll = "y`ny`ny`ny`ny`ny`ny`ny`n"
     $psScript = "$PSScriptRoot\bootstrap.ps1"
     $cmd = @"
         `$env:CI = `$null
@@ -130,6 +132,18 @@ try {
     if (-not $settingsJson2.mcpServers.PSObject.Properties['agency']) {
         throw "ASSERTION FAILED: agency should be configured in Test 2"
     }
+    # Assert hook Memorix Antigravity da chay voi agent name dung
+    $hookContent = if (Test-Path $hookLog) { Get-Content $hookLog -Raw } else { "" }
+    if ($hookContent -notmatch 'hooks install --agent antigravity --global') {
+        throw "ASSERTION FAILED: memorix hook not called with '--agent antigravity --global'. Got: $hookContent"
+    }
+
+    # Test 3: regex go Memorix khong nuot Agency section
+    $sample = "Header`r`n`r`n## Memorix: Memory and Safety Gate`r`nmem body line`r`n`r`n<!-- agency-agents-section -->`r`n## Using Agency Agents MCP`r`nagency body`r`n<!-- /agency-agents-section -->`r`n"
+    $cleaned = [regex]::Replace($sample, '(?s)\r?\n?## Memorix: Memory and Safety Gate.*?<!-- /memorix-section -->', '')
+    $cleaned = [regex]::Replace($cleaned, "(?ms)\r?\n## Memorix: Memory and Safety Gate.*?(?=\r?\n(?:## |<!-- )|\z)", "")
+    if ($cleaned -match 'Memorix: Memory and Safety Gate') { throw "ASSERTION FAILED: regex go Memorix khong sach" }
+    if ($cleaned -notmatch 'Using Agency Agents MCP') { throw "ASSERTION FAILED: regex go Memorix nuot Agency section" }
     Write-Host "`n[OK] All isolated tests for setup-antigravity-cli passed successfully!" -ForegroundColor Green
 }
 finally {
@@ -152,4 +166,5 @@ finally {
     Safe-Trash $mockNpmDir
     Safe-Trash $tempDir
     Safe-Trash $tempDir2
+    Safe-Trash $hookLog
 }

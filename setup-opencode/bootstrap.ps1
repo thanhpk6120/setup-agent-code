@@ -703,7 +703,7 @@ if (-not $DryRun) {
             Write-Host "  -> Tao moi file $dstAgents thanh cong." -ForegroundColor Green
         }
 
-        # Neu EnableMemorix: append phan memorix-agents-section.md neu chua co
+        # Neu EnableMemorix: append phan memorix-agents-section.md neu chua co; tat thi go section cu
         if ($EnableMemorix) {
             $memSection = Join-Path $templatesDir "memorix-agents-section.md"
             if (Test-Path $memSection) {
@@ -714,6 +714,14 @@ if (-not $DryRun) {
                     Set-Content -Path $dstAgents -Value $updatedContent -Encoding UTF8
                     Write-Host "  -> Da append Memorix section vao $dstAgents." -ForegroundColor Green
                 }
+            }
+        } else {
+            $currentContent = Get-Content $dstAgents -Raw -Encoding UTF8
+            if ($currentContent -match "Memorix: Memory and Safety Gate") {
+                $memPattern = '(?s)\r?\n?## Memorix: Memory and Safety Gate.*?\*\*Fallback:\*\*.*?(?:\r?\n|$)'
+                $updatedContent = [regex]::Replace($currentContent, $memPattern, "`r`n")
+                Set-Content -Path $dstAgents -Value $updatedContent.TrimEnd() -Encoding UTF8
+                Write-Host "  -> Da go Memorix section khoi $dstAgents." -ForegroundColor Yellow
             }
         }
 

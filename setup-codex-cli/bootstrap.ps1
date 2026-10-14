@@ -672,13 +672,23 @@ if (-not $DryRun) {
             }
         }
 
-        # Neu bat Memorix, tich hop them huong dan memorix vao AGENTS.md
+        # Neu bat Memorix, tich hop them huong dan memorix vao AGENTS.md (guard trung + removal khi tat)
         if ($EnableMemorix) {
             $memSec = Join-Path $templatesDir "memorix-agents-section.md"
             if (Test-Path $memSec) {
-                Write-Host "  -> Tich hop huong dan Memorix vao $dstAgents..." -ForegroundColor Green
-                $memContent = Get-Content -Path $memSec -Raw -Encoding UTF8
-                Add-Content -Path $dstAgents -Value "`r`n$memContent" -Encoding UTF8
+                $currMemDoc = Get-Content -Path $dstAgents -Raw -Encoding UTF8
+                if ($currMemDoc -notmatch "Memorix: Memory and Safety Gate") {
+                    Write-Host "  -> Tich hop huong dan Memorix vao $dstAgents..." -ForegroundColor Green
+                    $memContent = Get-Content -Path $memSec -Raw -Encoding UTF8
+                    Add-Content -Path $dstAgents -Value "`r`n$memContent" -Encoding UTF8
+                }
+            }
+        } else {
+            $currMemDoc = Get-Content -Path $dstAgents -Raw -Encoding UTF8
+            if ($currMemDoc -match "Memorix: Memory and Safety Gate") {
+                Write-Host "  -> Go bo huong dan Memorix khoi $dstAgents..." -ForegroundColor Yellow
+                $cleanedMem = [regex]::Replace($currMemDoc, '(?s)\r?\n?## Memorix: Memory and Safety Gate.*?\*\*Fallback:\*\*.*?(?:\r?\n|$)', "`r`n")
+                [System.IO.File]::WriteAllText($dstAgents, $cleanedMem.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
             }
         }
     }

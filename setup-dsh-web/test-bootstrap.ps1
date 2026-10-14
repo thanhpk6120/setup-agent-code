@@ -25,6 +25,8 @@ try {
     $mockBinDir = Join-Path $env:TEMP ("dsh-web-bin-" + [System.Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $mockBinDir | Out-Null
     Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+    $hookLog = Join-Path $env:TEMP ("dshweb-hooklog-" + [System.Guid]::NewGuid().ToString("N"))
+    Set-Content -Path (Join-Path $mockBinDir "memorix.cmd") -Value "@echo off`r`necho %* >> `"$hookLog`""
     $oldPath = $env:Path
     $env:Path = "$mockBinDir;$env:Path"
 
@@ -109,7 +111,7 @@ try {
     # Test 2: Chay bootstrap voi Pipeline Y (dong y tat ca MCP servers)
     # =========================================================================
     Write-Host "`nRunning DSH Web bootstrap (Test 2: Pipeline Y - Accept MCPs) into: $tempProfile2"
-    $acceptAll = "n`ny`ny`ny`ny`ny`ny`n"
+    $acceptAll = "y`ny`ny`ny`ny`ny`ny`ny`n"
     $psScript = "$PSScriptRoot\bootstrap.ps1"
     $cmd = @"
         `$env:CI = `$null
@@ -149,6 +151,22 @@ try {
     if (-not $yamlRaw2.Contains("serverName: gitnexus")) {
         throw "ASSERTION FAILED: gitnexus should be configured in Test 2"
     }
+
+    # Assert hook Memorix DSH-web dung agent dsh (KHONG dsh-web)
+    $hookContent = if (Test-Path $hookLog) { Get-Content $hookLog -Raw } else { "" }
+    if ($hookContent -notmatch 'setup --agent dsh --global') {
+        throw "ASSERTION FAILED: memorix hook not called with --agent dsh --global. Got: $hookContent"
+    }
+    if ($hookContent -match '--agent dsh-web') {
+        throw "ASSERTION FAILED: hook used wrong agent dsh-web, must be dsh"
+    }
+
+    # Test 3: regex go Memorix khong nuot Agency section
+    $sample = "Header`r`n`r`n## Memorix: Memory and Safety Gate`r`nmem body line`r`n`r`n<!-- agency-agents-section -->`r`n## Using Agency Agents MCP`r`nagency body`r`n<!-- /agency-agents-section -->`r`n"
+    $cleaned = [regex]::Replace($sample, '(?s)\r?\n?## Memorix: Memory and Safety Gate.*?<!-- /memorix-section -->', '')
+    $cleaned = [regex]::Replace($cleaned, "(?ms)\r?\n## Memorix: Memory and Safety Gate.*?(?=\r?\n(?:## |<!-- )|\z)", "")
+    if ($cleaned -match 'Memorix: Memory and Safety Gate') { throw "ASSERTION FAILED: regex go Memorix khong sach" }
+    if ($cleaned -notmatch 'Using Agency Agents MCP') { throw "ASSERTION FAILED: regex go Memorix nuot Agency section" }
 
     
     # Test Agency MCP assertions
@@ -193,4 +211,5 @@ finally {
     Safe-Trash $tempProfile
     Safe-Trash $tempProfile2
     Safe-Trash $tempCredsDir
+    Safe-Trash $hookLog
 }

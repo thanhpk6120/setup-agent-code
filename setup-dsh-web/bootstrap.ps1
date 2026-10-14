@@ -228,6 +228,28 @@ if ($EnableMemorix) {
             try { npm install -g memorix } catch { Write-Warning "Cai dat Memorix gap loi: $($_.Exception.Message)" }
         }
     }
+    $shouldSetupHook = $false
+    if (-not $DryRun -and [Environment]::UserInteractive -and -not $env:CI -and -not $SkipInstall) {
+        $hookChoice = Read-Host "[?] Cai dat Hook tich hop Memorix vao DSH Web? [y/N]"
+        if (-not [string]::IsNullOrWhiteSpace($hookChoice) -and ($hookChoice.Trim().ToLower() -eq 'y' -or $hookChoice.Trim().ToLower() -eq 'yes')) {
+            $shouldSetupHook = $true
+        }
+    }
+    if ($shouldSetupHook) {
+        Write-Host "==> Configuring memorix hook for dsh..." -ForegroundColor Cyan
+        $npmPrefix = ""
+        try { $npmPrefix = (npm prefix -g 2>$null | Out-String).Trim() } catch {}
+        if ($npmPrefix -and (Test-Path $npmPrefix) -and ($env:Path -notlike "*$npmPrefix*")) {
+            $env:Path = "$npmPrefix;$env:Path"
+        }
+        if (-not $DryRun) {
+            try { memorix setup --agent dsh --global } catch { Write-Warning "Khong the chay hook 'memorix setup --agent dsh --global': $($_.Exception.Message)" }
+        }
+    } else {
+        if (-not $DryRun) {
+            Write-Host "==> Bo qua cau hinh hook memorix cho DSH Web." -ForegroundColor DarkGray
+        }
+    }
 }
 
 $targetAtlassianVer = "0.23.1"
@@ -691,7 +713,8 @@ if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $memSectionPat
     } else {
         if ($currentAgents -match [regex]::Escape($memMarker)) {
             Write-Host "  -> Go bo huong dan Memorix khoi $targetAgents..." -ForegroundColor Yellow
-            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Memorix: Memory and Safety Gate.*\z", "")
+            $cleaned = [regex]::Replace($currentAgents, '(?s)\r?\n?## Memorix: Memory and Safety Gate.*?<!-- /memorix-section -->', '')
+            $cleaned = [regex]::Replace($cleaned, "(?ms)\r?\n## Memorix: Memory and Safety Gate.*?(?=\r?\n(?:## |<!-- )|\z)", "")
             [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }

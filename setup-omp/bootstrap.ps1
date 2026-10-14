@@ -456,6 +456,10 @@ if ($EnableMemorix) {
         } catch {
             Write-Warning "Khong the chay hook 'memorix setup --agent omp --global': $($_.Exception.Message)"
         }
+    } else {
+        if (-not $DryRun) {
+            Write-Host "==> Bo qua cau hinh hook memorix cho omp." -ForegroundColor DarkGray
+        }
     }
 }
 
@@ -849,10 +853,24 @@ if ($EnableMemorix) {
     if (Test-Path $memSectionPath) {
         Write-Host "  -> Tich hop huong dan Memorix vao $targetAgentsPath..." -ForegroundColor Green
         if (-not $DryRun -and (Test-Path $targetAgentsPath)) {
-            $memSectionContent = Get-Content -Path $memSectionPath -Raw -Encoding UTF8
-            Add-Content -Path $targetAgentsPath -Value "`r`n$memSectionContent" -Encoding UTF8
+            $currentAgents = Get-Content -Path $targetAgentsPath -Raw -Encoding UTF8
+            $memHeading = "## Memorix: Memory and Safety Gate"
+            if ($currentAgents -notmatch [regex]::Escape($memHeading) -and $currentAgents -notmatch "(?m)^## Memorix") {
+                $memSectionContent = Get-Content -Path $memSectionPath -Raw -Encoding UTF8
+                Add-Content -Path $targetAgentsPath -Value "`r`n$memSectionContent" -Encoding UTF8
+            }
         } else {
             Write-Host "  -> [WhatIf] Ghi them vao: $targetAgentsPath" -ForegroundColor DarkGray
+        }
+    }
+} else {
+    if (-not $DryRun -and (Test-Path $targetAgentsPath)) {
+        $currentAgents = Get-Content -Path $targetAgentsPath -Raw -Encoding UTF8
+        $memHeading = "## Memorix: Memory and Safety Gate"
+        if ($currentAgents -match [regex]::Escape($memHeading) -or $currentAgents -match "(?m)^## Memorix") {
+            Write-Host "  -> Go bo huong dan Memorix khoi $targetAgentsPath..." -ForegroundColor Yellow
+            $cleaned = [regex]::Replace($currentAgents, '(?ms)\r?\n## Memorix: Memory and Safety Gate.*?(?=(?:\r?\n<!-- agency-agents-section -->|\r?\n## Using Agency Agents MCP|\z))', '')
+            [System.IO.File]::WriteAllText($targetAgentsPath, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }
 }

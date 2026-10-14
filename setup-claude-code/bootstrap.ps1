@@ -1134,6 +1134,9 @@ if ($EnableMemorix) {
             $claudeMdContent = $claudeMdContent + "`n`n" + $memorixSec
         }
     }
+} else {
+    $claudeMdContent = [regex]::Replace($claudeMdContent, '(?s)\r?\n?---\r?\n\r?\n# Memorix.*?(?=\r?\n## |\r?\n# |\z)', "`r`n")
+    $claudeMdContent = [regex]::Replace($claudeMdContent, '(?s)\r?\n?# Memorix — Memory Tools for Active Workspaces.*?(?=\r?\n## |\r?\n# |\z)', "`r`n")
 }
 
 if ($installAgency) {

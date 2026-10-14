@@ -178,6 +178,20 @@ try {
         throw "ASSERTION FAILED: AGENTS.md missing memorix section under -EnableMemorix"
     }
 
+    # Idempotent: chay lai -EnableMemorix khong duoc tao block memorix trung lap
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -EnableMemorix -OmpDir $tempDir2
+    $agentsRaw2b = Get-Content (Join-Path $tempDir2 "AGENTS.md") -Raw
+    $memMarkerCount = ([regex]::Matches($agentsRaw2b, "Memorix: Memory and Safety Gate")).Count
+    if ($memMarkerCount -ne 1) {
+        throw "ASSERTION FAILED: memorix section duplicated (count=$memMarkerCount)"
+    }
+
+    # Removal branch: chay lai voi -DisableMemorix thi section memorix phai bi go bo khoi AGENTS.md
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -DisableMemorix -OmpDir $tempDir2
+    $agentsRaw2c = Get-Content (Join-Path $tempDir2 "AGENTS.md") -Raw
+    if ($agentsRaw2c.Contains("Memorix: Memory and Safety Gate") -or $agentsRaw2c -match "(?m)^## Memorix") {
+        throw "ASSERTION FAILED: AGENTS.md still contains memorix section under -DisableMemorix"
+    }
     # =========================================================================
     # Bước 5: Kiểm tra tính nguyên vẹn của templates/mcp.json
     # =========================================================================

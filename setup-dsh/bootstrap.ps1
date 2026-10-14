@@ -38,6 +38,13 @@ function Confirm-McpInstall {
     }
     return $false
 }
+# Ham go bo mot block id khoi chuoi YAML
+function Remove-CordisBlock {
+    param([string]$Yaml, [string]$Id)
+    $pattern = "(?ms)^-\s+id:\s+" + [regex]::Escape($Id) + "\r?\n.*?(?=(?:^-\s+id:|\Z))"
+    return [regex]::Replace($Yaml, $pattern, '')
+}
+
 
 # Xu ly lua chon Memorix
 if ($EnableMemorix.IsPresent -and $DisableMemorix.IsPresent) {
@@ -703,7 +710,7 @@ if ($installMemorix) {
     $baseCordisYaml = $baseCordisYaml.Replace("__MEMORIX_CONFIG__", $memorixBlock.Trim())
 } else {
     $baseCordisYaml = [regex]::Replace($baseCordisYaml, '(?m)^__MEMORIX_CONFIG__\r?\n?', '')
-    $baseCordisYaml = [regex]::Replace($baseCordisYaml, '(?m)^-\s+id:\s+mcp-memorix[\s\S]*?(?=(^-\s+id:|\Z))', '')
+    $baseCordisYaml = Remove-CordisBlock -Yaml $baseCordisYaml -Id "mcp-memorix"
 }
 
 if ($installGitnexus) {
@@ -785,6 +792,7 @@ apiKey: $aiKey
 "@
 }
 
+
 # 10. Ham hop nhat cau hinh YAML (Merge cordis.patch.yml)
 function Merge-CordisPatchYaml {
     param(
@@ -858,15 +866,21 @@ function Write-ConfigFileWithConflictResolution {
     if ($IsMcpYaml) {
         $existing = Get-Content $TargetPath -Raw
         $merged = Merge-CordisPatchYaml -ExistingContent $existing -NewContent $Content
+        if (-not $installMemorix) {
+            $merged = Remove-CordisBlock -Yaml $merged -Id "mcp-memorix"
+        }
+        if (-not $installAgency) {
+            $merged = Remove-CordisBlock -Yaml $merged -Id "mcp-agency"
+        }
         Write-Host "  -> Hop nhat cau hinh vao: $TargetPath" -ForegroundColor Green
         if (-not $DryRun) {
             [System.IO.File]::WriteAllText($TargetPath, $merged, [System.Text.UTF8Encoding]::new($false))
         } else {
-            Write-Host "  -> [WhatIf] Hop nhat va ghi file: $TargetPath" -ForegroundColor DarkGray
+            Write-Host "  -> [WhatIf] Ghi file: $TargetPath" -ForegroundColor DarkGray
         }
-    } else {
-        Write-Host "  -> Bo qua $TargetPath (da ton tai)" -ForegroundColor Yellow
+        return
     }
+    Write-Host "  -> Bo qua $TargetPath (da ton tai)" -ForegroundColor Yellow
 }
 
 # 11. Ghi file cau hinh
@@ -922,19 +936,28 @@ if (Test-Path $sourceAgents) {
     }
 }
 
-# Tich hop huong dan Memorix vao AGENTS.md neu duoc kich hoat
+# Tich hop / go bo huong dan Memorix trong AGENTS.md
+$memSectionPath = Join-Path $templatesDir "memorix-agents-section.md"
 if ($installMemorix) {
-    $memSectionPath = Join-Path $templatesDir "memorix-agents-section.md"
     if (Test-Path $memSectionPath) {
         Write-Host "  -> Tich hop huong dan Memorix vao $targetAgents..." -ForegroundColor Green
         if (-not $DryRun -and (Test-Path $targetAgents)) {
             $memSectionContent = Get-Content -Path $memSectionPath -Raw -Encoding UTF8
             $currentAgentsContent = Get-Content -Path $targetAgents -Raw -Encoding UTF8
-            if ($currentAgentsContent -notmatch "Memorix.*Memory Tools") {
+            if ($currentAgentsContent -notmatch "Memorix.*Memory Tools" -and $currentAgentsContent -notmatch "(?m)^#+ Memorix") {
                 Add-Content -Path $targetAgents -Value "`r`n$memSectionContent" -Encoding UTF8
             }
         } else {
             Write-Host "  -> [WhatIf] Ghi them vao: $targetAgents" -ForegroundColor DarkGray
+        }
+    }
+} else {
+    if (-not $DryRun -and (Test-Path $targetAgents)) {
+        $currentAgentsContent = Get-Content -Path $targetAgents -Raw -Encoding UTF8
+        if ($currentAgentsContent -match "Memorix.*Memory Tools" -or $currentAgentsContent -match "(?m)^#+ Memorix") {
+            Write-Host "  -> Go bo huong dan Memorix khoi $targetAgents..." -ForegroundColor Yellow
+            $cleaned = [regex]::Replace($currentAgentsContent, '(?ms)\r?\n(?:---\r?\n\r?\n)?#+ Memorix.*?(?=(?:\r?\n<!-- agency-agents-section -->|\r?\n#+ Using Agency Agents MCP|\z))', '')
+            [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }
 }

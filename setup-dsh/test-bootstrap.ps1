@@ -176,6 +176,39 @@ try {
     if ($yamlRaw4.Contains("__AI_BASE_URL__") -or $yamlRaw4.Contains("__JIRA_URL__") -or $yamlRaw4.Contains("__GITNEXUS_CONFIG__") -or $yamlRaw4.Contains("__CONTEXT7_CONFIG__") -or $yamlRaw4.Contains("__CLOAKBROWSER_SCRIPT__")) {
         throw "ASSERTION FAILED: In Test 4, unresolved placeholders found in cordis.patch.yml"
     }
+    # Test 5: Kiem tra Duplicate Guard va Removal Branch cho Memorix (Cordis + AGENTS.md)
+    Write-Host "`nRunning DSH bootstrap (Test 5: Duplicate Guard & Removal Branch for Memorix)" -ForegroundColor Cyan
+    $tempHome5 = Join-Path $env:TEMP ("dsh-home-test5-" + [System.Guid]::NewGuid().ToString("N"))
+    $tempProfile5 = Join-Path $env:TEMP ("dsh-profile-test5-" + [System.Guid]::NewGuid().ToString("N"))
+
+    # Bước 5.1: Cài đặt với -EnableMemorix
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -EnableMemorix -DshHome $tempHome5 -DshProfileDir $tempProfile5 -CredentialsPath $tempCreds
+    $agentsPath5 = Join-Path $tempHome5 "AGENTS.md"
+    $cordisPath5 = Join-Path $tempProfile5 "cordis.patch.yml"
+    $agentsRaw5 = Get-Content $agentsPath5 -Raw
+    $cordisRaw5 = Get-Content $cordisPath5 -Raw
+    if (-not $agentsRaw5.Contains("Memorix") -or -not $cordisRaw5.Contains("mcp-memorix")) {
+        throw "ASSERTION FAILED: Test 5.1 - Missing memorix in AGENTS.md or cordis.patch.yml"
+    }
+
+    # Bước 5.2: Idempotent - chạy lại -EnableMemorix, section Memorix trong AGENTS.md không bị lặp
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -EnableMemorix -DshHome $tempHome5 -DshProfileDir $tempProfile5 -CredentialsPath $tempCreds
+    $agentsRaw5b = Get-Content $agentsPath5 -Raw
+    $memCount = ([regex]::Matches($agentsRaw5b, "(?m)^#+ Memorix")).Count
+    if ($memCount -ne 1) {
+        throw "ASSERTION FAILED: Test 5.2 - Memorix section in AGENTS.md duplicated (count=$memCount)"
+    }
+
+    # Bước 5.3: Removal - chạy với -DisableMemorix, cordis.patch.yml phải bị gỡ mcp-memorix và AGENTS.md phải bị gỡ section Memorix
+    & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -SkipInstall -Force -DisableMemorix -DshHome $tempHome5 -DshProfileDir $tempProfile5 -CredentialsPath $tempCreds
+    $agentsRaw5c = Get-Content $agentsPath5 -Raw
+    $cordisRaw5c = Get-Content $cordisPath5 -Raw
+    if ($cordisRaw5c.Contains("mcp-memorix") -or $cordisRaw5c.Contains("serverName: memorix")) {
+        throw "ASSERTION FAILED: Test 5.3 - cordis.patch.yml still contains mcp-memorix under -DisableMemorix"
+    }
+    if ($agentsRaw5c -match "(?m)^#+ Memorix" -or $agentsRaw5c.Contains("Memorix — Memory Tools")) {
+        throw "ASSERTION FAILED: Test 5.3 - AGENTS.md still contains Memorix section under -DisableMemorix"
+    }
 
     Write-Host "`nAll isolated tests passed successfully!" -ForegroundColor Green
 }
@@ -201,5 +234,7 @@ finally {
     if ($tempProfile2) { Safe-Trash $tempProfile2 }
     if ($tempProfile3) { Safe-Trash $tempProfile3 }
     if ($tempProfile4) { Safe-Trash $tempProfile4 }
+    if ($tempHome5) { Safe-Trash $tempHome5 }
+    if ($tempProfile5) { Safe-Trash $tempProfile5 }
     Safe-Trash $tempCredsDir
 }
