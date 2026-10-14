@@ -7,6 +7,8 @@ param(
     [switch]$OverwriteAll,
     [switch]$EnableMemorix,
     [switch]$DisableMemorix,
+    [switch]$EnableAgency,
+    [switch]$DisableAgency,
     [string]$AgencyPath = "C:\nvm4w\nodejs\agency-mcp-server.cmd",
     [string]$AgyDir = "$env:USERPROFILE\.gemini\antigravity-cli",
     [string]$AgySettings = "",
@@ -76,6 +78,24 @@ function Confirm-McpInstall {
     }
     return $false
 }
+function Confirm-Agency {
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong cai dat MCP 'agency'." -ForegroundColor Cyan
+        return $true
+    }
+    if ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP 'agency'." -ForegroundColor DarkGray
+        return $false
+    }
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        return $false
+    }
+    $choice = Read-Host "[?] Cai dat MCP 'agency' (multi-agent orchestration)? [y/N]"
+    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
+        return $true
+    }
+    return $false
+}
 
 # 1. Xu ly lua chon Memorix
 if ($EnableMemorix.IsPresent -and $DisableMemorix.IsPresent) {
@@ -96,6 +116,46 @@ if (-not $PSBoundParameters.ContainsKey('EnableMemorix') -and -not $PSBoundParam
     $installMemorix = $EnableMemorix.IsPresent
 }
 
+$shouldSetupHook = $false
+if ($EnableMemorix) {
+    if ($Force -or $OverwriteAll) {
+        Write-Host "  -> [Force] Tu dong cai dat Hook tich hop Memorix vao Antigravity." -ForegroundColor Cyan
+        $shouldSetupHook = $true
+    } elseif ($DryRun) {
+        Write-Host "  -> [WhatIf] Bo qua prompt cai dat Hook Memorix." -ForegroundColor DarkGray
+        $shouldSetupHook = $false
+    } elseif (-not [Environment]::UserInteractive -or $env:CI -or $SkipInstall) {
+        $shouldSetupHook = $false
+    } else {
+        $hookChoice = Read-Host "[?] Cai dat Hook tich hop Memorix vao Antigravity? [y/N]"
+        if (-not [string]::IsNullOrWhiteSpace($hookChoice) -and ($hookChoice.Trim().ToLower() -eq 'y' -or $hookChoice.Trim().ToLower() -eq 'yes')) {
+            $shouldSetupHook = $true
+        } else {
+            $shouldSetupHook = $false
+            Write-Host "Bo qua cai dat Hook tich hop Memorix theo lua chon nguoi dung." -ForegroundColor Yellow
+        }
+    }
+}
+
+# 1.1b Cau hinh Agency MCP flag
+if ($EnableAgency.IsPresent -and $DisableAgency.IsPresent) {
+    throw "Khong dung dong thoi -EnableAgency va -DisableAgency."
+}
+if (-not $PSBoundParameters.ContainsKey('EnableAgency') -and -not $PSBoundParameters.ContainsKey('DisableAgency')) {
+    $installAgency = Confirm-Agency
+    if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
+    if ($installAgency) {
+        $EnableAgency = $true
+    } else {
+        $DisableAgency = $true
+    }
+} elseif ($DisableAgency.IsPresent) {
+    $installAgency = $false
+    Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow
+} else {
+    $installAgency = $EnableAgency.IsPresent
+}
+
 # 2. Xac nhan cai dat cac MCP Server khac
 Write-Host "==> Xac nhan cai dat cac MCP Server khac..." -ForegroundColor Cyan
 $installAtlassian = Confirm-McpInstall -Name "company-atlassian"
@@ -112,10 +172,6 @@ if (-not $installGlab) { Write-Host "Skipped MCP 'glab' theo lua chon nguoi dung
 
 $installCloakbrowser = Confirm-McpInstall -Name "cloakbrowser"
 if (-not $installCloakbrowser) { Write-Host "Skipped MCP 'cloakbrowser' theo lua chon nguoi dung." -ForegroundColor Yellow }
-
-$installAgency = Confirm-McpInstall -Name "agency"
-if (-not $installAgency) { Write-Host "Skipped MCP 'agency' theo lua chon nguoi dung." -ForegroundColor Yellow }
-
 $isForce = $Force.IsPresent -or $OverwriteAll.IsPresent
 
 # 3. Load .env (neu khong co se tham chieu templates/.env.example)
@@ -215,18 +271,43 @@ foreach ($tool in @("node", "npm", "git")) {
 # 6. Cai dat / cap nhat cac MCP Server
 if ($EnableMemorix) {
     if (-not $SkipInstall) {
-        Write-Host "==> Installing/updating Memorix globally..." -ForegroundColor Cyan
-        if (-not $DryRun) {
-            try { npm install -g memorix } catch { Write-Warning "Cai dat Memorix gap loi: $($_.Exception.Message)" }
+        $skipNpmMemorix = $false
+        try {
+            if (Get-Command "memorix" -ErrorAction SilentlyContinue) {
+                $localVer = (memorix --version 2>$null | Out-String).Trim()
+                $remoteVer = (npm view memorix version 2>$null | Out-String).Trim()
+                if ($localVer -and $remoteVer -and ($localVer -eq $remoteVer)) {
+                    Write-Host "  -> Memorix da o phien ban moi nhat ($localVer), bo qua cai dat lai de tranh EBUSY." -ForegroundColor Green
+                    $skipNpmMemorix = $true
+                }
+            }
+        } catch {}
+
+        if (-not $skipNpmMemorix) {
+            Write-Host "==> Dang cai dat / cap nhat Memorix len phien ban moi nhat (npm install -g memorix)..." -ForegroundColor Cyan
+            if (-not $DryRun) {
+                try {
+                    $npmOut = npm install -g memorix 2>&1 | Out-String
+                    Write-Host $npmOut
+                    if ($LASTEXITCODE -ne 0 -or $npmOut -match "EBUSY") {
+                        if ($npmOut -match "EBUSY" -or $npmOut -match "lancedb\.node") {
+                            Write-Warning "Cai dat/cap nhat Memorix gap loi EBUSY: file lancedb.node dang bi tien trinh khac khoa. Vui long dong cac agent/terminal dang chay va chay lai bootstrap.ps1 sau. Tiep tuc cac buoc tiep theo..."
+                        } else {
+                            Write-Warning "Cai dat/cap nhat Memorix gap loi (Exit code $LASTEXITCODE): $npmOut"
+                        }
+                    }
+                } catch {
+                    $errStr = $_.ToString()
+                    if ($errStr -match "EBUSY" -or $errStr -match "lancedb\.node") {
+                        Write-Warning "Cai dat/cap nhat Memorix gap loi EBUSY: file lancedb.node dang bi tien trinh khac khoa. Vui long dong cac agent/terminal dang chay va chay lai bootstrap.ps1 sau. Tiep tuc cac buoc tiep theo..."
+                    } else {
+                        Write-Warning "Cai dat/cap nhat Memorix gap loi: $($_.Exception.Message)"
+                    }
+                }
+            }
         }
     }
-    $shouldSetupHook = $false
-    if (-not $DryRun -and [Environment]::UserInteractive -and -not $env:CI -and -not $SkipInstall) {
-        $hookChoice = Read-Host "[?] Cai dat Hook tich hop Memorix vao Antigravity? [y/N]"
-        if (-not [string]::IsNullOrWhiteSpace($hookChoice) -and ($hookChoice.Trim().ToLower() -eq 'y' -or $hookChoice.Trim().ToLower() -eq 'yes')) {
-            $shouldSetupHook = $true
-        }
-    }
+
     if ($shouldSetupHook) {
         Write-Host "==> Configuring memorix hook for antigravity..." -ForegroundColor Cyan
         $npmPrefix = ""
@@ -302,7 +383,102 @@ function Get-CloakBrowserInstallDir {
     param([string]$EnvVarName = "CLOAKBROWSER_DIR")
     $envVal = [Environment]::GetEnvironmentVariable($EnvVarName, "Process")
     if (-not [string]::IsNullOrWhiteSpace($envVal)) { return $envVal.Trim() }
-    return "$env:USERPROFILE\mcp-servers\cloakbrowser"
+
+    $drives = @()
+    try {
+        $rawDrives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq [System.IO.DriveType]::Fixed -and $_.IsReady }
+        foreach ($d in $rawDrives) {
+            $letter = $d.Name.TrimEnd('\')
+            if (-not $letter.EndsWith(':')) { $letter = "$letter`:" }
+            $freeGb = [math]::Round($d.AvailableFreeSpace / 1GB, 1)
+            $drives += [PSCustomObject]@{
+                Letter   = $letter
+                FreeGB   = $freeGb
+                FreeByte = $d.AvailableFreeSpace
+            }
+        }
+    } catch {}
+
+    if (-not $drives -or $drives.Count -eq 0) {
+        try {
+            $cimDrives = Get-CimInstance Win32_LogicalDisk -ErrorAction SilentlyContinue | Where-Object { $_.DriveType -eq 3 }
+            foreach ($d in $cimDrives) {
+                $letter = $d.DeviceID
+                $freeGb = [math]::Round($d.FreeSpace / 1GB, 1)
+                $drives += [PSCustomObject]@{
+                    Letter   = $letter
+                    FreeGB   = $freeGb
+                    FreeByte = $d.FreeSpace
+                }
+            }
+        } catch {
+            try {
+                $psDrives = Get-PSDrive -PSProvider FileSystem -ErrorAction SilentlyContinue | Where-Object { $_.Free -gt 0 }
+                foreach ($d in $psDrives) {
+                    $letter = "$($d.Name):"
+                    $freeGb = [math]::Round($d.Free / 1GB, 1)
+                    $drives += [PSCustomObject]@{
+                        Letter   = $letter
+                        FreeGB   = $freeGb
+                        FreeByte = $d.Free
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    if (-not $drives -or $drives.Count -eq 0) {
+        $fallback = "$env:USERPROFILE\mcp-servers\cloakbrowser"
+        Write-Host "  -> Khong phat hien duoc o dia, su dung thu muc mac dinh: $fallback" -ForegroundColor DarkGray
+        return $fallback
+    }
+
+    $defaultDrive = $drives | Where-Object { $_.Letter -eq 'D:' } | Select-Object -First 1
+    if (-not $defaultDrive) {
+        $defaultDrive = $drives | Sort-Object FreeByte -Descending | Select-Object -First 1
+    }
+    $defaultLetter = $defaultDrive.Letter
+
+    if ($env:CI -or -not [Environment]::UserInteractive) {
+        $autoDir = "$defaultLetter\mcp-servers\cloakbrowser"
+        Write-Host "  -> [Non-Interactive] Tu dong chon o $defaultLetter cho CloakBrowser: $autoDir" -ForegroundColor DarkGray
+        return $autoDir
+    }
+
+    $driveMenuLines = @()
+    $driveMenuLines += "`nDanh sach o dia kha dung:"
+    for ($i = 0; $i -lt $drives.Count; $i++) {
+        $dr = $drives[$i]
+        $isDefTag = if ($dr.Letter -eq $defaultLetter) { " (mac dinh)" } else { "" }
+        $driveMenuLines += "  [$($i + 1)] $($dr.Letter) - Dung luong trong: $($dr.FreeGB) GB$isDefTag"
+    }
+    $driveMenu = ($driveMenuLines -join "`n") + "`n"
+
+    $promptMsg = $driveMenu + "Chon so thu tu o dia muon luu CloakBrowser (mac dinh o $defaultLetter)"
+    $selectedLetter = $defaultLetter
+    try {
+        $inputVal = Read-Host $promptMsg
+        if (-not [string]::IsNullOrWhiteSpace($inputVal)) {
+            $choice = $inputVal.Trim()
+            $idx = 0
+            if ([int]::TryParse($choice, [ref]$idx) -and $idx -ge 1 -and $idx -le $drives.Count) {
+                $selectedLetter = $drives[$idx - 1].Letter
+            } else {
+                $normChoice = $choice.ToUpper().TrimEnd('\')
+                if (-not $normChoice.EndsWith(':')) { $normChoice = "$normChoice`:" }
+                $matchedDrive = $drives | Where-Object { $_.Letter -eq $normChoice } | Select-Object -First 1
+                if ($matchedDrive) {
+                    $selectedLetter = $matchedDrive.Letter
+                } else {
+                    Write-Host "Lua chon '$choice' khong hop le, su dung mac dinh $defaultLetter." -ForegroundColor Yellow
+                }
+            }
+        }
+    } catch {}
+
+    $finalDir = "$selectedLetter\mcp-servers\cloakbrowser"
+    Write-Host "  -> Da chon o dia: $selectedLetter (Thu muc: $finalDir)" -ForegroundColor Green
+    return $finalDir
 }
 
 function Setup-CloakBrowser {
@@ -342,8 +518,32 @@ if ($installCloakbrowser) {
 
 $absAgency = ""
 if ($installAgency) {
+    $existingAgency = $null
+    if (Test-Path -LiteralPath $AgencyPath) {
+        $existingAgency = $AgencyPath
+    } else {
+        $agencyLookup = Get-Command "agency-mcp-server.cmd" -ErrorAction SilentlyContinue
+        if (-not $agencyLookup) { $agencyLookup = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue }
+        if ($agencyLookup -and $agencyLookup.Source) { $existingAgency = $agencyLookup.Source }
+    }
+
+    if (-not $existingAgency -and -not $SkipInstall -and -not $DryRun) {
+        Write-Host "==> Dang cai dat agency-mcp-server (npm install -g agency-mcp-server)..." -ForegroundColor Cyan
+        try {
+            $npmAgencyOut = npm install -g agency-mcp-server 2>&1 | Out-String
+            Write-Host $npmAgencyOut
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning "Cai dat agency-mcp-server gap loi (Exit code $LASTEXITCODE): $npmAgencyOut"
+            }
+        } catch {
+            Write-Warning "Cai dat agency-mcp-server gap loi: $($_.Exception.Message)"
+        }
+    }
+
     $agencyCmd = $AgencyPath
-    if (-not (Test-Path -LiteralPath $agencyCmd)) {
+    if (Test-Path -LiteralPath $AgencyPath) {
+        $agencyCmd = $AgencyPath
+    } else {
         $foundAgency = Get-Command "agency-mcp-server.cmd" -ErrorAction SilentlyContinue
         if (-not $foundAgency) { $foundAgency = Get-Command "agency-mcp-server" -ErrorAction SilentlyContinue }
         if ($foundAgency -and $foundAgency.Source) {

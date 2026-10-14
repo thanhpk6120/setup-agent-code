@@ -25,6 +25,11 @@ function Safe-Trash-Test {
 $tempDir = Join-Path $env:TEMP ("opencode-test-" + [System.Guid]::NewGuid().ToString("N"))
 $tempDir2 = Join-Path $env:TEMP ("opencode-test2-" + [System.Guid]::NewGuid().ToString("N"))
 $tempDir3 = Join-Path $env:TEMP ("opencode-test3-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDirInteractive = Join-Path $env:TEMP ("opencode-test-interactive-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDirEbusy = Join-Path $env:TEMP ("opencode-test-ebusy-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDirSkip = Join-Path $env:TEMP ("opencode-test-skip-" + [System.Guid]::NewGuid().ToString("N"))
+$mockSkipDir = $null
+$mockEbusyDir = $null
 
 try {
     $env:AI_BASE_URL = "https://test.local"
@@ -221,6 +226,88 @@ try {
         throw "ASSERTION FAILED: AGENTS.md should NOT contain agency section when -DisableAgency"
     }
 
+    # =========================================================================
+    # Test 4: Interactive input pipeline: thu tu prompt, wording agency, drive list
+    # =========================================================================
+    Write-Host "`n[Test 4] Interactive input pipeline: thu tu prompt, wording agency, drive list..." -ForegroundColor Cyan
+    $inputs = @(
+        'y', # Cai dat MCP memorix
+        'y', # Cai dat Hook tich hop Memorix vao OpenCode (ngay sau memorix)
+        'y', # Cai dat MCP agency
+        'n', # Cai dat MCP company-atlassian
+        'n', # Cai dat MCP gitnexus
+        'n', # Cai dat MCP context7
+        'n', # Cai dat MCP glab
+        'y', # Cai dat MCP cloakbrowser
+        '1'  # Chon so thu tu o dia muon luu CloakBrowser
+    )
+
+    $interactiveCmd = "function global:Read-Host { param([string]`$p); Write-Host `$p; return [Console]::ReadLine() }; `$env:CI = ''; `$env:CLOAKBROWSER_DIR = ''; `$env:Path = '$mockBinDir;' + `$env:Path; `$env:AI_BASE_URL = 'https://test.local'; `$env:AI_API_KEY = 'k'; `$env:JIRA_URL = 'https://test.jira'; `$env:JIRA_PERSONAL_TOKEN = 't'; `$env:CONFLUENCE_URL = 'https://test.conf'; `$env:CONFLUENCE_PERSONAL_TOKEN = 't'; `$env:CONTEXT7_API_KEY = 't'; & '$PSScriptRoot\bootstrap.ps1' -DryRun:`$false -OpenCodeDir '$tempDirInteractive'"
+
+    $procOut = $inputs | pwsh -NoProfile -Command $interactiveCmd 2>&1
+    $procText = ($procOut | Out-String)
+
+    # 1. Assert wording agency moi
+    if ($procText -notmatch "\[\?\] Cai dat MCP 'agency' \(multi-agent orchestration\)\? \[y/N\]") {
+        throw "ASSERTION FAILED: Missing or incorrect agency prompt wording. Output:`n$procText"
+    }
+
+    # 2. Assert thu tu: hook ngay sau MCP memorix, truoc agency
+    $idxMem = $procText.IndexOf("[?] Cai dat MCP 'memorix'?")
+    $idxHook = $procText.IndexOf("[?] Cai dat Hook tich hop Memorix vao OpenCode?")
+    $idxAgency = $procText.IndexOf("[?] Cai dat MCP 'agency' (multi-agent orchestration)?")
+    if ($idxMem -lt 0 -or $idxHook -lt 0 -or $idxAgency -lt 0) {
+        throw "ASSERTION FAILED: Missing prompts in interactive test. Output:`n$procText"
+    }
+    if (-not ($idxMem -lt $idxHook -and $idxHook -lt $idxAgency)) {
+        throw "ASSERTION FAILED: Hook prompt must immediately follow memorix install prompt and precede agency prompt"
+    }
+
+    # 3. Assert danh sach o dia CloakBrowser
+    if ($procText -notmatch "(?s)Danh sach o dia kha dung:.*Chon so thu tu o dia muon luu CloakBrowser") {
+        throw "ASSERTION FAILED: CloakBrowser drive selection prompt missing or incorrect. Output:`n$procText"
+    }
+
+    # =========================================================================
+    # Test 5: EBUSY / lancedb.node resilience: warn va tiep tuc, KHONG throw
+    # =========================================================================
+    Write-Host "`n[Test 5] Kiem tra EBUSY resilience tren npm install -g memorix..." -ForegroundColor Cyan
+    $mockEbusyDir = Join-Path $env:TEMP ("opencode-mock-ebusy-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $mockEbusyDir | Out-Null
+    Set-Content -Path (Join-Path $mockEbusyDir "npm.cmd") -Value "@echo off`nif `"%1`"==`"install`" (echo npm error code EBUSY & echo npm error syscall unlink & echo npm error path C:\nvm4w\nodejs\node_modules\memorix\node_modules\@lancedb\vectordb-win32-x64-msvc\lancedb.node & exit /b 1)`nif `"%1`"==`"root`" if `"%2`"==`"-g`" (echo $mockNpmDir& exit /b 0)`nexit /b 0"
+    Set-Content -Path (Join-Path $mockEbusyDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+    Set-Content -Path (Join-Path $mockEbusyDir "memorix.cmd") -Value "@echo off`necho memorix"
+    Set-Content -Path (Join-Path $mockEbusyDir "agency-mcp-server.cmd") -Value "@echo off`necho agency"
+
+    $ebusyCmd = "`$env:Path = '$mockEbusyDir;' + `$env:Path; & '$PSScriptRoot\bootstrap.ps1' -DryRun:`$false -Force -EnableMemorix -OpenCodeDir '$tempDirEbusy'"
+    $ebusyOut = pwsh -NoProfile -Command $ebusyCmd 2>&1
+    $ebusyText = ($ebusyOut | Out-String)
+    if ($LASTEXITCODE -ne 0) {
+        throw "ASSERTION FAILED: bootstrap aborted on EBUSY (ExitCode=$LASTEXITCODE). Output:`n$ebusyText"
+    }
+    if ($ebusyText -notmatch "Cai dat/cap nhat Memorix gap loi EBUSY: file lancedb\.node dang bi tien trinh khac khoa") {
+        throw "ASSERTION FAILED: Missing clear EBUSY warning message. Output:`n$ebusyText"
+    }
+    # =========================================================================
+    # Test 6: Skip memorix install when already latest version
+    # =========================================================================
+    Write-Host "`n[Test 6] Skip memorix install when version is latest..." -ForegroundColor Cyan
+    $mockSkipDir = Join-Path $env:TEMP ("opencode-mock-skip-" + [System.Guid]::NewGuid().ToString("N"))
+    New-Item -ItemType Directory -Force -Path $mockSkipDir | Out-Null
+    Set-Content -Path (Join-Path $mockSkipDir "memorix.cmd") -Value "@echo off`nif `"%1`"==`"--version`" (echo 1.5.0& exit /b 0)`necho memorix"
+    Set-Content -Path (Join-Path $mockSkipDir "npm.cmd") -Value "@echo off`nif `"%1`"==`"view`" if `"%2`"==`"memorix`" if `"%3`"==`"version`" (echo 1.5.0& exit /b 0)`nif `"%1`"==`"install`" if `"%3`"==`"memorix`" (echo FAIL_SHOULD_NOT_INSTALL& exit /b 1)`nif `"%1`"==`"root`" if `"%2`"==`"-g`" (echo $mockNpmDir& exit /b 0)`nexit /b 0"
+    Set-Content -Path (Join-Path $mockSkipDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+    Set-Content -Path (Join-Path $mockSkipDir "agency-mcp-server.cmd") -Value "@echo off`necho agency"
+
+    $skipCmd = "`$env:Path = '$mockSkipDir;' + `$env:Path; & '$PSScriptRoot\bootstrap.ps1' -DryRun:`$false -Force -EnableMemorix -OpenCodeDir '$tempDirSkip'"
+    $skipOut = pwsh -NoProfile -Command $skipCmd 2>&1
+    $skipText = ($skipOut | Out-String)
+    if ($skipText -notmatch "Memorix da moi nhat, bo qua cai dat") {
+        throw "ASSERTION FAILED: Expected skip message when memorix is latest. Output:`n$skipText"
+    }
+    if ($skipText -match "FAIL_SHOULD_NOT_INSTALL") {
+        throw "ASSERTION FAILED: npm install was called despite memorix being latest. Output:`n$skipText"
+    }
     Write-Host "`nAll isolated tests passed successfully for setup-opencode!" -ForegroundColor Green
 }
 finally {
@@ -229,4 +316,9 @@ finally {
     Safe-Trash-Test -Path $tempDir2
     Safe-Trash-Test -Path $mockBinDir
     Safe-Trash-Test -Path $tempDir3
+    Safe-Trash-Test -Path $tempDirInteractive
+    Safe-Trash-Test -Path $tempDirEbusy
+    Safe-Trash-Test -Path $tempDirSkip
+    if ($mockSkipDir) { Safe-Trash-Test -Path $mockSkipDir }
+    if ($mockEbusyDir) { Safe-Trash-Test -Path $mockEbusyDir }
 }

@@ -35,7 +35,11 @@ $tempDir2 = Join-Path $env:TEMP ("omp-test-force-" + [System.Guid]::NewGuid().To
 $mockBinDir = Join-Path $env:TEMP ("omp-mock-bin-" + [System.Guid]::NewGuid().ToString("N"))
 $mockNpmDir = Join-Path $env:TEMP ("omp-mock-npm-" + [System.Guid]::NewGuid().ToString("N"))
 $tempDir3 = Join-Path $env:TEMP ("omp-test-agency-" + [System.Guid]::NewGuid().ToString("N"))
-
+$tempDirInteractive = Join-Path $env:TEMP ("omp-test-interactive-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDirEbusy = Join-Path $env:TEMP ("omp-test-ebusy-" + [System.Guid]::NewGuid().ToString("N"))
+$mockEbusyDir = Join-Path $env:TEMP ("omp-mock-ebusy-" + [System.Guid]::NewGuid().ToString("N"))
+$tempDirMemSkip = Join-Path $env:TEMP ("omp-test-memskip-" + [System.Guid]::NewGuid().ToString("N"))
+$mockMemSkipDir = Join-Path $env:TEMP ("omp-mock-memskip-" + [System.Guid]::NewGuid().ToString("N"))
 $oldPath = $env:Path
 
 try {
@@ -57,8 +61,10 @@ try {
     Write-Host "`n[Buoc 2/5] Mock moi truong gitnexus va context7 de test co lap hoan toan..." -ForegroundColor Cyan
     New-Item -ItemType Directory -Force -Path $mockBinDir | Out-Null
     Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+    Set-Content -Path (Join-Path $mockBinDir "memorix.cmd") -Value "@echo off`necho memorix mock"
+    Set-Content -Path (Join-Path $mockBinDir "agency-mcp-server.cmd") -Value "@echo off`necho agency mock"
+    Set-Content -Path (Join-Path $mockBinDir "npm.cmd") -Value "@echo off`necho npm mock"
     $env:Path = "$mockBinDir;$env:Path"
-
     $mockContext7Path = Join-Path $mockNpmDir "@upstash\context7-mcp\dist"
     New-Item -ItemType Directory -Force -Path $mockContext7Path | Out-Null
     Set-Content -Path (Join-Path $mockContext7Path "index.js") -Value "// mock"
@@ -256,7 +262,155 @@ try {
     if ($mcpObj1.mcpServers.agency) {
         throw "ASSERTION FAILED: mcp.json unexpectedly contains 'agency' without -EnableAgency"
     }
+    # =========================================================================
+    # Test 5: Interactive input pipeline: thu tu prompt, wording agency, drive list
+    # =========================================================================
+    Write-Host "`n[Test 5] Interactive input pipeline: thu tu prompt, wording agency, drive list..." -ForegroundColor Cyan
+    $inputs = @(
+        'y', # Cai dat MCP memorix
+        'y', # Cai dat Hook tich hop Memorix vao OMP (ngay sau memorix)
+        'y', # Cai dat MCP agency
+        'n', # Cai dat MCP company-atlassian
+        'n', # Cai dat MCP gitnexus
+        'n', # Cai dat MCP context7
+        'n', # Cai dat MCP glab
+        'y', # Cai dat MCP cloakbrowser
+        '1'  # Chon so thu tu o dia muon luu CloakBrowser
+    )
 
+    $interactiveCmd = "function global:Read-Host { param([string]`$p); Write-Host `$p; return [Console]::ReadLine() }; `$env:CI = ''; `$env:Path = '$mockBinDir;' + `$env:Path; `$env:AI_BASE_URL = 'https://test.local'; `$env:AI_API_KEY = 'k'; `$env:JIRA_URL = 'https://test.jira'; `$env:JIRA_PERSONAL_TOKEN = 't'; `$env:CONFLUENCE_URL = 'https://test.conf'; `$env:CONFLUENCE_PERSONAL_TOKEN = 't'; `$env:CONTEXT7_API_KEY = 't'; & '$PSScriptRoot\bootstrap.ps1' -DryRun:`$false -OmpDir '$tempDirInteractive'"
+
+    $procOut = $inputs | pwsh -NoProfile -Command $interactiveCmd 2>&1
+    $procText = ($procOut | Out-String)
+
+    # 1. Assert wording agency moi
+    if ($procText -notmatch "\[\?\] Cai dat MCP 'agency' \(multi-agent orchestration\)\? \[y/N\]") {
+        throw "ASSERTION FAILED: Missing or incorrect agency prompt wording. Output:`n$procText"
+    }
+
+    # 2. Assert thu tu: hook ngay sau MCP memorix, truoc agency
+    $idxMem = $procText.IndexOf("[?] Cai dat MCP 'memorix'? [y/N]")
+    $idxHook = $procText.IndexOf("[?] Cai dat Hook tich hop Memorix vao OMP? [y/N]")
+    $idxAgency = $procText.IndexOf("[?] Cai dat MCP 'agency' (multi-agent orchestration)? [y/N]")
+
+    if ($idxMem -lt 0) { throw "ASSERTION FAILED: Memorix prompt not found in interactive output" }
+    if ($idxHook -lt 0) { throw "ASSERTION FAILED: Memorix hook prompt not found in interactive output" }
+    if ($idxAgency -lt 0) { throw "ASSERTION FAILED: Agency prompt not found in interactive output" }
+
+    if (-not ($idxMem -lt $idxHook -and $idxHook -lt $idxAgency)) {
+        throw "ASSERTION FAILED: Prompt order violated! Expected: Memorix ($idxMem) < Hook ($idxHook) < Agency ($idxAgency)"
+    }
+
+    # 3. Assert drive list co hien thi truoc prompt chon o CloakBrowser
+    if ($procText -notmatch "Danh sach o dia kha dung") {
+        throw "ASSERTION FAILED: CloakBrowser drive list was not displayed before prompt"
+    }
+    if ($procText -notmatch "Dung luong trong:") {
+        throw "ASSERTION FAILED: CloakBrowser drive list missing free space details"
+    }
+    if ($procText -notmatch "Da chon o dia:") {
+        throw "ASSERTION FAILED: Selected drive log line 'Da chon o dia:' not found"
+    }
+
+    # 4. Kiem tra mcp.json sinh ra hop le
+    $mcpObj5 = (Get-Content (Join-Path $tempDirInteractive "mcp.json") -Raw) | ConvertFrom-Json
+    if (-not $mcpObj5.mcpServers.memorix) {
+        throw "ASSERTION FAILED: Interactive mcp.json missing memorix"
+    }
+    if (-not $mcpObj5.mcpServers.agency) {
+        throw "ASSERTION FAILED: Interactive mcp.json missing agency"
+    }
+    if (-not $mcpObj5.mcpServers.cloakbrowser) {
+        throw "ASSERTION FAILED: Interactive mcp.json missing cloakbrowser"
+    }
+    if ($mcpObj5.mcpServers.'company-atlassian') {
+        throw "ASSERTION FAILED: company-atlassian should have been skipped in interactive test"
+    }
+    Write-Host "  -> Interactive pipeline test PASS: Thu tu prompt, wording agency, drive list hop le." -ForegroundColor Green
+
+    # =========================================================================
+    # Test 6: Assert npm EBUSY khong abort bootstrap
+    # =========================================================================
+    Write-Host "`n[Test 6] Assert npm EBUSY khong abort bootstrap..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $mockEbusyDir | Out-Null
+    $mockNpmContent = @'
+@echo off
+set "CMD_ARGS=%*"
+echo %CMD_ARGS% | findstr /i "memorix" >nul
+if %ERRORLEVEL% equ 0 (
+    echo npm error code EBUSY
+    echo npm error syscall unlink
+    echo npm error path C:\mock\lancedb.node
+    exit /b 1
+)
+exit /b 0
+'@
+    Set-Content -Path (Join-Path $mockEbusyDir "npm.cmd") -Value $mockNpmContent
+
+    $prevEnvPath = $env:Path
+    try {
+        $env:Path = "$mockEbusyDir;$prevEnvPath"
+        $ebusyOutput = & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -Force -EnableMemorix -OmpDir $tempDirEbusy *>&1 | Out-String
+
+        if (-not (Test-Path (Join-Path $tempDirEbusy "mcp.json"))) {
+            throw "ASSERTION FAILED: bootstrap aborted on npm EBUSY; mcp.json was not created"
+        }
+        if (-not (Test-Path (Join-Path $tempDirEbusy "models.yml"))) {
+            throw "ASSERTION FAILED: bootstrap aborted on npm EBUSY; models.yml was not created"
+        }
+        if (-not (Test-Path (Join-Path $tempDirEbusy "config.yml"))) {
+            throw "ASSERTION FAILED: bootstrap aborted on npm EBUSY; config.yml was not created"
+        }
+
+        if ($ebusyOutput -notmatch "EBUSY" -or $ebusyOutput -notmatch "lancedb\.node") {
+            throw "ASSERTION FAILED: Warning for EBUSY/lancedb.node was not logged in output.`n$ebusyOutput"
+        }
+        Write-Host "  -> npm EBUSY da duoc xu ly thanh cong (logged warning va tiep tuc hoan tat bootstrap)." -ForegroundColor Green
+    } finally {
+        $env:Path = $prevEnvPath
+    }
+
+    # =========================================================================
+    # Test 7: Assert Memorix version check skips install when already latest
+    # =========================================================================
+    Write-Host "`n[Test 7] Assert Memorix version check skips install when already latest..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $mockMemSkipDir | Out-Null
+    Set-Content -Path (Join-Path $mockMemSkipDir "memorix.cmd") -Value "@echo off`necho 1.2.3"
+    $mockNpmSkipContent = @'
+@echo off
+set "CMD_ARGS=%*"
+echo %CMD_ARGS% | findstr /i "view memorix version" >nul
+if %ERRORLEVEL% equ 0 (
+    echo 1.2.3
+    exit /b 0
+)
+echo %CMD_ARGS% | findstr /i "install.*memorix" >nul
+if %ERRORLEVEL% equ 0 (
+    echo [ERROR] npm install should NOT be called when memorix is already latest!
+    exit /b 1
+)
+exit /b 0
+'@
+    Set-Content -Path (Join-Path $mockMemSkipDir "npm.cmd") -Value $mockNpmSkipContent
+
+    $prevEnvPath2 = $env:Path
+    try {
+        $env:Path = "$mockMemSkipDir;$prevEnvPath2"
+        $skipMemOutput = & "$PSScriptRoot\bootstrap.ps1" -DryRun:$false -Force -EnableMemorix -OmpDir $tempDirMemSkip *>&1 | Out-String
+
+        if ($skipMemOutput -notmatch "Memorix da o phien ban moi nhat \(1\.2\.3\), bo qua cai dat\.") {
+            throw "ASSERTION FAILED: Memorix latest-version skip log not found.`n$skipMemOutput"
+        }
+        if ($skipMemOutput -match "\[ERROR\] npm install should NOT be called") {
+            throw "ASSERTION FAILED: npm install was called despite memorix being up-to-date.`n$skipMemOutput"
+        }
+        if (-not (Test-Path (Join-Path $tempDirMemSkip "mcp.json"))) {
+            throw "ASSERTION FAILED: mcp.json was not created in Memorix skip test"
+        }
+        Write-Host "  -> Memorix version check PASS: Bo qua cai dat thanh cong khi da o phien ban moi nhat." -ForegroundColor Green
+    } finally {
+        $env:Path = $prevEnvPath2
+    }
     Write-Host "`n================================================================" -ForegroundColor Green
     Write-Host "   TAT CA CAC BAI TEST CO LAP CHO SETUP-OMP DEU DA PASS!       " -ForegroundColor Green
     Write-Host "================================================================" -ForegroundColor Green
@@ -269,5 +423,10 @@ finally {
     Safe-Trash -Path $mockBinDir
     Safe-Trash -Path $mockNpmDir
     Safe-Trash -Path $tempDir3
+    Safe-Trash -Path $tempDirInteractive
+    Safe-Trash -Path $tempDirEbusy
+    Safe-Trash -Path $mockEbusyDir
+    Safe-Trash -Path $tempDirMemSkip
+    Safe-Trash -Path $mockMemSkipDir
 }
 
