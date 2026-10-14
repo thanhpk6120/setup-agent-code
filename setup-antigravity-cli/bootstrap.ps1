@@ -582,7 +582,11 @@ if (Test-Path $srcHooks) {
 }
 
 # Sao chep AGENTS.md
-$srcAgents = Join-Path $PSScriptRoot "AGENTS.md"
+$templatesDir = Join-Path $PSScriptRoot "templates"
+$srcAgents = Join-Path $templatesDir "AGENTS.md"
+if (-not (Test-Path $srcAgents)) {
+    $srcAgents = Join-Path $PSScriptRoot "AGENTS.md"
+}
 $targetAgents = Join-Path $AgyDir "AGENTS.md"
 if (Test-Path $srcAgents) {
     if (Test-Path $targetAgents) {
@@ -636,18 +640,20 @@ if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $memSectionPat
 # Tich hop / go bo huong dan Agency trong AGENTS.md
 $agencySectionPath = Join-Path $PSScriptRoot "templates\agency-agents-section.md"
 if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $agencySectionPath)) {
-    $agencyMarker = "Su dung Agency Agents MCP"
+    $agencyMarker = "<!-- agency-agents-section -->"
+    $legacyAgencyMarker = "Su dung Agency Agents MCP"
     $currentAgents = Get-Content -Path $targetAgents -Raw -Encoding UTF8
     if ($installAgency) {
-        if ($currentAgents -notmatch [regex]::Escape($agencyMarker)) {
+        if ($currentAgents -notmatch [regex]::Escape($agencyMarker) -and $currentAgents -notmatch [regex]::Escape($legacyAgencyMarker) -and $currentAgents -notmatch "## Using Agency Agents MCP" -and $currentAgents -notmatch "## Agency: Multi-Agent Orchestration") {
             Write-Host "  -> Tich hop huong dan Agency vao $targetAgents..." -ForegroundColor Green
             $agencySectionContent = Get-Content -Path $agencySectionPath -Raw -Encoding UTF8
             Add-Content -Path $targetAgents -Value ("`r`n" + $agencySectionContent) -Encoding UTF8
         }
     } else {
-        if ($currentAgents -match [regex]::Escape($agencyMarker)) {
+        if ($currentAgents -match [regex]::Escape($agencyMarker) -or $currentAgents -match [regex]::Escape($legacyAgencyMarker) -or $currentAgents -match "## Using Agency Agents MCP" -or $currentAgents -match "## Agency: Multi-Agent Orchestration") {
             Write-Host "  -> Go bo huong dan Agency khoi $targetAgents..." -ForegroundColor Yellow
-            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Su dung Agency Agents MCP.*\z", "")
+            $cleaned = [regex]::Replace($currentAgents, '(?s)\r?\n?<!-- agency-agents-section -->.*?<!-- /agency-agents-section -->', '')
+            $cleaned = [regex]::Replace($cleaned, "(?ms)\r?\n## (?:Using Agency Agents MCP|Su dung Agency Agents MCP|Agency: Multi-Agent Orchestration).*\z", "")
             [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }

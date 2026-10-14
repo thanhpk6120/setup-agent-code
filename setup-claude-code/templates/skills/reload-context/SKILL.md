@@ -1,117 +1,117 @@
 ---
 name: reload-context
-description: Use when the user says compact xong, mất context, nạp lại instruction, restore session, or after context compaction, session reset, /clear, or starting a new session in an existing workspace to reload and verify instructions and project state.
+description: Use when the user says compaction completed, lost context, reload instructions, restore session, or after context compaction, session reset, /clear, or starting a new session in an existing workspace to reload and verify instructions and project state.
 ---
 
 # Reload Context
 
-**Goal:** Khôi phục toàn bộ ngữ cảnh vận hành (system instructions, global rules, project architecture, skills index, runtime config và git state) ngay lập tức sau khi session bị compact, mất context, clear session, hoặc mở phiên làm việc mới trên workspace hiện tại.
+**Goal:** Restore complete operational context (system instructions, global rules, project architecture, skills index, runtime config, and git state) immediately after session compaction, lost context, cleared session, or when starting a new session in an existing workspace.
 
-**Khi nào chạy:**
-- Ngay sau khi compaction tự động diễn ra (`compact xong`, `snapcompact`).
-- Khi user thông báo agent bị quên ngữ cảnh, hallucinate hoặc `mất context`.
-- Khi user yêu cầu `nạp lại instruction` hoặc `restore session`.
-- Ngay khi bắt đầu một phiên làm việc mới trong workspace đã có sẵn tài liệu/source code.
+**When to run:**
+- Immediately after automatic compaction takes place (`compact xong`, `snapcompact`).
+- When the user reports the agent lost context, is hallucinating, or experienced context loss.
+- When the user requests `reload instructions` or `restore session`.
+- Immediately upon starting a new session in a workspace with existing documentation/source code.
 
 **Input:**
 - Project root instructions: `AGENTS.md`, `RULES.md`.
-- Project template / role (nếu có): `SYSTEM.md`.
-- Skills catalog: danh mục `skills/*/SKILL.md`.
+- Project template / role (if present): `SYSTEM.md`.
+- Skills catalog: directory `skills/*/SKILL.md`.
 - Runtime configuration:
   - OMP: `~/.omp/agent/config.json`, `~/.omp/agent/mcp.json`, `bootstrap.ps1`.
   - DSH: `~/.dsh/`, `cordis.patch.yml`.
-- Working tree state: kết quả từ `git status` và `git diff --stat`.
+- Working tree state: output from `git status` and `git diff --stat`.
 
 **Output:**
-- Checklist xác nhận các thành phần ngữ cảnh đã được nạp thành công.
-- Tóm tắt ngắn gọn trạng thái hiện tại (Branch, Dirty files, Active tickets/tasks nếu có).
-- Ready state để tiếp tục nhận lệnh mà không vi phạm quy tắc.
+- Checklist confirming context components loaded successfully.
+- Brief summary of current state (Branch, Dirty files, Active tickets/tasks if applicable).
+- Ready state to continue receiving commands without rule violations.
 
 ---
 
-## 1. Nguồn chân lý (Source of Truth Hierarchy)
+## 1. Source of Truth Hierarchy
 
-Khi nạp lại ngữ cảnh, agent phải tuân thủ thứ tự ưu tiên của các nguồn tài liệu:
+When reloading context, the agent must adhere to the document precedence order:
 
-1. **`RULES.md`**: Global hard rules, Precedence rule, Pre-flight prefix requirement, MCP routing, quy tắc bảo toàn dữ liệu (Recycle Bin / Trash).
+1. **`RULES.md`**: Global hard rules, Precedence rule, Pre-flight prefix requirement, MCP routing, data preservation rules (Recycle Bin / Trash).
 2. **`AGENTS.md`**: Project overview, Service registry, Layer read order, Tech stack, Task classification tier (1/2/3), Delegation logic, Quick rules.
-3. **`SYSTEM.md`** (nếu có): Project guide template hoặc root specification khi dự án chưa hoàn thiện `AGENTS.md`.
-4. **`docs/ARCHITECTURE.md` & `docs/specs/*.md`** (nếu có docs repo): Bản đồ kiến trúc dịch vụ và đặc tả nghiệp vụ chi tiết.
-5. **`skills/*/SKILL.md`**: Index các kỹ năng chuyên biệt đã đăng ký trong workspace.
-6. **Runtime config (`bootstrap.ps1`, `mcp.json`)**: Công cụ MCP và model roles đang hoạt động.
-7. **`git status`**: Thực tế working tree tại thời điểm hiện tại.
+3. **`SYSTEM.md`** (if present): Project guide template or root specification when `AGENTS.md` has not been finalized.
+4. **`docs/ARCHITECTURE.md` & `docs/specs/*.md`** (if docs repo exists): Service architecture map and detailed business specifications.
+5. **`skills/*/SKILL.md`**: Index of registered specialized skills in the workspace.
+6. **Runtime config (`bootstrap.ps1`, `mcp.json`)**: Active MCP tools and model roles.
+7. **`git status`**: Real working tree state at current time.
 
 ---
 
-## 2. Quy trình nạp lại ngữ cảnh (Reload Procedure)
+## 2. Reload Procedure
 
-Thực hiện tuần tự theo 6 bước bắt buộc:
+Execute sequentially through 6 mandatory steps:
 
-### Bước 1: Nạp Core Instructions (`AGENTS.md`)
-- Đọc `AGENTS.md` tại workspace root.
-- Xác định:
-  - Project overview & mục tiêu dự án.
-  - Quy ước Pre-flight assessment & Task tiering (Tier 1 Direct, Tier 2 Single Subagent, Tier 3 Parallel Subagents).
-  - Service registry table và layer read order (`{{LAYER_READ_ORDER}}`).
-  - Danh mục lệnh verify (`{{VERIFY_COMMANDS}}`).
+### Step 1: Load Core Instructions (`AGENTS.md`)
+- Read `AGENTS.md` at workspace root.
+- Determine:
+  - Project overview & project objectives.
+  - Pre-flight assessment & Task tiering conventions (Tier 1 Direct, Tier 2 Single Subagent, Tier 3 Parallel Subagents).
+  - Service registry table and layer read order (`{{LAYER_READ_ORDER}}`).
+  - Verification command catalog (`{{VERIFY_COMMANDS}}`).
 
-### Bước 2: Nạp Global Rules (`RULES.md`)
-- Đọc `RULES.md` tại workspace root.
-- Ghi nhận các bất biến bắt buộc (Mandatory Invariants):
-  - Prefix `[Pre-flight] Tier: ... | Skills: ... | Plugins/MCP: ... | Rationale: ... | Action: ...` trước mọi tool call.
-  - Precedence: Delegation & MCP override tính Simplicity và Think Before Coding.
-  - Tuyệt đối không xóa file vĩnh viễn (phải dùng Recycle Bin / Trash).
-  - Trả lời bằng tiếng Việt (trừ code, commands, IDs).
-  - Không tự ý commit/push/merge trừ khi được yêu cầu rõ ràng.
+### Step 2: Load Global Rules (`RULES.md`)
+- Read `RULES.md` at workspace root.
+- Note mandatory invariants:
+  - Prefix `[Pre-flight] Tier: ... | Skills: ... | Plugins/MCP: ... | Rationale: ... | Action: ...` before every tool call.
+  - Precedence: Delegation & MCP override Simplicity and Think Before Coding.
+  - Never permanently delete files (must use Recycle Bin / Trash).
+  - Language rules (default English unless requested otherwise, code/commands verbatim).
+  - Do not autonomously commit/push/merge unless explicitly requested.
 
-### Bước 3: Kiểm tra `SYSTEM.md` (nếu tồn tại)
-- Kiểm tra xem file `SYSTEM.md` có ở workspace root hay không.
-- Nếu tồn tại và có thông tin dự án chưa chuyển đổi vào `AGENTS.md`, đọc để nắm bổ sung context; nếu là template dạng `{{PLACEHOLDER}}`, ghi nhận trạng thái template.
+### Step 3: Inspect `SYSTEM.md` (if present)
+- Check whether `SYSTEM.md` exists at workspace root.
+- If present with un-migrated project info, read for supplementary context; if template with `{{PLACEHOLDER}}`, note template state.
 
-### Bước 4: Nạp Skills Index
-- Quét nhanh danh mục `skills/` (hoặc `docs/skills/` nếu theo cấu trúc docs repo).
-- Nắm danh sách các skill khả dụng (ví dụ: `reload-context`, `init-docs`, `implement-task`, `create-plan`, `security-review`, `delivery`, `poka-yoke`...) để kích hoạt đúng khi có task tương ứng.
+### Step 4: Load Skills Index
+- Quick-scan `skills/` directory (or `docs/skills/` under docs repo structure).
+- Inventory available skills (e.g. `reload-context`, `init-docs`, `implement-task`, `create-plan`, `security-review`, `delivery`, `poka-yoke`...) to activate correctly when matching tasks arise.
 
-### Bước 5: Nạp Runtime Config & MCP
-- Kiểm tra file cấu hình bootstrap và MCP:
-  - Đọc `bootstrap.ps1` (nếu có trong repo) hoặc runtime config để nắm các MCP servers đang được thiết lập (`gitnexus`, `company-atlassian`, `context7`, `cloakbrowser`).
-  - Ghi nhận directive `snapcompact.systemPrompt: agents-md,rules-md` để hiểu cơ chế giữ context nền của agent runtime.
+### Step 5: Load Runtime Config & MCP
+- Check bootstrap config and MCP files:
+  - Read `bootstrap.ps1` (if present) or runtime config to understand active MCP servers (`gitnexus`, `company-atlassian`, `context7`, `cloakbrowser`).
+  - Note directive `snapcompact.systemPrompt: agents-md,rules-md` to understand background context retention.
 
-### Bước 6: Quét nhanh Git Status & Diff
-- Chạy `git status --short` và `git diff --stat`.
-- Xác định:
-  - Branch hiện tại.
-  - Các thay đổi dở dang (staged / unstaged).
-  - Nguy cơ dirty working tree để cảnh báo trước khi thực hiện task tiếp theo.
+### Step 6: Scan Git Status & Diff
+- Run `git status --short` and `git diff --stat`.
+- Identify:
+  - Current branch.
+  - Pending changes (staged / unstaged).
+  - Dirty working tree risks to warn before executing subsequent tasks.
 
 ---
 
 ## 3. Adapters: OMP vs DSH
 
-Tùy thuộc vào môi trường runtime đang chạy, agent áp dụng adapter tương ứng:
+Depending on the active runtime environment, apply the matching adapter:
 
-| Tiêu chí | OMP (Oh My Prompt) | DSH (Dev Shell / Cordis) |
+| Criterion | OMP (Oh My Prompt) | DSH (Dev Shell / Cordis) |
 |---|---|---|
-| **Config Directory** | `~/.omp/agent/` (`$env:USERPROFILE\.omp\agent` trên Windows) | `~/.dsh/` |
-| **Config Files** | `config.json`, `mcp.json`, `models.json` | `cordis.patch.yml`, cấu hình nội bộ DSH |
-| **Snapcompact Hook** | `snapcompact.systemPrompt: agents-md,rules-md` tự động đưa `AGENTS.md` và `RULES.md` vào system prompt sau compact | Quản lý qua context buffer hoặc file override riêng trong cordis |
-| **Plugin / Extensions** | `~/.omp/agent/extensions/` | Được tiêm qua layer container hoặc mount volume của Cordis sandbox |
-| **MCP Definition** | Khai báo trong `~/.omp/agent/mcp.json` theo chuẩn Desktop MCP JSON | Khai báo qua `cordis.patch.yml` hoặc profile server của DSH |
+| **Config Directory** | `~/.omp/agent/` (`$env:USERPROFILE\.omp\agent` on Windows) | `~/.dsh/` |
+| **Config Files** | `config.json`, `mcp.json`, `models.json` | `cordis.patch.yml`, internal DSH config |
+| **Snapcompact Hook** | `snapcompact.systemPrompt: agents-md,rules-md` automatically injects `AGENTS.md` and `RULES.md` into system prompt post-compaction | Managed via context buffer or dedicated cordis file override |
+| **Plugin / Extensions** | `~/.omp/agent/extensions/` | Injected via container layers or sandbox volume mounts |
+| **MCP Definition** | Declared in `~/.omp/agent/mcp.json` per Desktop MCP JSON standard | Declared via `cordis.patch.yml` or DSH server profiles |
 
 ---
 
-## 4. Checklist xác nhận sau khi nạp (Output Checklist)
+## 4. Output Checklist
 
-Sau khi hoàn tất quy trình, agent xuất báo cáo ngắn gọn xác nhận trạng thái:
+After completing the procedure, output a concise status confirmation:
 
 ```markdown
 ### [Context Reloaded]
-- [x] AGENTS.md: Đã nạp (Tiering, Service Registry, Read Order)
-- [x] RULES.md: Đã nạp (Pre-flight Prefix, Invariants, Trash rule)
-- [x] SYSTEM.md: Đã kiểm tra (Đã nạp / Không có / Dạng template)
-- [x] Skills Catalog: Đã index (Số lượng skills sẵn sàng)
-- [x] Runtime & MCP: Xác nhận OMP / DSH adapter + MCP tools hoạt động
-- [x] Git Working Tree: Branch `<branch-name>` | Status: `<clean | dirty (số files)>`
+- [x] AGENTS.md: Loaded (Tiering, Service Registry, Read Order)
+- [x] RULES.md: Loaded (Pre-flight Prefix, Invariants, Trash rule)
+- [x] SYSTEM.md: Checked (Loaded / Absent / Template form)
+- [x] Skills Catalog: Indexed (Number of skills ready)
+- [x] Runtime & MCP: Confirmed OMP / DSH adapter + active MCP tools
+- [x] Git Working Tree: Branch `<branch-name>` | Status: `<clean | dirty (number of files)>`
 
-Trạng thái: Sẵn sàng nhận lệnh tiếp theo.
+Status: Ready for the next instruction.
 ```

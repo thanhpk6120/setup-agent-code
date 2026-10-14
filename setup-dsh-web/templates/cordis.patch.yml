@@ -1,5 +1,5 @@
 # cordis.patch.yml - DSH Headless Web Runner Profile
-# Tối giản, dành riêng cho runner headless (dsh --profile web), không lặp desktop telemetry.
+# Minimal profile for the headless runner (dsh --profile web-runner); no desktop telemetry duplication.
 - id: webserver
   name: "@deepseek-ai/dsh-webserver"
   config:

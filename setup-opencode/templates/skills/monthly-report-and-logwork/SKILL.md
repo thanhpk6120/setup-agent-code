@@ -1,62 +1,62 @@
 ---
 name: monthly-report-and-logwork
-description: Rà soát meeting notes Confluence và các task Jira trong tháng để lập báo cáo tháng (monthly report) hoàn chỉnh, bổ sung các ngày thiếu và tự động logwork đủ 8 tiếng/ngày lên Jira.
+description: Review Confluence meeting notes and Jira tasks for the month to build a complete monthly report, fill missing days, and auto-log 8 hours/day of worklogs to Jira.
 ---
 
 # Skill: Monthly Report & Worklog Automation
 
-> **Mục tiêu:** Tự động hóa quy trình đối soát công việc tháng: Đọc Confluence Meeting Notes + Jira Issues/Changelogs -> Lập bảng `monthly-report-YYYY-MM.md` hoàn chỉnh (kể cả những ngày không ghi note) -> Tự động logwork đủ 8 giờ/ngày (số nguyên dương) lên Jira.
+> **Goal:** Automate the monthly work reconciliation: Read Confluence Meeting Notes + Jira Issues/Changelogs -> Build a complete `monthly-report-YYYY-MM.md` table (including days without notes) -> Auto-log 8 hours/day (positive integers) to Jira.
 
 ---
 
-## Quy Trình Thực Hiện (Workflow 4 Bước)
+## Execution workflow (4 steps)
 
-### Bước 1: Xác định thông tin cá nhân & Khoảng thời gian
-1. Đọc thông tin cá nhân từ `personal.md` (Họ và tên, Username / Key Jira, Email).
-2. Xác định tháng và năm cần làm báo cáo (Ví dụ: `YYYY-MM`).
-3. Lập danh sách **tất cả các ngày làm việc** trong tháng (từ Thứ Hai đến Thứ Sáu, loại trừ Thứ Bảy, Chủ Nhật và ngày nghỉ lễ chính thức theo luật lao động).
+### Step 1: Identify personal info and time range
+1. Read personal info from `personal.md` (full name, Jira username / key, email).
+2. Determine the report month and year (e.g. `YYYY-MM`).
+3. List **all working days** in the month (Monday to Friday, excluding Saturday, Sunday, and official public holidays).
 
 ---
 
-### Bước 2: Thu thập dữ liệu từ Confluence & Jira
+### Step 2: Collect data from Confluence and Jira
 
-#### 2.1. Đọc Confluence Meeting Notes
-1. Sử dụng tool `confluence_get_page_children` hoặc `confluence_search` với space `CT` và parent page của tháng tương ứng (Cấu trúc: `Meeting Notes` -> `Năm YYYY` -> `Tháng MM`).
-2. Với từng ngày có note:
-   - Đọc nội dung bảng phân công công việc.
-   - Tìm dòng tương ứng với thành viên (theo họ tên hoặc `@mention`).
-   - Trích xuất danh sách mã Jira ticket (`issue_key`), mô tả công việc, khó khăn, đề xuất.
+#### 2.1. Read Confluence meeting notes
+1. Use `confluence_get_page_children` or `confluence_search` with the `CT` space and the matching month parent page (Structure: `Meeting Notes` -> `Year YYYY` -> `Month MM`).
+2. For each day with notes:
+   - Read the task assignment table.
+   - Find the row for the member (by full name or `@mention`).
+   - Extract the Jira ticket list (`issue_key`), work description, blockers, and suggestions.
 
-#### 2.2. Đối soát Jira Audit & Tìm task cho những ngày thiếu note
-1. Dùng `jira_search` với JQL:
+#### 2.2. Reconcile Jira audit and find tasks for days without notes
+1. Use `jira_search` with JQL:
    ```jql
    assignee = '<username>' AND ((created >= 'YYYY-MM-01' AND created <= 'YYYY-MM-31 23:59') OR (updated >= 'YYYY-MM-01' AND updated <= 'YYYY-MM-31 23:59'))
    ```
-2. Với các ngày **không có trang Meeting Note** trên Confluence:
-   - Kiểm tra `changelog` và thời gian `updated`/`created` của từng issue Jira để xác định chính xác task nào bạn đã thao tác/xử lý vào ngày đó.
-   - Kiểm tra `project` và `assignee` để đảm bảo 100% đúng dự án và đúng người được giao.
+2. For days **without a Meeting Note page** on Confluence:
+   - Check each Jira issue `changelog` and `updated`/`created` timestamps to pin down exactly which task you worked on that day.
+   - Verify `project` and `assignee` to ensure 100% the right project and the right assignee.
 
 ---
 
-### Bước 3: Tạo File Monthly Report (`monthly-report-YYYY-MM.md`)
-Tạo hoặc cập nhật file `monthly-report-YYYY-MM.md` với cấu trúc chuẩn:
+### Step 3: Create the monthly report file (`monthly-report-YYYY-MM.md`)
+Create or update `monthly-report-YYYY-MM.md` with the standard structure:
 
-1. **4 Nhóm công việc trọng tâm (High-Level Summary):**
-   - Format: `[Tên Dự Án] Tóm tắt nhóm công việc chính`
-2. **Bảng tổng hợp theo từng ngày làm việc (Table):**
-   - Cột: `Ngày` | `Thứ` | `Meeting Note` (✅ Có / ❌ Không) | `Mã Task` | `Dự Án` | `Nội Dung Công Việc / Tóm Tắt` | `Trạng Thái`
-3. **Bảng tổng hợp danh sách toàn bộ task trong tháng (Table):**
-   - Cột: `STT` | `Mã Task` | `Dự Án` | `Tóm Tắt Nhiệm Vụ` | `Trạng Thái Hiện Tại`
+1. **4 focus work groups (High-Level Summary):**
+   - Format: `[Project Name] Summary of the main work group`
+2. **Per-working-day summary table:**
+   - Columns: `Date` | `Weekday` | `Meeting Note` (has / missing) | `Task Key` | `Project` | `Work Content / Summary` | `Status`
+3. **Full-month task list table:**
+   - Columns: `No.` | `Task Key` | `Project` | `Task Summary` | `Current Status`
 
 ---
 
-### Bước 4: Tự Động Logwork Lên Jira (`jira_add_worklog`)
+### Step 4: Auto-log work to Jira (`jira_add_worklog`)
 
-#### Quy tắc logwork:
-1. **Đủ thời lượng:** Mỗi ngày làm việc phải được log **chính xác 8 giờ** (tổng tháng = số ngày làm việc * 8h).
-2. **Chia thời gian:** Chỉ sử dụng **số nguyên dương** (Ví dụ: `2h`, `4h`, `8h`), không dùng số lẻ hoặc phút (`1h30m`, `3.5h` là không hợp lệ).
-   - Nếu ngày có 1 task: Log `8h` cho task đó.
-   - Nếu ngày có 2 task: Log `4h` + `4h`.
-   - Nếu ngày có 4 task: Log `2h` + `2h` + `2h` + `2h`.
-3. **Nội dung (Comment):** Trích xuất **nguyên văn / tóm tắt trung thực** từ `summary`, `description`, hoặc `changelog` của task. **Tuyệt đối không tự bịa đặt nội dung.**
-4. **Thời gian bắt đầu (`started`):** Đặt vào đầu giờ sáng ngày làm việc đó (format ISO: `YYYY-MM-DDTHH:mm:ss.000+0700` hoặc tương đương).
+#### Worklog rules:
+1. **Full duration:** Each working day must log **exactly 8 hours** (month total = working days * 8h).
+2. **Split time:** Use **positive integers only** (e.g. `2h`, `4h`, `8h`); no fractions or minutes (`1h30m`, `3.5h` are invalid).
+   - 1 task in a day: log `8h` on it.
+   - 2 tasks in a day: log `4h` + `4h`.
+   - 4 tasks in a day: log `2h` + `2h` + `2h` + `2h`.
+3. **Content (comment):** Quote or faithfully summarize from the task `summary`, `description`, or `changelog`. **Never invent content.**
+4. **Start time (`started`):** Set to early morning of that working day (ISO format: `YYYY-MM-DDTHH:mm:ss.000+0700` or equivalent).

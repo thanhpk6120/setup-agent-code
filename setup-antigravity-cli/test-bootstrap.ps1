@@ -18,6 +18,7 @@ try {
     $mockBinDir = Join-Path $env:TEMP ("agy-mock-bin-" + [System.Guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Force -Path $mockBinDir | Out-Null
     Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+    Set-Content -Path (Join-Path $mockBinDir "npm.cmd") -Value "@echo off`necho %* | findstr /i `"root -g`" >nul && echo $mockNpmDir& exit /b 0`nexit /b 0"
     $oldPath = $env:Path
     $env:Path = "$mockBinDir;$env:Path"
 
@@ -46,19 +47,20 @@ try {
     if (-not (Test-Path $keybindingsPath)) { throw "ASSERTION FAILED: Missing keybindings.json: $keybindingsPath" }
 
     $settingsRaw = Get-Content $settingsPath -Raw
-    if (-not $settingsRaw.Contains('"model": "custom/claude-sonnet-5"')) {
+    $settingsJson = $settingsRaw | ConvertFrom-Json
+    if ($settingsJson.model -ne "custom/claude-sonnet-5") {
         throw "ASSERTION FAILED: settings.json did not interpolate AGY_MODEL"
     }
-    if (-not $settingsRaw.Contains('"default": "request-review"')) {
+    if ($settingsJson.toolPermission.default -ne "request-review") {
         throw "ASSERTION FAILED: settings.json missing toolPermission default request-review"
     }
-    if (-not $settingsRaw.Contains('"artifactReviewPolicy"')) {
+    if (-not $settingsJson.artifactReviewPolicy) {
         throw "ASSERTION FAILED: settings.json missing artifactReviewPolicy"
     }
-    if (-not $settingsRaw.Contains('"sandbox"')) {
+    if (-not $settingsJson.sandbox) {
         throw "ASSERTION FAILED: settings.json missing sandbox"
     }
-    if (-not $settingsRaw.Contains('"telemetry"')) {
+    if (-not $settingsJson.telemetry) {
         throw "ASSERTION FAILED: settings.json missing telemetry"
     }
     if (-not $settingsRaw.Contains("PreToolUse")) {
@@ -107,16 +109,12 @@ try {
         `$env:CONTEXT7_API_KEY = '$($env:CONTEXT7_API_KEY)'
         `$env:Path = '$($env:Path)'
 
-        function global:npm {
-            param([Parameter(ValueFromRemainingArguments)]`$remaining)
-            if (`$remaining -contains "root" -and `$remaining -contains "-g") {
-                return '$mockNpmDir'
-            }
-        }
+
 
         & '$psScript' -DryRun:`$false -AgyDir '$tempDir2'
 "@
-    $acceptAll | pwsh -NoProfile -ExecutionPolicy Bypass -Command $cmd
+    $shellExe = if (Get-Command "pwsh" -ErrorAction SilentlyContinue) { "pwsh" } else { "powershell" }
+    $acceptAll | & $shellExe -NoProfile -ExecutionPolicy Bypass -Command $cmd
 
     $settingsPath2 = Join-Path $tempDir2 "settings.json"
     if (-not (Test-Path $settingsPath2)) { throw "ASSERTION FAILED: Missing settings.json in Test 2" }

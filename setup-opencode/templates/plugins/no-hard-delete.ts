@@ -1,12 +1,12 @@
 // @opencode-plugin: no-hard-delete
-// Chặn mọi thao tác xóa vĩnh viễn (hard delete) file/thư mục. Bắt buộc chuyển vào thùng rác (Trash / Recycle Bin).
+// Block every permanent (hard delete) file/directory deletion. Always move to Trash / Recycle Bin instead.
 
 interface OpenCodePluginContext {
   on?(event: string, handler: (event: unknown) => unknown): void;
 }
 
 const HARD_DELETE_PATTERN = /(?:^|[;&|`\s])(?:rm\s|rmdir\s|del\s|erase\s|rd\s|ri\s|Remove-Item\s|unlink\s|shred\s)/i;
-const BLOCK_REASON = "[BLOCKED] Thao tác xóa cứng bị chặn! QUY TẮC TIÊN QUYẾT: TUYỆT ĐỐI KHÔNG ĐƯỢC xoá cứng file/thư mục. BẮT BUỘC dùng lệnh di chuyển vào thùng rác ('trash <path>' hoặc Recycle Bin).";
+const BLOCK_REASON = "[BLOCKED] Hard delete blocked! TOP-PRIORITY RULE: NEVER hard-delete files/directories. You MUST move them to Trash ('trash <path>' or Recycle Bin).";
 
 function checkCommand(cmd: unknown): { block: boolean; reason: string } | null {
   if (typeof cmd === "string" && HARD_DELETE_PATTERN.test(cmd)) {

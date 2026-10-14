@@ -93,7 +93,7 @@ setup-agent-code/
 
 ## 3. Kiến trúc & Nguyên tắc cốt lõi
 
-Toàn bộ các gói cài đặt trong kho tuân thủ chặt chẽ 6 nguyên tắc kiến trúc:
+Toàn bộ các gói cài đặt trong kho tuân thủ chặt chẽ 7 nguyên tắc kiến trúc:
 
 ### 3.1. Kết nối AI Gateway chuẩn hóa
 - Mặc định trỏ về Gateway nội bộ: `http://localhost:20128/v1`.
@@ -144,6 +144,11 @@ Mỗi bộ cài đặt đều trang bị file `test-bootstrap.ps1`. Bộ kiểm 
 - Cơ chế sao lưu `.bak` và kiểm tra tính hợp lệ của JSON/YAML/TOML sinh ra.
 
 ---
+
+### 3.7. Chuẩn hóa tập tin chỉ dẫn Agent (Canonical Instruction Files)
+Tất cả các tệp chỉ dẫn tác tử (`AGENTS.md`, `CLAUDE.md`, `RULES.md`, `SYSTEM.md`) cùng các file mẫu đi kèm trong thư mục `templates/` của toàn bộ 7 setup được quy chuẩn hóa đồng nhất:
+- **Canonical templates:** Mọi tệp mẫu cấu hình và chỉ dẫn nguồn được lưu trữ chuẩn hóa tại thư mục `templates/` (hoặc thư mục gốc của từng setup theo đặc thù runtime).
+- **English-only rule for instruction files:** All agent instruction files and prompt templates (`AGENTS.md`, `CLAUDE.md`, `RULES.md`, `SYSTEM.md`, and section snippets) MUST be maintained in English to ensure cross-model compatibility, deterministic system prompt interpretation, and uniform behavior across heterogeneous CLI runtimes. (This rule applies strictly to agent instruction files and prompt templates; repository-level user documentation such as this `README.md` remains in Vietnamese).
 
 ## 4. Hướng dẫn cài đặt & Sử dụng nhanh
 

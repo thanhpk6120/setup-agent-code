@@ -1,91 +1,61 @@
 ---
 name: angular-impact-unittest-loop
-description: 'Phân tích vùng ảnh hưởng, tự động tạo test case Jasmine/Karma và chạy lặp để đạt 90% coverage cho mã nguồn Angular.'
+description: 'Analyze impact scope, automatically generate Jasmine/Karma test cases, and run in a loop to achieve 90% coverage on Angular code.'
 ---
 
 # Angular Impact Unittest Loop
 
-Sử dụng skill này sau khi đã hoàn tất thay đổi mã nguồn Angular và người dùng yêu cầu kiểm tra lại (retest), đánh giá ảnh hưởng (impact), hoặc nâng cao độ phủ (coverage).
+Use this skill after Angular code changes are completed and the user requests retesting, impact evaluation, or increasing test coverage.
 
-## 1. Phân tích vùng ảnh hưởng (Impact)
+## 1. Analyze Impact Scope
 
-Sử dụng `git status` hoặc `git diff -U0` để phân loại các file mã nguồn đã thay đổi và map chính xác tới các component, service hoặc method tương ứng.
-Nếu có GitNexus MCP, dùng lệnh `impact/context/trace` để quét đồ thị phụ thuộc.
-Lập bảng đánh giá mức độ ảnh hưởng: File / Hàm / Component hoặc Service / Mức độ rủi ro (HIGH/MED/LOW).
+Use `git status` or `git diff -U0` to classify changed source files and accurately map them to the corresponding components, services, or methods.
+If GitNexus MCP is available, use `impact/context/trace` to inspect dependency graphs.
+Build an impact assessment table: File / Function / Component or Service / Risk Level (HIGH/MED/LOW).
 
-## 2. Xác định mục tiêu cần kiểm tra (Target)
+## 2. Identify Target Scope
 
-Chỉ định các hàm, component cụ thể cần viết test dựa trên quy tắc sau:
-- Bao gồm các hàm bị thay đổi trực tiếp.
-- Bao gồm component/service gọi đến (callers) hoặc được gọi từ (callees) hàm thay đổi với khoảng cách 1 hop.
-- Tương tác với người dùng: Bắt buộc hỏi và xác nhận nếu phải mở rộng vùng chạy test hoặc chạy toàn bộ file.
+Specify the concrete functions and components requiring tests based on the following rules:
+- Include directly changed functions.
+- Include callers or callees of the changed function within a 1-hop distance.
+- User interaction: MUST ask and confirm if expanding the test scope or running entire files is necessary.
 
-## 3. Tạo bài kiểm tra (Tạo test)
+## 3. Generate Tests
 
-Viết các bài kiểm tra bằng Jasmine và Angular `TestBed`.
-Đặt file test tại cùng thư mục với file mã nguồn (`.spec.ts`).
-- Dùng `TestBed.configureTestingModule` để setup module.
-- Giả lập (mock) dependencies (Services, Router, HttpClient) thông qua `jasmine.createSpyObj`.
-Mỗi nhánh logic (branch) bị thay đổi phải có ít nhất một test case tương ứng:
-- Đường dẫn chuẩn (happy path)
-- Giá trị null/undefined, dữ liệu trống (empty)
-- Bắn lỗi (exception/HttpErrorResponse)
-- Trạng thái rẽ nhánh (if/else)
+Write tests using Jasmine and Angular `TestBed`.
+Place test files in the same directory as the source file (`.spec.ts`).
+- Use `TestBed.configureTestingModule` to set up modules.
+- Mock dependencies (Services, Router, HttpClient) using `jasmine.createSpyObj`.
+Every modified logic branch must have at least one test covering:
+- Happy path.
+- Boundary conditions (empty data, null/undefined, array boundary).
+- Error flows (API failure, timeout, validation error).
 
-## 4. Chạy kiểm tra chọn lọc (Chạy selective)
+## 4. Run Selective Tests & Collect Coverage
 
-Thực thi test riêng lẻ trên các file vừa tạo hoặc thay đổi. Không chạy toàn bộ test suite.
-Lệnh chạy: `ng test --include="<đường_dẫn_file_spec>" --no-watch --code-coverage --browsers=ChromeHeadless`
-Nếu cần chạy toàn bộ suite, phải xin xác nhận từ người dùng.
-
-## 5. Vòng lặp cải thiện độ phủ (Loop-until-90)
-
-Đọc file báo cáo coverage sinh ra mặc định tại `coverage/<project-name>/lcov.info` hoặc `coverage/<project-name>/index.html`.
-Thu thập các chỉ số `Lines`, `Functions`, và `Branches` tương ứng với các hàm bị thay đổi theo git diff.
-Điều kiện đạt: Tỷ lệ coverage đạt 90% đối với các hàm thay đổi trên cả 3 chỉ số.
-Nếu chưa đạt, chỉ sửa và bổ sung test case, chạy lại `ng test selective` và kiểm tra lại lcov.
-Giới hạn tối đa 5 vòng lặp. Ở mỗi vòng, ghi nhật ký: Số thứ tự vòng / Tỷ lệ coverage hiện tại / Nhánh (branch) thiếu.
-
-## 6. Dừng và xin ý kiến (Stop-and-ask)
-
-Dừng vòng lặp và hỏi người dùng nếu:
-- Phát hiện lỗi logic nghiệp vụ nghiêm trọng.
-- Mã nguồn khó hoặc không thể test (untestable code) do dependency ẩn hoặc thiết kế.
-- Coverage không thay đổi/tăng trong 2 vòng lặp liên tiếp.
-Trình bày rõ câu hỏi cùng logs hoặc code chứng minh.
-
-Khi hoàn thành quy trình (đạt coverage 90%) hoặc khi phải dừng lại, thực hiện nén file báo cáo coverage một lần duy nhất vào `evidence/angular-final-coverage.zip`.
-
-## Output
-
-```markdown
-# Angular Impact Test Loop Result
-
-## Bảng phân tích ảnh hưởng (Impact table)
-| File | Hàm / Phương thức | Component / Service | Mức độ rủi ro (HIGH/MED/LOW) |
-|------|-------------------|---------------------|------------------------------|
-
-## Danh sách cần kiểm tra (Retest list)
-- Component.method1 (Lý do chọn)
-- Service.method2 (Lý do chọn)
-
-## Kết quả Coverage
-- Functions: X%
-- Lines: Y%
-- Branches: Z%
-
-## Bằng chứng kiểm thử (Evidence)
-- File báo cáo: coverage/<project-name>/index.html
-- Nén bằng chứng: evidence/angular-final-coverage.zip
-
-## Nhật ký vòng lặp
-- Vòng 1: Đạt X% nhánh. Thiếu: Nhánh if(data == null).
-- Vòng 2: Đạt Y% nhánh. Thiếu: Nhánh catchError HTTP 500.
+Run tests ONLY for the target file in headless mode with coverage flags enabled:
+```bash
+ng test --include="src/app/path/to/target.component.spec.ts" --no-watch --code-coverage --browsers=ChromeHeadless
 ```
+Read the generated `lcov.info` file:
+- Locate the section for the changed source file (`SF:...`).
+- Extract line hits (`DA:line,count`) and branch hits (`BRDA:line,block,branch,taken`).
+- Calculate coverage specifically for the modified lines/functions:
+  `Coverage (%) = (Covered modified lines / Total modified lines) * 100`
 
-## Safety boundaries
+## 5. Coverage Evaluation Loop
 
-- Không chỉnh sửa mã nguồn nghiệp vụ `src/app` trong quá trình chạy test loop.
-- Không hạ thấp ngưỡng coverage yêu cầu (90%) trong cấu hình `angular.json` hoặc `karma.conf.js` trừ khi có lệnh.
-- Không xóa các test case cũ để tăng coverage ảo.
-- Không tự ý commit mã nguồn khi chưa được yêu cầu.
+Evaluate coverage percentage on the modified code:
+- **If Coverage >= 90%:** Stop the loop, archive evidence, and report results.
+- **If Coverage < 90%:**
+  1. Identify exact lines/branches missed from `DA:` or `BRDA:` lines with count 0.
+  2. Write additional test cases targeting the uncovered logic branches.
+  3. Re-run `ng test` and recalculate coverage.
+  4. Repeat until reaching >= 90% or hitting maximum loop limit (default: 5 iterations).
+
+## 6. Constraints & Anti-patterns
+
+- **Forbidden to run the full test suite** unless explicitly requested by the user.
+- **Forbidden to lower the threshold (90%)** requirement on modified code.
+- **Forbidden to edit source code (`src/app`)** purely to make tests easier to pass without user permission.
+- **Forbidden to delete old tests** to manipulate coverage percentages.

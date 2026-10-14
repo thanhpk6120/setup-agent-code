@@ -1,102 +1,102 @@
 ---
 name: dotnet-impact-unittest-loop
-description: 'Phân tích vùng ảnh hưởng, tự động tạo test case xUnit/Moq (hoặc NSubstitute) và chạy lặp để đạt 90% coverage cho mã nguồn .NET.'
+description: 'Analyze impact scope, auto-generate xUnit/Moq (or NSubstitute) test cases, and loop until 90% coverage for .NET source code.'
 ---
 
 # .NET Impact Unittest Loop
 
-Sử dụng skill này sau khi đã hoàn tất thay đổi mã nguồn .NET (C#) và người dùng yêu cầu kiểm tra lại (retest), đánh giá ảnh hưởng (impact), hoặc nâng cao độ phủ (coverage).
+Use this skill after .NET (C#) source changes are complete and the user requests a retest, an impact assessment, or higher coverage.
 
-## 1. Phân tích vùng ảnh hưởng (Impact)
+## 1. Analyze impact scope (Impact)
 
-Sử dụng `git status` hoặc `git diff` để xác định các file `.cs` đã thay đổi.
-Map thay đổi trong diff tới method cụ thể:
-- Dùng `git diff -U0` hoặc `git diff -W` để đọc hunk header chứa tên method C# thay đổi.
-- Nếu có GitNexus MCP, dùng lệnh `impact/context/trace` để quét đồ thị phụ thuộc.
-- Nếu phân tích thủ công, lần theo kiến trúc Clean Architecture / N-Tier: `Controller/Endpoints -> Application/Service -> Domain/Entities -> Infrastructure/Repository`.
-Lập bảng đánh giá mức độ ảnh hưởng: File / Hàm / API tương ứng / Mức độ rủi ro (HIGH/MED/LOW).
+Use `git status` or `git diff` to identify changed `.cs` files.
+Map diff changes to specific methods:
+- Use `git diff -U0` or `git diff -W` to read hunk headers containing the changed C# method names.
+- If GitNexus MCP is available, run `impact/context/trace` to scan the dependency graph.
+- For manual analysis, follow the Clean Architecture / N-Tier layers: `Controller/Endpoints -> Application/Service -> Domain/Entities -> Infrastructure/Repository`.
+Build an impact assessment table: File / Function / Corresponding API / Risk level (HIGH/MED/LOW).
 
-## 2. Xác định mục tiêu cần kiểm tra (Target)
+## 2. Determine test targets (Target)
 
-Chỉ định các hàm, API cụ thể cần viết test dựa trên quy tắc sau:
-- Bao gồm các hàm bị thay đổi trực tiếp (Direct changes).
-- Bao gồm các callers hoặc callees của hàm thay đổi với khoảng cách 1 hop.
-- Bao gồm các API Endpoint/Handler liên quan trực tiếp đến luồng logic thay đổi.
-- Loại trừ boilerplate, DTO thuần, migrations và cấu hình DI (`Program.cs`, `Startup.cs`).
+Specify the exact functions and APIs to test, following these rules:
+- Include directly changed functions (Direct changes).
+- Include callers or callees of the changed function within 1 hop.
+- Include API endpoints/handlers directly related to the changed logic flow.
+- Exclude boilerplate, plain DTOs, migrations, and DI configuration (`Program.cs`, `Startup.cs`).
 
-## 3. Tạo bài kiểm tra (Tạo test)
+## 3. Create tests
 
-Viết các bài kiểm tra bằng **xUnit** kết hợp **Moq** (hoặc **NSubstitute**).
-Đặt file test tại project test tương ứng (VD: `tests/{Project}.UnitTests`) phản chiếu namespace của project nguồn. Hậu tố file test là `Tests.cs`.
-Mỗi method bị ảnh hưởng phải được phủ các nhánh logic:
-- `[Fact]`: Đường dẫn chuẩn (Happy path), giá trị null/empty, ngoại lệ ném ra (`Assert.ThrowsAsync<T>`).
-- `[Theory]` + `[InlineData]` / `[MemberData]`: Kiểm thử biên và các bộ tham số khác nhau.
-- Giả lập ranh giới hệ thống: DbContext, HttpClient, external services qua Interface.
+Write tests with **xUnit** plus **Moq** (or **NSubstitute**).
+Place test files in the matching test project (e.g. `tests/{Project}.UnitTests`) mirroring the source project namespace. Test file suffix is `Tests.cs`.
+Every affected method must cover these logic branches:
+- `[Fact]`: happy path, null/empty values, thrown exceptions (`Assert.ThrowsAsync<T>`).
+- `[Theory]` + `[InlineData]` / `[MemberData]`: boundary tests and varied parameter sets.
+- Mock system boundaries: DbContext, HttpClient, external services via interfaces.
 
-## 4. Chạy kiểm tra chọn lọc (Chạy selective)
+## 4. Run selective tests
 
-Cấm chạy toàn bộ test suite trừ khi vùng ảnh hưởng lan toàn hệ thống.
-Chạy test chọn lọc bằng `--filter FullyQualifiedName`:
+Never run the full test suite unless the impact spans the whole system.
+Run selective tests with `--filter FullyQualifiedName`:
 ```bash
 dotnet test --filter "FullyQualifiedName~{Namespace}.{TestClassName}" --collect "XPlat Code Coverage"
 ```
-Coverlet tự động xuất file báo cáo mặc định tại `TestResults/{guid}/coverage.cobertura.xml`.
+Coverlet auto-generates the default report at `TestResults/{guid}/coverage.cobertura.xml`.
 
-## 5. Vòng lặp cải thiện độ phủ (Loop-until-90)
+## 5. Coverage improvement loop (Loop-until-90)
 
-1. **Đọc coverage theo method**:
-   Truy xuất `line-rate` và `branch-rate` trực tiếp từ thẻ `<method>` trong `coverage.cobertura.xml`.
-2. **Sinh HTML report khi cần xem chi tiết trực quan**:
-   Sử dụng ReportGenerator để xuất báo cáo:
+1. **Read per-method coverage**:
+   Read `line-rate` and `branch-rate` directly from the `<method>` tag in `coverage.cobertura.xml`.
+2. **Generate an HTML report for visual inspection when needed**:
+   Use ReportGenerator to export the report:
    `reportgenerator -reports:"**/coverage.cobertura.xml" -targetdir:"coveragereport" -reporttypes:Html`
-3. **Tiêu chuẩn đạt**:
-   Cả `line-rate` và `branch-rate` của method bị ảnh hưởng đạt >= 0.90 (90%).
-4. **Vòng lặp (tối đa 5 lần)**:
-   Nếu chưa đạt 90%, kiểm tra các line/branch có `hits="0"`, bổ sung test case tương ứng, sau đó chạy lại selective test.
-   Ghi nhật ký mỗi vòng: Số thứ tự / % line & branch coverage / Nhánh còn thiếu.
+3. **Done criteria**:
+   Both `line-rate` and `branch-rate` of the affected method reach >= 0.90 (90%).
+4. **Loop (max 5 iterations)**:
+   If below 90%, inspect lines/branches with `hits="0"`, add matching test cases, then rerun the selective test.
+   Log each iteration: sequence number / line & branch coverage % / missing branch.
 
-## 6. Dừng và xin ý kiến (Stop-and-ask)
+## 6. Stop and ask
 
-Dừng vòng lặp và hỏi người dùng nếu gặp một trong các điều kiện:
-- Phát hiện lỗi logic nghiệp vụ nghiêm trọng có thể phá vỡ contract API hoặc data flow.
-- Code không thể viết test do thiết kế (Untestable: static state, thiếu interface, constructor khởi tạo trực tiếp new instance phụ thuộc bên ngoài).
-- Coverage không tăng qua 2 vòng lặp liên tiếp.
-Trình bày rõ file, method, nguyên nhân và đề xuất phương án.
+Stop the loop and ask the user when any of these holds:
+- A critical business-logic bug is found that could break API contracts or data flow.
+- The code is untestable by design (Untestable: static state, missing interfaces, constructors directly newing up external dependencies).
+- Coverage does not increase for 2 consecutive iterations.
+Present the file, method, cause, and proposed options clearly.
 
-## 7. Đóng gói kết quả (Final Artifact)
+## 7. Package results (Final Artifact)
 
-Khi vòng lặp kết thúc (đạt 90% hoặc buộc dừng theo điều kiện ở bước 6), nén thư mục báo cáo HTML một lần duy nhất. File ZIP kết quả phải lưu tại: `evidence/dotnet-final-coverage.zip`.
-Tuyệt đối **không** tạo file ZIP sau mỗi vòng lặp.
+When the loop ends (90% reached or forced stop per step 6), archive the HTML report directory exactly once. The resulting ZIP must be saved at: `evidence/dotnet-final-coverage.zip`.
+Never create a ZIP after each iteration.
 
 ## Output
 
 ```markdown
 # .NET Impact Test Loop Result
 
-## Bảng phân tích ảnh hưởng (Impact table)
-| File | Hàm | API | Mức độ rủi ro (HIGH/MED/LOW) |
+## Impact analysis table
+| File | Function | API | Risk level (HIGH/MED/LOW) |
 |------|-----|-----|------------------------------|
 
-## Danh sách cần kiểm tra (Retest list)
-- Class.Method1 (Lý do chọn)
-- Class.Method2 (Lý do chọn)
+## Retest list
+- Class.Method1 (Selection reason)
+- Class.Method2 (Selection reason)
 
-## Kết quả Coverage (Coverlet/Cobertura result)
+## Coverage results (Coverlet/Cobertura)
 - Method: Namespace.Class.Method
   - Line Coverage: X%
   - Branch Coverage: Y%
 
-## Nhật ký vòng lặp
-- Vòng 1: Đạt X% line / Y% branch. Thiếu: Nhánh kiểm tra ArgumentNullException.
-- Vòng 2: Đạt 95% line / 92% branch. Đã bổ sung Theory kiểm thử giá trị rỗng.
+## Iteration log
+- Iteration 1: X% line / Y% branch. Missing: ArgumentNullException check branch.
+- Iteration 2: 95% line / 92% branch. Added Theory for empty-value tests.
 
-## Bằng chứng (Evidence)
-- Nén bằng chứng: evidence/dotnet-final-coverage.zip
+## Evidence
+- Archived evidence: evidence/dotnet-final-coverage.zip
 ```
 
 ## Safety boundaries
 
-- Không sửa source code trong project chính (`src/`) trong quá trình chạy test loop.
-- Không hạ thấp ngưỡng coverage yêu cầu (90%).
-- Không xóa hoặc vô hiệu hóa (`[Fact(Skip="...")]`) test case cũ để tăng coverage ảo.
-- Không commit hay push mã nguồn khi chưa được yêu cầu.
+- Do not modify source code in the main project (`src/`) during the test loop.
+- Do not lower the required coverage threshold (90%).
+- Do not delete or disable (`[Fact(Skip="...")]`) old test cases to fake coverage.
+- Do not commit or push source code unless requested.

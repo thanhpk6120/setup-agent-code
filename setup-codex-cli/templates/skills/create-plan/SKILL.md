@@ -35,7 +35,7 @@ The rule references these by name. Each `{{key}}` used in this file resolves fro
 | `{{COMMON_IMPACT_ZONES}}` | §10.2 / §11.1 | Known "change X → affects Y at severity Z" mappings |
 | `{{STATUS_VOCABULARY}}` | §11.1 | Allowed status values (`draft` → `plan-review` → `approved` → `in_progress` → `testing` → `done`) |
 | `{{TASK_FORMAT}}` | §11.1 | `checklist` or `table` or `block` — which `tasks.md` layout this project uses (`checklist`) |
-| `{{BRANCH_RULE}}` | §13.1 | Branch naming rule (`feature/CBCLOUDV2-<TICKET-NUMBER>-<slug>` hoặc `feature/<TICKET-ID>`) |
+| `{{BRANCH_RULE}}` | §13.1 | Branch naming rule (`feature/CBCLOUDV2-<TICKET-NUMBER>-<slug>` or `feature/<TICKET-ID>`) |
 | `{{EXTRA_RULES}}` | §9 | Companion rules to read when relevant (`init-docs`, `create-testcase`, `implement-task`) |
 ---
 
@@ -85,7 +85,7 @@ STOP and ask the user if any of these is true:
 ---
 
 ## 4. Procedure
-> **Multi-Agent Orchestration Contract:** Phiên chính đóng vai trò Dispatcher/Control. Bắt buộc sử dụng tool `task` gọi agent `architect` (hoặc `scout`) để phân tích yêu cầu, khảo sát code và soạn thảo `plan.md`/`tasks.md`. Không tự động thực thi tuần tự trong main agent. Sau khi hoàn thành plan, gọi `plan-reviewer` đánh giá trước khi gửi người dùng duyệt.
+> **Multi-Agent Orchestration Contract:** Main session acts as Dispatcher/Control. MUST use the `task` tool to call the `architect` (or `scout`) agent to analyze requirements, inspect code, and draft `plan.md`/`tasks.md`. Do not execute sequentially in the main agent. Once the plan is complete, call `plan-reviewer` for evaluation before submitting for user approval.
 
 
 ### Step 1 — Refresh context

@@ -1,24 +1,24 @@
 # React Test & Coverage Commands Cheat Sheet
 
-Tổng hợp các lệnh thực thi thực tế trong quy trình Vitest / Jest cho React.
+Commands cheat sheet for Vitest / Jest testing workflows in React.
 
 ---
 
-## 1. Git Diff xác định dòng & hàm thay đổi
+## 1. Identify Changed Lines & Functions with Git Diff
 
-### Danh sách file bị sửa
+### List modified files
 ```bash
 git status -s
 git diff --name-only HEAD~1 -- "src/**/*.{ts,tsx,js,jsx}"
 ```
 
-### Lấy khoảng dòng bị sửa (hunks)
+### Get modified line hunks
 ```bash
-# -U0 loại bỏ dòng ngữ cảnh xung quanh để chỉ lấy chính xác dòng đổi
+# -U0 removes context lines to show exact changed lines
 git diff -U0 HEAD~1 -- "src/components/MyComponent.tsx"
 ```
 
-### Trích xuất danh sách hàm & khoảng dòng thay đổi bằng Node.js
+### Extract functions & line ranges using Node.js
 ```bash
 node -e "
 const { execSync } = require('child_process');
@@ -44,43 +44,41 @@ console.table(hunks);
 
 ---
 
-## 2. Chạy test chọn lọc (Selective Testing)
+## 2. Run Selective Tests
 
-Chỉ chạy test liên quan đến file bị thay đổi, không chạy full suite.
+Run only tests relevant to the modified file; do not run full suite.
 
 ### Vitest (v8 / istanbul)
 ```bash
-# 1. Chạy đúng file test với coverage (cần khai báo reporter lcov/json vì Vitest v8 không tự sinh lcov)
+# Run specific test file with coverage
 npx vitest run src/components/MyComponent.test.tsx --coverage --coverage.reporter=lcov --coverage.reporter=json
 
-# 2. Tự động tìm và chạy test liên quan tới file source vừa sửa
+# Automatically find and run tests related to modified source file
 npx vitest related src/components/MyComponent.tsx --run --coverage --coverage.reporter=lcov --coverage.reporter=json
 ```
 
 ### Jest
 ```bash
-# 1. Chạy file test cụ thể và chỉ gom coverage cho file component đó
+# Run specific test file collecting coverage on target component
 npx jest src/components/MyComponent.test.tsx --coverage --collectCoverageFrom="src/components/MyComponent.tsx"
 
-# 2. Tìm test liên quan tới file thay đổi
+# Find related tests
 npx jest --findRelatedTests src/components/MyComponent.tsx --coverage --collectCoverageFrom="src/components/MyComponent.tsx"
 ```
 
-### Vị trí file coverage mặc định
-- HTML: `coverage/index.html` (Vitest) hoặc `coverage/lcov-report/index.html` (Jest)
+### Default coverage report paths
+- HTML: `coverage/index.html` (Vitest) or `coverage/lcov-report/index.html` (Jest)
 - LCOV: `coverage/lcov.info`
 - JSON: `coverage/coverage-final.json`
 
 ---
 
-## 3. Lọc và tính Coverage trên hàm/dòng thay đổi
+## 3. Filter and Calculate Coverage on Changed Lines
 
-Vì Vitest và Jest không hỗ trợ sẵn `--changed-lines-coverage`, ta parse `coverage/lcov.info` hoặc `coverage/coverage-final.json` theo dải dòng đã lấy từ git diff.
+Calculate Statement, Branch & Function coverage strictly for the changed line range by parsing `coverage/lcov.info` or `coverage/coverage-final.json`.
 
-### Node.js script tính Statement, Branch & Function coverage từ lcov.info
+### Node.js script calculating coverage from lcov.info
 ```bash
-# Lưu file thành check-coverage.js và chạy: node check-coverage.js <file-path> <start-line> <end-line> [lcov-path]
-# Hoặc chạy trực tiếp qua node -e như bên dưới:
 node -e "
 const fs = require('fs');
 const args = process.argv[1] && process.argv[1].endsWith('.js') ? process.argv.slice(2) : process.argv.slice(1);
@@ -92,7 +90,7 @@ const [targetFile, startLine, endLine, lcovPath] = [
 ];
 
 if (!fs.existsSync(lcovPath)) {
-  console.error('File lcov không tồn tại:', lcovPath);
+  console.error('lcov file not found:', lcovPath);
   process.exit(1);
 }
 
@@ -102,8 +100,8 @@ const lines = content.split('\n');
 let inFile = false;
 let linesTotal = 0, linesHit = 0;
 let branchTotal = 0, branchHit = 0;
-let fnMap = {}; // name -> { line, hit }
-const normalizePath = (p) => p.replace(/\\\\/g, '/');
+let fnMap = {};
+const normalizePath = (p) => p.replace(/\\/g, '/');
 
 for (const line of lines) {
   if (line.startsWith('SF:') && normalizePath(line).includes(normalizePath(targetFile))) {
@@ -147,7 +145,7 @@ const linePct = linesTotal ? ((linesHit / linesTotal) * 100).toFixed(2) : '100.0
 const branchPct = branchTotal ? ((branchHit / branchTotal) * 100).toFixed(2) : '100.00';
 const fnPct = fnTotal ? ((fnHit / fnTotal) * 100).toFixed(2) : '100.00';
 
-console.log(\`[Coverage Dòng Sửa] \${targetFile} (Lines \${startLine}-\${endLine})\`);
+console.log(\`[Coverage Changed Lines] \${targetFile} (Lines \${startLine}-\${endLine})\`);
 console.log(\`- Line: \${linePct}% (\${linesHit}/\${linesTotal})\`);
 console.log(\`- Branch: \${branchPct}% (\${branchHit}/\${branchTotal})\`);
 console.log(\`- Function: \${fnPct}% (\${fnHit}/\${fnTotal})\`);
@@ -155,134 +153,52 @@ console.log(Number(linePct) >= 90 && Number(branchPct) >= 90 && Number(fnPct) >=
 " "src/components/MyComponent.tsx" 15 35
 ```
 
-### Node.js script tính từ coverage-final.json (Phương án thay thế)
+---
+
+## 4. Visual HTML Report
+
+### Open HTML file directly
+- **Windows (CMD/PowerShell)**: `start coverage/index.html`
+- **macOS**: `open coverage/index.html`
+- **Linux**: `xdg-open coverage/index.html`
+
+### Open via Local Server
 ```bash
-node -e "
-const fs = require('fs');
-const args = process.argv[1] && process.argv[1].endsWith('.js') ? process.argv.slice(2) : process.argv.slice(1);
-const [targetFile, startLine, endLine, jsonPath] = [args[0], parseInt(args[1], 10), parseInt(args[2], 10), args[3] || 'coverage/coverage-final.json'];
-
-if (!fs.existsSync(jsonPath)) process.exit(1);
-const covData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
-const normalizePath = (p) => p.replace(/\\\\/g, '/');
-const fileKey = Object.keys(covData).find(k => normalizePath(k).includes(normalizePath(targetFile)));
-if (!fileKey) { console.log('Không tìm thấy file trong coverage'); process.exit(0); }
-
-const fileCov = covData[fileKey];
-let stTotal=0, stHit=0, brTotal=0, brHit=0, fnTotal=0, fnHit=0;
-
-for(const [k, v] of Object.entries(fileCov.statementMap)) {
-  if(v.start.line >= startLine && v.start.line <= endLine) {
-     stTotal++;
-     if(fileCov.s[k] > 0) stHit++;
-  }
-}
-
-for(const [k, v] of Object.entries(fileCov.branchMap)) {
-  if(v.loc.start.line >= startLine && v.loc.start.line <= endLine) {
-     fileCov.b[k].forEach(hit => {
-       brTotal++;
-       if(hit > 0) brHit++;
-     });
-  }
-}
-
-for(const [k, v] of Object.entries(fileCov.fnMap)) {
-  if(v.decl.start.line >= startLine && v.decl.start.line <= endLine) {
-     fnTotal++;
-     if(fileCov.f[k] > 0) fnHit++;
-  }
-}
-
-const stPct = stTotal ? ((stHit/stTotal)*100).toFixed(2) : '100.00';
-const brPct = brTotal ? ((brHit/brTotal)*100).toFixed(2) : '100.00';
-const fnPct = fnTotal ? ((fnHit/fnTotal)*100).toFixed(2) : '100.00';
-
-console.log(\`[Coverage JSON] \${targetFile} (Lines \${startLine}-\${endLine})\`);
-console.log(\`- Statement: \${stPct}% (\${stHit}/\${stTotal})\`);
-console.log(\`- Branch: \${brPct}% (\${brHit}/\${brTotal})\`);
-console.log(\`- Function: \${fnPct}% (\${fnHit}/\${fnTotal})\`);
-" "src/components/MyComponent.tsx" 15 35
-```
-
-## 4. Xem báo cáo HTML (Mở trên trình duyệt)
-
-### Mở trực tiếp file HTML
-- **Windows (CMD/PowerShell)**:
-  ```cmd
-  start coverage/index.html
-  ```
-- **macOS**:
-  ```bash
-  open coverage/index.html
-  ```
-- **Linux**:
-  ```bash
-  xdg-open coverage/index.html
-  ```
-
-### Mở qua Local Server (nếu gặp hạn chế CORS/file URL)
-```bash
-# Dùng serve
 npx serve coverage -p 3000
-
-# Hoặc dùng Vite preview nếu có cấu hình thư mục build tương ứng
-npx vite preview --outDir coverage
 ```
 
 ---
 
-## 5. Nén và lưu trữ Evidence (Bằng chứng)
+## 5. Archive Evidence
 
-Tạo thư mục `evidence/` và nén artifact để báo cáo một lần duy nhất ở cuối quy trình:
+Create `evidence/` directory and compress artifact once at end of procedure:
 
-### Linux / macOS
 ```bash
 mkdir -p evidence
 zip -r evidence/react-final-coverage.zip coverage/
 ```
 
-### Windows (PowerShell)
+PowerShell:
+
 ```powershell
 if (!(Test-Path -Path "evidence")) { New-Item -ItemType Directory -Path "evidence" }
 Compress-Archive -Path coverage -DestinationPath evidence/react-final-coverage.zip -Force
 ```
 
-### Cross-platform (Node.js script không cần cài thêm tool ngoài)
-```bash
-node -e "
-const fs = require('fs');
-const { execSync } = require('child_process');
-if (!fs.existsSync('evidence')) fs.mkdirSync('evidence');
-const isWin = process.platform === 'win32';
-const cmd = isWin
-  ? 'powershell Compress-Archive -Path coverage -DestinationPath evidence/react-final-coverage.zip -Force'
-  : 'zip -r evidence/react-final-coverage.zip coverage/';
-execSync(cmd, { stdio: 'inherit' });
-"
-```
-
 ---
 
-## 6. Patterns Mock chuẩn trong Vitest / Testing Library
+## 6. Standard Mocks in Vitest / Testing Library
 
-### Mock Function & Spy
 ```tsx
 import { vi } from 'vitest';
 
 const onClick = vi.fn();
 const fetchSpy = vi.spyOn(api, 'getUser').mockResolvedValue({ id: 1, name: 'Alice' });
-```
 
-### Mock Component con (giảm tải logic phụ thuộc)
-```tsx
 vi.mock('./ComplexChild', () => ({
   default: () => <div data-testid="mock-child">Mocked Child</div>
 }));
-```
 
-### Mock Browser API (LocalStorage, ResizeObserver)
-```tsx
 vi.stubGlobal('localStorage', {
   getItem: vi.fn(),
   setItem: vi.fn(),

@@ -622,10 +622,7 @@ if (Test-Path $CodexConfig) {
 Write-Host "==> Sao chep static files va skills..." -ForegroundColor Cyan
 $templatesDir = Join-Path $PSScriptRoot "templates"
 if (-not $DryRun) {
-    $srcAgents = Join-Path $templatesDir "AGENTS.md"
-    if (-not (Test-Path $srcAgents)) {
-        $srcAgents = Join-Path $PSScriptRoot "AGENTS.md"
-    }
+    $srcAgents = Join-Path $templatesDir "AGENTS.md" 
     $dstAgents = Join-Path $CodexDir "AGENTS.md"
 
     if (Test-Path $srcAgents) {

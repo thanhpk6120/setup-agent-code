@@ -210,7 +210,7 @@ try {
     if (-not $agentsRaw3.Contains("<!-- agency-agents-section -->")) {
         throw "ASSERTION FAILED: AGENTS.md missing agency marker under -EnableAgency"
     }
-    if (-not $agentsRaw3.Contains("## Agency: Multi-Agent Orchestration")) {
+    if (-not $agentsRaw3.Contains("## Using Agency Agents MCP")) {
         throw "ASSERTION FAILED: AGENTS.md missing agency heading under -EnableAgency"
     }
 

@@ -5,98 +5,98 @@ description: Use when the user asks to initialize, regenerate, refresh, audit, o
 
 # Rule 00 — Init Docs
 
-**Goal:** Khởi tạo lần đầu hoặc đồng bộ lại tài liệu nguồn của dự án (`ARCHITECTURE.md`, `specs/*.md`, `DESIGN.md`, `COMMANDS.md`) từ source code và `AGENTS.md` của các service.
+**Goal:** Bootstrap or re-sync the project source docs (`ARCHITECTURE.md`, `specs/*.md`, `DESIGN.md`, `COMMANDS.md`) from source code and each service `AGENTS.md`.
 
-**Khi nào chạy:**
-- Khi docs repo vừa được clone về và chưa có `ARCHITECTURE.md` chuẩn.
-- Sau khi thêm service mới vào workspace.
-- Sau refactor lớn làm thay đổi kiến trúc tổng thể.
+**When to run:**
+- When the docs repo was just cloned and has no standard `ARCHITECTURE.md` yet.
+- After adding a new service to the workspace.
+- After a large refactor that changes the overall architecture.
 
-**Input:**
-- Toàn bộ source code các service repo ngang hàng.
-- `AGENTS.md` của từng service repo (nếu có).
+**Inputs:**
+- Full source code of the sibling service repos.
+- Each service repo `AGENTS.md` (if present).
 - Project root `AGENTS.md`.
 
-**Output:**
-- `docs/ARCHITECTURE.md` — kiến trúc tổng thể.
-- `docs/DESIGN.md` — thiết kế UI/UX.
-- `docs/COMMANDS.md` — catalog lệnh thao tác nhanh cho dev/CI.
-- `docs/specs/<domain>.md` — đặc tả nghiệp vụ theo từng domain.
+**Outputs:**
+- `docs/ARCHITECTURE.md` — overall architecture.
+- `docs/DESIGN.md` — UI/UX design.
+- `docs/COMMANDS.md` — quick command catalog for dev/CI.
+- `docs/specs/<domain>.md` — business specification per domain.
 
-### Quy ước đặt tên file (Naming Convention)
-- **Tài liệu cấp 1 (Root docs trong `docs/`):** Bắt buộc đặt tên **CHỮ HOA** (`README.md`, `ARCHITECTURE.md`, `DESIGN.md`, `COMMANDS.md`, `AGENTS-TEMPLATE.md`).
-- **Tài liệu cấp 2 (Domain specs, Rules, Features):** Bắt buộc đặt tên **chữ thường kebab-case** (`docs/specs/<domain-name>.md`, `docs/rules/<rule-name>.md`, `expect.md`, `plan.md`, `tasks.md`, `report.md`, `deploy.md`).
-
----
-
-> **Multi-Agent Orchestration Contract:** Phiên chính đóng vai trò Dispatcher/Control. Bắt buộc sử dụng tool `task` gọi agent `docs-init` (hoặc `docs-update`) để phân tích toàn hệ thống và soạn tài liệu, chia slice theo service/module khi khảo sát nhiều phần. Sau đó gọi `docs-reviewer` đánh giá chất lượng trước khi gửi người dùng duyệt.
-
-## Quy tắc Bảo toàn Tài liệu (MANDATORY INVARIANT)
-> **TUYỆT ĐỐI KHÔNG XÓA (ADDITIVE-ONLY):** Khi tài liệu (các file trong `docs/`) đã tồn tại, **NGHIÊM CẤM** xóa bỏ, ghi đè trắng (overwrite/regenerate) toàn bộ file làm mất các phần (section), đoạn văn, hoặc ghi chú đã có. 
-> - CHỈ được phép **bổ sung thêm** thông tin mới (append/additive update) hoặc điều chỉnh nội dung cũ nếu thực sự sai lệch so với code thực tế.
-> - Mọi nội dung cũ do con người viết (context, business rules, giải thích ngoại lệ) phải được giữ nguyên vẹn.
-> - Phải dùng thao tác chỉnh sửa từng phần (patch/diff) thay vì đè nội dung mới hoàn toàn lên file cũ.
-
-## Quy trình
-
-### 0. Bắt buộc trước khi viết
-- Bắt đầu mọi phiên bằng `git pull` trong `docs/`.
-- Trong lần đọc instruction đầu tiên, đọc **chỉ một file instruction** theo thứ tự ưu tiên:
-  1. Nếu có `CLAUDE.md` ở workspace root: đọc `CLAUDE.md` và **không đọc `AGENTS.md`**.
-  2. Nếu không có `CLAUDE.md` nhưng có `AGENTS.md`: đọc `AGENTS.md`.
-  3. Nếu không có cả hai: tiếp tục với `README.md` và báo thiếu file instruction.
-- File instruction được chọn dùng để biết:
-  - role của workspace,
-  - quy ước project đã được chuẩn hóa,
-  - phần docs nào được phép tự cập nhật, phần nào cần diff/PR.
-- Nếu file instruction được chọn cấm sinh/cập nhật file nào, dừng và báo người dùng.
-
-### 1. Khảo sát kiến trúc
-- Lập sơ đồ service: tên repo, trách nhiệm chính, loại ứng dụng (web/api/worker/...), công nghệ.
-- Xác định cách các service giao tiếp: HTTP, message queue, gRPC, sự kiện, file shared...
-- Ghi rõ điểm vào/ra ngoài hệ thống: auth provider, DB ngoài, CDN, gateway...
-- Nếu service repo có GitNexus index, dùng `mcp__gitnexus__query` để tìm các execution flow chính, `mcp__gitnexus__context` trên các symbol trung tâm để xác nhận trách nhiệm, `mcp__gitnexus__route_map` để liệt kê API/handler đã biết, `mcp__gitnexus__cypher` chỉ khi cần truy vấn đồ thị nâng cao. Nếu `gitnexus://repo/<name>/context` báo index stale, báo người dùng và dừng, không suy diễn.
-
-### 2. Quyết định có cần sinh/cập nhật bản đồ dự án
-- Bản đồ dự án gồm: `docs/ARCHITECTURE.md`, `docs/specs/*.md`, `docs/DESIGN.md`.
-- Nếu đọc source/docs và thấy các file bản đồ đã đủ, còn đúng, không cần sinh/cập nhật: **không hỏi**, chỉ báo không cần thay đổi.
-- Nếu cần sinh mới hoặc cập nhật bất kỳ file bản đồ nào: **bắt buộc hỏi người dùng trước khi ghi file**.
-- Câu hỏi phải nêu rõ:
-  - file nào sẽ được sinh/cập nhật,
-  - lý do cần thay đổi,
-  - nguồn thông tin đã dùng,
-  - rủi ro nếu docs sai.
-- Chỉ ghi file sau khi người dùng đồng ý rõ ràng.
-
-### 3. Sinh/cập nhật `ARCHITECTURE.md`
-- Cấu trúc tối thiểu:
-  - Tổng quan hệ thống (1 đoạn).
-  - Danh sách service + trách nhiệm 1 dòng mỗi service.
-  - Sơ đồ giao tiếp dạng text (không bắt buộc hình).
-  - Stack mỗi service (đã xác nhận từ source, không bịa).
-  - Cơ chế triển khai/thư mục vận hành nếu đọc được từ repo (ví dụ `docker-compose.yml`, `Dockerfile`, script trong `bundles/`).
-- Ghi rõ phần nào đã xác nhận, phần nào còn giả định.
-
-### 4. Sinh/cập nhật `specs/<domain>.md`
-- 1 domain = 1 file. Domain phân theo nghiệp vụ, không phân theo service.
-- Mỗi file gồm:
-  - mục tiêu domain,
-  - luồng chính (happy path),
-  - luồng phụ / exception,
-  - actor chính (user role nào).
-- Không tự ý tách domain khi chưa có dấu hiệu rõ từ code; khi mơ hồ, hỏi trước khi ghi.
-
-### 5. Sinh/cập nhật `DESIGN.md`
-- Mô tả UI/UX hiện tại theo quan sát thật từ service.
-- Liệt kê các màn hình/portlet/component chính; tránh liệt kê mọi chi tiết nhỏ.
-
-### 6. Câu hỏi mở
-- Sau khi sinh xong, gom lại phần thắc mắc vào mục "Câu hỏi mở" để BA/TechLead giải đáp trước khi dùng docs cho plan.
+### File naming convention
+- **Level-1 docs (root docs in `docs/`):** MUST use **UPPERCASE** names (`README.md`, `ARCHITECTURE.md`, `DESIGN.md`, `COMMANDS.md`, `AGENTS-TEMPLATE.md`).
+- **Level-2 docs (domain specs, rules, features):** MUST use **lowercase kebab-case** (`docs/specs/<domain-name>.md`, `docs/rules/<rule-name>.md`, `expect.md`, `plan.md`, `tasks.md`, `report.md`, `deploy.md`).
 
 ---
 
-## Tiêu chí dừng (gate)
-- AI **không** code, không mở PR đến service repo.
-- Nếu thiếu thông tin để xác nhận một phần, phải ghi "chưa xác nhận" kèm lý do thay vì tự đoán.
-- Mọi thay đổi đều được đề xuất dạng diff và chờ TechLead approve (Gate 2 trong `README.md`).
-- **Bảo toàn dữ liệu:** Phải đảm bảo không làm mất hoặc xóa lầm bất kỳ nội dung cũ nào trong quá trình cập nhật tài liệu.
+> **Multi-Agent Orchestration Contract:** The main session acts as Dispatcher/Control. You MUST use the `task` tool to call the `docs-init` (or `docs-update`) agent to analyze the whole system and draft docs, splitting slices by service/module when surveying many parts. Then call `docs-reviewer` for quality review before sending to the user for approval.
+
+## Document preservation rule (MANDATORY INVARIANT)
+> **NEVER DELETE (ADDITIVE-ONLY):** When docs (files in `docs/`) already exist, it is **FORBIDDEN** to remove them or blank-overwrite/regenerate a whole file in a way that loses existing sections, paragraphs, or notes. 
+> - You may ONLY **append** new information (additive update) or adjust old content that is genuinely wrong versus the actual code.
+> - All pre-existing human-written content (context, business rules, exception explanations) must stay intact.
+> - Use partial edits (patch/diff) instead of overwriting old files with entirely new content.
+
+## Procedure
+
+### 0. Required before writing
+- Start every session with `git pull` in `docs/`.
+- On the first instruction read, read **exactly one instruction file** in priority order:
+  1. If `CLAUDE.md` exists at the workspace root: read `CLAUDE.md` and **skip `AGENTS.md`**.
+  2. If no `CLAUDE.md` but `AGENTS.md` exists: read `AGENTS.md`.
+  3. If neither exists: continue with `README.md` and report the missing instruction file.
+- The selected instruction file tells you:
+  - the workspace role,
+  - the normalized project conventions,
+  - which docs may be self-updated and which need a diff/PR.
+- If the selected instruction file forbids generating/updating some file, stop and tell the user.
+
+### 1. Survey the architecture
+- Map services: repo name, primary responsibility, app type (web/api/worker/...), technology.
+- Identify how services communicate: HTTP, message queue, gRPC, events, shared files...
+- Record external entry/exit points: auth provider, external DB, CDN, gateway...
+- If a service repo has a GitNexus index, use `mcp__gitnexus__query` for key execution flows, `mcp__gitnexus__context` on central symbols to confirm responsibilities, `mcp__gitnexus__route_map` to list known APIs/handlers, and `mcp__gitnexus__cypher` only for advanced graph queries. If `gitnexus://repo/<name>/context` reports a stale index, tell the user and stop; do not infer.
+
+### 2. Decide whether the project map needs generating/updating
+- The project map consists of: `docs/ARCHITECTURE.md`, `docs/specs/*.md`, `docs/DESIGN.md`.
+- If reading source/docs shows the map files are sufficient and correct with no update needed: **do not ask**, just report no change needed.
+- If any map file needs creating or updating: you **MUST ask the user before writing files**.
+- The question must state:
+  - which files will be generated/updated,
+  - why the change is needed,
+  - which information sources were used,
+  - the risk if the docs are wrong.
+- Write files only after explicit user approval.
+
+### 3. Generate/update `ARCHITECTURE.md`
+- Minimum structure:
+  - System overview (1 paragraph).
+  - Service list + one-line responsibility per service.
+  - Text communication diagram (figure optional).
+  - Per-service stack (confirmed from source, never invented).
+  - Deployment/operations layout if readable from the repo (e.g. `docker-compose.yml`, `Dockerfile`, scripts in `bundles/`).
+- Mark clearly which parts are confirmed and which are still assumptions.
+
+### 4. Generate/update `specs/<domain>.md`
+- 1 domain = 1 file. Split domains by business area, not by service.
+- Each file contains:
+  - domain goal,
+  - main flow (happy path),
+  - secondary flows / exceptions,
+  - primary actor (which user role).
+- Do not split domains without clear code evidence; when ambiguous, ask before writing.
+
+### 5. Generate/update `DESIGN.md`
+- Describe the current UI/UX from real service observation.
+- List key screens/portlets/components; avoid enumerating every small detail.
+
+### 6. Open questions
+- After generating, collect open questions under "Open questions" for the BA/TechLead to answer before the docs feed planning.
+
+---
+
+## Stop criteria (gate)
+- The AI does **not** code and does **not** open PRs to service repos.
+- When information is missing to confirm a part, write "unconfirmed" with a reason instead of guessing.
+- All changes are proposed as diffs and wait for TechLead approval (Gate 2 in `README.md`).
+- **Data preservation:** ensure no pre-existing content is lost or accidentally deleted during doc updates.

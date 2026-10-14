@@ -193,8 +193,8 @@ try {
     if ($agentsContent2 -notmatch [regex]::Escape($agencyMarker)) {
         throw "ASSERTION FAILED: AGENTS.md should contain agency section when enabled"
     }
-    if ($agentsContent2 -notmatch [regex]::Escape("## Agency: Multi-Agent Orchestration")) {
-        throw "ASSERTION FAILED: AGENTS.md should contain '## Agency: Multi-Agent Orchestration' heading"
+    if ($agentsContent2 -notmatch [regex]::Escape("## Using Agency Agents MCP")) {
+        throw "ASSERTION FAILED: AGENTS.md should contain '## Using Agency Agents MCP' heading"
     }
 
     # =========================================================================

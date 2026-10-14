@@ -35,7 +35,7 @@ The rule references these by name. Each `{{key}}` used in this file resolves fro
 | `{{COMMON_IMPACT_ZONES}}` | §10.2 / §11.1 | Known "change X → affects Y at severity Z" mappings |
 | `{{STATUS_VOCABULARY}}` | §11.1 | Allowed status values (`draft` → `plan-review` → `approved` → `in_progress` → `testing` → `done`) |
 | `{{TASK_FORMAT}}` | §11.1 | `checklist` |
-| `{{BRANCH_RULE}}` | §13.1 | Branch naming and pre-implementation branch check (`feature/CBCLOUDV2-<TICKET-NUMBER>-<slug>` hoặc `feature/<TICKET-ID>`) |
+| `{{BRANCH_RULE}}` | §13.1 | Branch naming and pre-implementation branch check (`feature/CBCLOUDV2-<TICKET-NUMBER>-<slug>` or `feature/<TICKET-ID>`) |
 | `{{EXTRA_RULES}}` | §9 | Companion rules to read when relevant (`create-plan`, `create-testcase`, `init-docs`) |
 | `{{APPROVAL_EVIDENCE}}` | §8.2 / §11 | Gate 1 approval evidence (`status: approved` in `plan.md` reviewed by TechLead) |
 | `{{IMPLEMENT_ORDER}}` | §11.3 | Per stack, file implementation order within a task |
@@ -47,10 +47,10 @@ The rule references these by name. Each `{{key}}` used in this file resolves fro
 | `{{DEPLOY_TRIGGERS}}` | §11.2 | Change types that require `deploy.md` (DB, config, dependency, jobs) |
 | `{{DEPLOY_COMMANDS}}` | §5 / §10.2 | Build & deploy commands |
 | `{{DOCS_UPDATE_MAP}}` | §6 | Mapping change types to documentation files in `docs/` |
-| `{{COMMIT_RULE}}` | §13.2 | Commit message format `<TICKET-ID>: <mô tả>` |
+| `{{COMMIT_RULE}}` | §13.2 | Commit message format `<TICKET-ID>: <description>` |
 ---
 
-> **Multi-Agent Orchestration Contract:** Phiên chính đóng vai trò Dispatcher/Control. Sau khi Gate 1 duyệt, bắt buộc sử dụng tool `task` gọi agent `dely-implementer` (một hoặc nhiều slice song song) để thực hiện code thay vì tự code trong main agent. Xong code, gọi `dely-reviewer` kiểm tra độc lập.
+> **Multi-Agent Orchestration Contract:** The main session acts as Dispatcher/Control. After Gate 1 approval, you MUST use the `task` tool to call the `dely-implementer` agent (one or more parallel slices) to implement code instead of coding in the main agent. After coding, call `dely-reviewer` for independent review.
 
 ## 1. When to run
 
@@ -193,22 +193,22 @@ Never silently "fix" the plan by writing different code from what was approved.
 
 ### Step 9 — MANDATORY EVIDENCE LOOP
 
-Mỗi task sau khi hoàn thành code **BẮT BUỘC** phải trải qua vòng lặp xác thực bằng chứng (Evidence Loop) trước khi được đánh dấu là xong và cập nhật vào `report.md`.
+Each task after completing code MUST go through the evidence validation loop (Evidence Loop) before being marked done and recorded in `report.md`.
 
-1. **Sinh bằng chứng (Generate Evidence):**
-   - Chụp ảnh màn hình (screenshot) HOẶC xuất file output định dạng `.json`, `.txt`, `.md` chứa kết quả chạy thật của lệnh/test.
-   - Vị trí lưu: `docs/features/<TICKET-ID>/evidence/`
-   - Quy ước tên file: `<task-id>_<slug>.<ext>` (ví dụ: `TASK-1_test_result.txt`, `TASK-2_ui_preview.png`).
-   - Nội dung tối thiểu (đối với file text): phải chứa `task_id`, `command_run` (lệnh đã chạy), `exit_code` (mã lỗi trả về), `status` (thành công/thất bại), `assertions_summary` (kết quả kiểm tra), và `timestamp` (thời gian chạy).
+1. **Generate Evidence:**
+   - Capture a screenshot OR export an output file (`.json`, `.txt`, `.md`) containing the real run output of the command/test.
+   - Storage location: `docs/features/<TICKET-ID>/evidence/`
+   - File naming convention: `<task-id>_<slug>.<ext>` (e.g. `TASK-1_test_result.txt`, `TASK-2_ui_preview.png`).
+   - Minimum content (for text files): must contain `task_id`, `command_run` (command executed), `exit_code`, `status` (success/failure), `assertions_summary`, and `timestamp`.
 
-2. **Tự xác thực (Self-Verify):**
-   - Đối chiếu nội dung/ảnh bằng chứng với Acceptance Criteria của task (trong `tasks.md`) và yêu cầu tại `expect.md`.
-   - Nếu chưa đạt (bằng chứng không khớp hoặc test fail): **Sửa code → Cập nhật lại bằng chứng → Tự xác thực lại.**
-   - Lặp lại quy trình này cho đến khi toàn bộ tiêu chí đều đạt.
+2. **Self-Verify:**
+   - Compare the evidence content/screenshot against the task Acceptance Criteria (in `tasks.md`) and the requirements in `expect.md`.
+   - If not met (evidence mismatch or test failure): **Fix code -> Refresh evidence -> Self-verify again.**
+   - Repeat this process until all criteria are met.
 
-3. **Đính kèm vào Report:**
-   - Chỉ khi vòng lặp hoàn tất và bằng chứng hợp lệ, task mới được đánh dấu `done` trong `tasks.md`.
-   - Đường dẫn file evidence và trạng thái verify phải được đính kèm vào `report.md` (xem định dạng ở Step 10).
+3. **Attach to Report:**
+   - Only when the loop completes and the evidence is valid may the task be marked `done` in `tasks.md`.
+   - The evidence file path and verify status must be attached in `report.md` (see format in Step 10).
 
 ### Step 10 — Write `report.md`
 

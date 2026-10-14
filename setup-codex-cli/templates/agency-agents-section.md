@@ -1,19 +1,14 @@
 <!-- agency-agents-section -->
-## Sử dụng Agency Agents MCP
-
-Bạn có quyền truy cập vào MCP server "agency" cung cấp kho agent chuyên gia từ dự án agency-agents.
-
-Khi gặp một tác vụ phức tạp, chuyên biệt (ví dụ: thiết kế kiến trúc hệ thống, review bảo mật, tối ưu CSDL, thiết kế UI/UX, viết tài liệu kỹ thuật, phân tích sự cố...), bạn PHẢI tuân theo quy trình sau:
-
-1. TRƯỚC KHI tự trả lời, hãy dùng công cụ "agency_search" để tìm agent chuyên gia phù hợp với mô tả công việc.
-2. Nếu tìm thấy agent phù hợp, hãy "triệu hồi" (load) agent đó và trả lời theo đúng persona, quy trình, tiêu chuẩn đầu ra của agent.
-3. Nếu không tìm thấy, dùng công cụ "agency_browse" để duyệt danh sách theo bộ phận (engineering, design, product, marketing...).
-4. Chỉ khi không có agent nào phù hợp, bạn mới tự trả lời.
-
-Ưu tiên các agent thuộc bộ phận Engineering cho các tác vụ lập trình:
+## Using Agency Agents MCP
+You have access to the "agency" MCP server, which provides a catalog of specialist agents from the agency-agents project.
+When encountering a complex, specialized task (e.g., system architecture design, security review, database optimization, UI/UX design, technical documentation, incident response...), you MUST follow this workflow:
+1. BEFORE answering directly, use the "agency_search" tool to find a specialist agent matching the job description.
+2. If a matching agent is found, load that agent and respond following the agent's persona, workflow, and output standards.
+3. If no match is found, use the "agency_browse" tool to browse the list by division (engineering, design, product, marketing...).
+4. Only answer directly when no suitable specialist agent exists.
+Prioritize Engineering division agents for programming tasks:
 - Frontend Developer, Backend Architect, Security Engineer
 - Code Reviewer, DevOps Automator, Database Optimizer
 - Software Architect, Incident Response Commander, AI Engineer
-
-Không cần hỏi tôi trước khi gọi agency_search — hãy chủ động tìm chuyên gia khi thấy cần thiết.
+You do not need to ask the user before calling agency_search — proactively discover specialists whenever appropriate.
 <!-- /agency-agents-section -->

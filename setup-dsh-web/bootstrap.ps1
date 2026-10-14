@@ -611,7 +611,7 @@ Write-ConfigFileWithConflictResolution -TargetPath $CredentialsPath -Content $cr
 
 # 12. Sao chep AGENTS.md va skills
 Write-Host "==> Sao chep AGENTS.md va skills/..." -ForegroundColor Cyan
-$sourceAgents = Join-Path $PSScriptRoot "AGENTS.md"
+$sourceAgents = Join-Path $PSScriptRoot "templates\AGENTS.md"
 $targetAgents = Join-Path $DshHome "AGENTS.md"
 if (Test-Path $sourceAgents) {
     if (Test-Path $targetAgents) {
@@ -658,18 +658,20 @@ if (Test-Path $sourceAgents) {
 # Tich hop / go bo huong dan Agency trong AGENTS.md
 $agencySectionPath = Join-Path $PSScriptRoot "templates\agency-agents-section.md"
 if ((-not $DryRun) -and (Test-Path $targetAgents) -and (Test-Path $agencySectionPath)) {
-    $agencyMarker = "## Sử dụng Agency Agents MCP"
+    $agencyMarker = "<!-- agency-agents-section -->"
+    $agencyHeading = "## Using Agency Agents MCP"
     $currentAgents = Get-Content -Path $targetAgents -Raw -Encoding UTF8
     if ($installAgency) {
-        if ($currentAgents -notmatch [regex]::Escape($agencyMarker)) {
+        if ($currentAgents -notmatch [regex]::Escape($agencyMarker) -and $currentAgents -notmatch [regex]::Escape($agencyHeading)) {
             Write-Host "  -> Tich hop huong dan Agency vao $targetAgents..." -ForegroundColor Green
             $agencySectionContent = Get-Content -Path $agencySectionPath -Raw -Encoding UTF8
             Add-Content -Path $targetAgents -Value ("`r`n" + $agencySectionContent) -Encoding UTF8
         }
     } else {
-        if ($currentAgents -match [regex]::Escape($agencyMarker)) {
+        if ($currentAgents -match [regex]::Escape($agencyMarker) -or $currentAgents -match [regex]::Escape($agencyHeading) -or $currentAgents -match "## Agency: Multi-Agent Orchestration" -or $currentAgents -match "Su dung Agency Agents MCP") {
             Write-Host "  -> Go bo huong dan Agency khoi $targetAgents..." -ForegroundColor Yellow
-            $cleaned = [regex]::Replace($currentAgents, "(?ms)\r?\n## Sử dụng Agency Agents MCP.*\z", "")
+            $cleaned = [regex]::Replace($currentAgents, '(?s)\r?\n?<!-- agency-agents-section -->.*?<!-- /agency-agents-section -->', '')
+            $cleaned = [regex]::Replace($cleaned, "(?ms)\r?\n## (?:Using Agency Agents MCP|Agency: Multi-Agent Orchestration|Su dung Agency Agents MCP).*\z", "")
             [System.IO.File]::WriteAllText($targetAgents, $cleaned.TrimEnd() + "`r`n", [System.Text.UTF8Encoding]::new($false))
         }
     }

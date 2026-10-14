@@ -2,24 +2,24 @@
 
 > **[CRITICAL INSTRUCTION: READ TO THE END. DO NOT IGNORE ANY RULE. DO NOT TRUNCATE CODE (NO `...` PLACEHOLDERS). FULL COMPLIANCE REQUIRED.]**
 > AI MUST strictly read, preserve, and follow 100% of the rules in this document without exception. NEVER truncate, omit, skip, or summarize away any rule. Output must always be validated against these rules prior to response delivery.
-> **QUY TẮC TIÊN QUYẾT Ở ĐẦU (MANDATORY PREREQUISITE):** TẤT CẢ các lệnh xoá file/thư mục BẮT BUỘC phải dùng cách di chuyển nó vào thùng rác (Trash / Recycle Bin), TUYỆT ĐỐI KHÔNG ĐƯỢC xoá luôn/xóa vĩnh viễn.
+> **MANDATORY PREREQUISITE RULE:** ALL file/directory deletion commands MUST move items to the Trash / Recycle Bin. Permanent deletion is STRICTLY PROHIBITED.
 
 ## 0. PRECEDENCE, DELEGATION, SKILLS & PLUGINS/MCP [MANDATORY PRE-FLIGHT — NEVER SKIP]
-- **PRECEDENCE RULE:** Main Agent là người thực thi chính (Default: Direct Execution). KHÔNG lạm dụng spawn subagent cho các tác vụ thông thường, tuần tự hoặc các chỉnh sửa có phạm vi rõ ràng. Chỉ spawn subagent khi gặp các tác vụ ĐẶC THÙ / CHUYÊN BIỆT thực sự cần thiết (ví dụ: song song hoá nhiều nhánh độc lập, chạy test/gate review độc lập, phân tích diện rộng nhiều repository/service, hoặc khi người dùng yêu cầu rõ ràng).
+- **PRECEDENCE RULE:** The Main Agent is the primary executor (Default: Direct Execution). DO NOT abuse subagent spawning for routine, sequential, or well-scoped edits. Only spawn subagents for genuinely DISTINCT / SPECIALIZED tasks when strictly necessary (e.g., parallelizing independent branches, running independent test/gate reviews, broad cross-repository/service analysis, or upon explicit user request).
 - **OUTPUT PREFIX (MANDATORY BEFORE ANY TOOL CALL):**
   The Main Agent MUST output a reasoning line before calling ANY tool:
   `[Pre-flight] Tier: 1/2/3 | Skills: <Skill name(s) or None> | Plugins/MCP: <Plugin/MCP tool(s) or None> | Rationale: <reason> | Action: <Direct / Single Subagent / Parallel Subagents>`
 - **Mandatory Skills Resolution:** Scan and apply matching skills from `skills/*/SKILL.md` (e.g. `create-plan`, `implement-task`, `init-docs`, `delivery`, `security-review`, `sql-*`, `java-*`, `poka-yoke`...). Never invent ad-hoc procedures when an established skill exists.
-- **Mandatory Plugins / MCP Tools Resolution:** Route domain-specific requests to specialized MCP tools instead of manual CLI/bash/grep. Luôn ưu tiên dùng các MCP server hiện có trong hệ thống (ví dụ: công cụ chuyên dụng cho code graph, project memory, browser automation, v.v. - tùy thuộc vào danh sách tools đang được cấp) thay vì tự xử lý bằng các lệnh shell cơ bản.
-- **Delegation logic (Nguyên tắc uỷ quyền):**
-  - **Mặc định tự thực thi (Direct Execution):** Main Agent trực tiếp đọc, kiểm tra, sửa code và chạy lệnh xác thực cho hầu hết công việc thông thường.
-  - **Chỉ spawn Single Subagent:** Khi task đòi hỏi một vai trò chuyên biệt sâu (ví dụ: review bảo mật chuyên sâu `security-reviewer`, duyệt tài liệu spec `docs-reviewer`), hoặc khi cần môi trường cô lập để test không gây ảnh hưởng.
-  - **Chỉ spawn Parallel Subagents:** Khi có nhiều lát cắt công việc HOÀN TOÀN ĐỘC LẬP trên các module/service khác nhau cần thực hiện đồng thời để tiết kiệm thời gian, hoặc điều tra đa nhánh phức tạp. TUYỆT ĐỐI KHÔNG spawn nhiều subagent cho các chỉnh sửa đơn giản hoặc các bước tuần tự phụ thuộc lẫn nhau.
+- **Mandatory Plugins / MCP Tools Resolution:** Route domain-specific requests to specialized MCP tools instead of manual CLI/bash/grep. Always prioritize active MCP servers in the environment (e.g., specialized tools for code graphs, project memory, browser automation, etc. — depending on currently granted tools) over basic shell commands.
+- **Delegation Logic:**
+  - **Default: Direct Execution:** The Main Agent directly inspects, tests, edits code, and runs verification commands for most routine tasks.
+  - **Single Subagent only:** When a task demands deep domain specialization (e.g., deep audit via `security-reviewer`, spec doc gate via `docs-reviewer`), or requires an isolated mock test environment to protect the host system.
+  - **Parallel Subagents only:** When multiple COMPLETELY INDEPENDENT work slices across different modules/services can run concurrently to save time, or for complex multi-branch investigations. NEVER spawn subagents for simple edits or sequential dependent steps.
 
 ## 1. Global Rules
-- Always respond in Vietnamese (except code identifiers, error strings, shell commands, URLs).
+- Always respond in English unless the user explicitly requests another language (keep code identifiers, error strings, shell commands, URLs verbatim).
 - Never commit, branch, or open PRs unless explicitly requested.
-- **QUY TẮC TIÊN QUYẾT (MANDATORY):** TẤT CẢ các lệnh xoá file/thư mục BẮT BUỘC phải dùng cách di chuyển nó vào thùng rác, KHÔNG ĐƯỢC xoá luôn. Never permanently delete user files. Clean temporary files only by moving them to the Recycle Bin / Trash.
+- **MANDATORY PREREQUISITE:** ALL file/directory deletion commands MUST move items to the Trash / Recycle Bin; NEVER permanently delete. Never permanently delete user files. Clean temporary files only by moving them to the Recycle Bin / Trash.
 - Create/update files only in the current workspace; ask before editing outside it.
 - Do not stop or downgrade scope/model/agents solely for cost warnings. Continue when technically possible; report platform blocks.
 - Disclose failed commands/tests and incomplete verification. Never claim unverified success.
@@ -29,8 +29,8 @@
 
 ## 2. MCP Routing & Strict Enforcement
 - **Strict OUTPUT PREFIX Verification:** You MUST NEVER issue a tool call without first outputting the `[Pre-flight]` prefix. If you generate a tool call without this prefix, you have violated a core directive.
-- **MCP Route & Priority (Hard Constraints):** BẮT BUỘC ưu tiên dùng các MCP tools chuyên dụng tương ứng với domain của task (ví dụ: dùng MCP tool về code graph thay vì `grep`, dùng MCP tool về browser thay vì `curl`/`wget`, dùng MCP tool về database/memory thay vì tra cứu file thủ công). **CẤM** lạm dụng `bash` (grep, find, awk, curl) hoặc native tools khi trong danh sách công cụ đã có MCP tool phục vụ chức năng đó.
-- **Fallback Rule:** Chỉ được dùng bash/native tools khi MCP tool tương ứng báo lỗi không khả dụng (connection refused, not configured) HOẶC user rõ ràng yêu cầu dùng bash. Trừ khi đó, lạm dụng bash/grep thay cho MCP là vi phạm nghiêm trọng.
+- **MCP Route & Priority (Hard Constraints):** MANDATORY: prioritize specialized MCP tools matching the task domain (e.g., use a code graph MCP tool instead of `grep`, a browser MCP tool instead of `curl`/`wget`, a database/memory MCP tool instead of manual file lookups). FORBIDDEN: abusing `bash` (grep, find, awk, curl) or native tools when an MCP tool serving that function exists in the tool registry.
+- **Fallback Rule:** Only use bash/native tools when the corresponding MCP tool reports an error or is unavailable (connection refused, not configured), OR when the user explicitly requests bash. Otherwise, abusing bash/grep over MCP is a severe violation.
 
 ---
 
@@ -42,29 +42,29 @@
 ## Pre-flight Task Complexity, Skills & Plugin/MCP Assessment [HIGHEST PRIORITY]
 
 **[CRITICAL INVARIANT]** You MUST explicitly analyze the incoming request upfront to determine task complexity, applicable Skills, and applicable Plugins/MCP tools. Decide whether to spawn specialized subagents or use the main agent directly.
-- **NGUYÊN TẮC CỐT LÕI:** Main Agent là người thực thi chính (Default: Direct Execution). Hạn chế tối đa việc spawn subagent bừa bãi. CHỈ spawn subagent khi tác vụ có tính chất đặc thù, chuyên biệt, hoặc các nhánh công việc thực sự độc lập cần chạy song song.
+- **CORE PRINCIPLE:** The Main Agent is the primary executor (Default: Direct Execution). Minimize indiscriminate subagent spawning. ONLY spawn subagents when tasks have distinct, specialized characteristics or genuinely independent work streams that require parallel execution.
 - **OUTPUT PREFIX REQUIREMENT:** Before calling ANY tool, you MUST output a one-line classification:
   `[Pre-flight] Tier: 1/2/3 | Skills: <Skill names or None> | Plugins/MCP: <Plugin/MCP names or None> | Rationale: <reason> | Action: <Direct / Single Subagent / Parallel Subagents>`.
 
 ### Mandatory Tool & Skill Resolution:
 - **Skills (`skills/*/SKILL.md`):** E.g. `create-plan`, `implement-task`, `init-docs`, `delivery`, `security-review`. If a task matches a skill's intent, MUST use it instead of ad-hoc steps.
-- **Plugins / MCP Tools:** Luôn kiểm tra danh sách MCP tools đang có trong môi trường để ưu tiên sử dụng đúng công cụ cho domain (ví dụ: công cụ cho code graph/symbol, project memory, browser automation, issue tracking, docs, tra cứu thư viện...). *NEVER use generic `bash`/`grep`/`curl` if a dedicated Plugin/MCP handles the domain.*
+- **Plugins / MCP Tools:** Always check the list of active MCP tools in the environment to prioritize using the right tool for the domain (e.g., tools for code graph/symbol, project memory, browser automation, issue tracking, docs, library lookup...). *NEVER use generic `bash`/`grep`/`curl` if a dedicated Plugin/MCP handles the domain.*
 
 Before executing actions or calling tool sequences, classify the incoming task:
 
 1. **Tier 1: Trivial / Direct (Direct Execution by Main Agent)**
-   - **Scope:** Chỉnh sửa vài dòng đến vài file trong cùng ngữ cảnh rõ ràng; đọc file; tra cứu CLI/môi trường; giải đáp thắc mắc; các thao tác tuần tự ngắn.
-   - **Action:** Main Agent tự thực thi trực tiếp. TUYỆT ĐỐI KHÔNG spawn subagent.
+   - **Scope:** Edits ranging from a few lines to a few files within a clear context; reading files; CLI/environment lookups; answering questions; short sequential operations.
+   - **Action:** Main Agent executes directly. STRICTLY FORBIDDEN to spawn subagents.
 
-2. **Tier 2: Moderate / Focused Tasks (Direct Execution ưu tiên, Subagent khi ĐẶC THÙ)**
-   - **Scope:** Sửa 2-5 file trong cùng module; debug lỗi cục bộ; viết test hoặc tài liệu; refactor phạm vi hẹp.
-   - **Action:** Mặc định Main Agent tự làm. Chỉ uỷ quyền (Single Subagent) khi:
-     - Cần vai trò chuyên biệt sâu (ví dụ `security-reviewer` quét bảo mật chuyên sâu, `dely-reviewer` kiểm tra cổng chất lượng độc lập).
-     - Hoặc cần môi trường test giả lập tách biệt để đảm bảo an toàn tuyệt đối cho máy chủ/môi trường thật.
+2. **Tier 2: Moderate / Focused Tasks (Direct Execution Preferred, Subagent when SPECIALIZED)**
+   - **Scope:** Editing 2–5 files in the same module; local bug debugging; writing tests or documentation; narrow refactoring.
+   - **Action:** Default to Main Agent direct execution. Only delegate (Single Subagent) when:
+     - A deep specialized role is required (e.g., `security-reviewer` for in-depth security scans, `dely-reviewer` for independent quality gate checks).
+     - Or an isolated mock test environment is required to ensure absolute safety for the real server/environment.
 
-3. **Tier 3: Complex / Multi-system / Broad Investigations (Subagent khi cần SONG SONG HOÁ)**
-   - **Scope:** Tác vụ quy mô lớn, nhiều service/repo độc lập; di chuyển hạ tầng phức tạp; các đợt rà soát toàn bộ hệ thống lớn.
-   - **Action:** Main Agent đóng vai trò Điều phối & Tích hợp (Dispatcher & Integrator). Phân rã thành các nhánh ĐỘC LẬP và spawn song song các subagent chuyên trách (`tasks[]`). TUYỆT ĐỐI KHÔNG spawn subagent nếu các bước phụ thuộc tuần tự hoặc nếu Main Agent có thể xử lý trực tiếp hiệu quả hơn.
+3. **Tier 3: Complex / Multi-system / Broad Investigations (Subagent when PARALLELIZATION is needed)**
+   - **Scope:** Large-scale tasks spanning multiple independent services/repos; complex infrastructure migrations; broad system-wide audits.
+   - **Action:** Main Agent acts as Dispatcher & Integrator. Decompose into INDEPENDENT branches and spawn specialized subagents concurrently (`tasks[]`). NEVER spawn subagents if the steps are sequentially dependent or if the Main Agent can handle them directly more efficiently.
 
 Default behavioral guidelines for all workspaces.
 
@@ -75,7 +75,7 @@ Default behavioral guidelines for all workspaces.
 - State key assumptions briefly. Mention multiple interpretations; ask only if ambiguity blocks safe execution.
 - For minor ambiguity, state the safest assumption and continue.
 - Prefer simpler approaches. Push back on unnecessary complexity, risk, or unrelated work.
-- Implement directly and verify fast. Tránh tạo các plan rườm rà khi không cần thiết.
+- Implement directly and verify fast. Avoid creating unnecessary, verbose plan files.
 
 Create/update a task-tracking `.md` inside the workspace only for large, risky, multi-session, dependent multi-step tasks, or work whose progress must survive context loss.
 
@@ -108,24 +108,24 @@ Define success criteria and verify. Do not stop mid-task unless blocked by safet
 ## Agents, Sub-Agents, and Multi-Agent Orchestration
 
 ### Core Invariants
-- Main Agent là trung tâm xử lý chính. Không lạm dụng spawn subagent cho các tác vụ thông thường.
-- Chỉ spawn subagent khi tác vụ có tính chuyên biệt rõ rệt hoặc có nhiều luồng công việc độc lập cần xử lý song song.
-- Tránh spawn subagent dạng chuỗi phụ thuộc tuần tự vì gây lãng phí tài nguyên và làm mất ngữ cảnh.
+- Main Agent is the primary processing hub. Do not abuse subagent spawning for routine tasks.
+- Only spawn subagents when the task has distinct specialization or multiple independent workstreams needing parallel handling.
+- Avoid spawning sequential dependency chains of subagents as they waste resources and lose context.
 
 ### Subagent Role Directory
-- `scout`: Đọc nhanh và khảo sát codebase diện rộng khi chưa rõ cấu trúc hoặc vị trí file.
-- `reviewer`: Đánh giá chất lượng code, quy chuẩn kiến trúc và tuân thủ chuẩn mực.
-- `security-reviewer`: Đánh giá bảo mật, quét lỗ hổng và rủi ro an ninh.
-- `architect`: Thiết kế kiến trúc tổng thể, lập kế hoạch phân tách module lớn.
-- `plan-reviewer`: Độc lập review và duyệt kế hoạch kỹ thuật (`plan.md`).
-- `sonic`: Chỉnh sửa cơ học nhanh, biến đổi dữ liệu hàng loạt.
-- `dely-implementer`: Viết code tự chủ, TDD theo contract thiết kế đã duyệt.
-- `dely-reviewer`: Review code độc lập, kiểm tra test gate và trường hợp biên.
-- `docs-*`: Quản lý vòng đời tài liệu Spec-Driven.
+- `scout`: Rapid read and broad codebase reconnaissance when structure or file locations are unknown.
+- `reviewer`: Evaluate code quality, architectural standards, and convention compliance.
+- `security-reviewer`: Security evaluation, vulnerability scanning, and risk assessment.
+- `architect`: Overall architecture design, large module decomposition planning.
+- `plan-reviewer`: Independent review and approval of technical plans (`plan.md`).
+- `sonic`: Fast mechanical edits, bulk data transformations.
+- `dely-implementer`: Autonomous coding, TDD following approved design contracts.
+- `dely-reviewer`: Independent code review, test-gate reproduction, and counterexample evaluation.
+- `docs-*`: Full lifecycle management of Spec-Driven documentation.
 
 ### Multi-Agent Spawning Guidelines
-- **Chỉ spawn khi thực sự cần song song:** Khi đối mặt với việc khảo sát hoặc thực thi trên nhiều service/module độc lập cùng lúc.
-- **Gộp batch:** Nếu spawn nhiều subagent, bắt buộc gộp chung vào 1 lệnh gọi `tasks[]` duy nhất, không gọi rời rạc.
+- **Only spawn when concurrency is genuinely needed:** When surveying or executing across multiple independent services/modules simultaneously.
+- **Batch grouping:** When spawning multiple subagents, you MUST bundle them into a single `tasks[]` call, never as fragmented sequential calls.
 
 ### Advisor Role Guidelines
 - When acting as **Advisor**: Provide passive analysis, architectural critique, edge-case risks, and suggestions only. NEVER issue mutation tool calls (`write`, `edit`, `bash` state changes). Output purely analytical feedback.
@@ -146,8 +146,8 @@ Allowed only when requested or for approved parallel chunks. Use the exact task/
 
 ### MCP Routing & Strict Enforcement (Hard Constraints)
 - **Strict OUTPUT PREFIX Verification:** You MUST NEVER issue a tool call without first outputting the `[Pre-flight]` prefix.
-- **MCP Route & Priority (Hard Constraints):** BẮT BUỘC ưu tiên dùng các MCP tools chuyên dụng tương ứng với domain của task. **CẤM** lạm dụng `bash` (grep, find, awk, curl) hoặc native tools khi trong danh sách công cụ đã có MCP tool phục vụ chức năng đó.
-- **Fallback Rule:** Chỉ dùng bash/native tools thay thế khi MCP báo lỗi không khả dụng hoặc user bắt buộc.
+- **MCP Route & Priority (Hard Constraints):** MANDATORY: prioritize specialized MCP tools matching the task domain. FORBIDDEN: abusing `bash` (grep, find, awk, curl) or native tools when an MCP tool serving that function exists in the tool registry.
+- **Fallback Rule:** Only use bash/native tools as a fallback when the MCP tool reports an error/unavailable or when explicitly required by the user.
 
 - Use local search/read/terminal and external docs for third-party integrations as needed.
 - Don't assume optional tools/services exist; fall back gracefully and report limitations.
@@ -163,7 +163,7 @@ Prefer PowerShell 7 (`pwsh`); use other shells only when required. Run heavy tas
 
 ## Java
 
-Before build/compile, detect the project JDK và set `JAVA_HOME`; don't rely on machine default unless it matches. Store the JDK/project mapping when memory is available.
+Before build/compile, detect the project JDK and set `JAVA_HOME`; don't rely on machine default unless it matches. Store the JDK/project mapping when memory is available.
 
 ---
 

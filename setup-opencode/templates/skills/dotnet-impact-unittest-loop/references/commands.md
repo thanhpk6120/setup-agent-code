@@ -1,60 +1,60 @@
 # .NET Test & Coverage Commands Cheat Sheet
 
-## 1. Map Git Diff tới Method C# thay đổi
+## 1. Map Git Diff to changed C# methods
 
-Xem các thay đổi kèm ngữ cảnh tên method C# trong hunk header:
+Show changes with C# method names in hunk headers:
 ```bash
-# Hiển thị diff với ngữ cảnh hàm (function context)
+# Show diff with function context
 git diff -W src/
 
-# Hiển thị các khối thay đổi không kèm dòng context, hiển thị rõ tên method tại header @@
+# Show change hunks without context lines, with method names visible in the @@ header
 git diff -U0 HEAD~1 -- "*.cs"
 ```
 
-Lấy danh sách các file C# vừa sửa:
+List recently modified C# files:
 ```bash
 git diff --name-only HEAD~1 -- "*.cs"
 ```
 
 ---
 
-## 2. Chạy Test chọn lọc (dotnet test --filter)
+## 2. Run selective tests (dotnet test --filter)
 
-Chạy tất cả test trong một Test Class:
+Run all tests in one Test Class:
 ```bash
 dotnet test --filter "FullyQualifiedName~MyNamespace.Services.OrderServiceTests"
 ```
 
-Chạy một test method cụ thể:
+Run one specific test method:
 ```bash
 dotnet test --filter "FullyQualifiedName=MyNamespace.Services.OrderServiceTests.CreateOrder_ValidInput_ReturnsSuccess"
 ```
 
-Chạy kết hợp nhiều class hoặc namespace:
+Run a combination of classes or namespaces:
 ```bash
 dotnet test --filter "FullyQualifiedName~OrderServiceTests|FullyQualifiedName~PaymentServiceTests"
 ```
 
 ---
 
-## 3. Thu thập Coverage với Coverlet (XPlat Code Coverage)
+## 3. Collect coverage with Coverlet (XPlat Code Coverage)
 
-Chạy test chọn lọc kèm cờ thu thập coverage (mặc định sinh `coverage.cobertura.xml`):
+Run selective tests with the coverage flag (generates `coverage.cobertura.xml` by default):
 ```bash
 dotnet test --filter "FullyQualifiedName~OrderServiceTests" --collect "XPlat Code Coverage"
 ```
-File báo cáo được tạo tại: `[ProjectTestDir]/TestResults/{guid}/coverage.cobertura.xml`
+Report file is created at: `[ProjectTestDir]/TestResults/{guid}/coverage.cobertura.xml`
 
-Thiết lập Coverlet Threshold (90% Line & Branch):
+Set the Coverlet threshold (90% Line & Branch):
 ```bash
 dotnet test --collect "XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Threshold=90 DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ThresholdType="line,branch"
 ```
 
 ---
 
-## 4. Lọc coverage.cobertura.xml theo Method
+## 4. Filter coverage.cobertura.xml by method
 
-Cấu trúc block method trong file Cobertura do Coverlet sinh:
+Method block structure in the Coverlet-generated Cobertura file:
 ```xml
 <class name="MyNamespace.Services.OrderService" ...>
   <methods>
@@ -68,7 +68,7 @@ Cấu trúc block method trong file Cobertura do Coverlet sinh:
 </class>
 ```
 
-### Lọc bằng PowerShell (Native trên Windows):
+### Filter with PowerShell (native on Windows):
 ```powershell
 $xml = [xml](Get-Content (Get-ChildItem -Recurse -Filter "coverage.cobertura.xml" | Select -First 1).FullName)
 $method = $xml.SelectSingleNode("//class[@name='MyNamespace.Services.OrderService']/methods/method[@name='CreateOrderAsync']")
@@ -83,40 +83,40 @@ if ($method) {
 }
 ```
 
-### Lọc bằng Python (Cross-platform):
+### Filter with Python (cross-platform):
 ```bash
 python -c "import xml.etree.ElementTree as ET, glob; f = glob.glob('**/coverage.cobertura.xml', recursive=True)[0]; root = ET.parse(f).getroot(); m = root.find('.//class[@name=\"MyNamespace.Services.OrderService\"]/methods/method[@name=\"CreateOrderAsync\"]'); print(f'Line: {float(m.attrib[\"line-rate\"])*100:.1f}%, Branch: {float(m.attrib[\"branch-rate\"])*100:.1f}%') if m is not None else print('Method not found')"
 ```
 
 ---
 
-## 5. Tạo HTML Report trực quan (ReportGenerator)
+## 5. Generate a visual HTML report (ReportGenerator)
 
-Cài đặt ReportGenerator global tool (nếu chưa có):
+Install the ReportGenerator global tool (if missing):
 ```bash
 dotnet tool install -g dotnet-reportgenerator-globaltool
 ```
 
-Sinh HTML report từ file Cobertura:
+Generate the HTML report from the Cobertura file:
 ```bash
 reportgenerator -reports:"**/coverage.cobertura.xml" -targetdir:"coveragereport" -reporttypes:Html
 ```
 
 ---
 
-## 6. Mở HTML Report và Đóng gói kết quả cuối cùng
+## 6. Open the HTML report and package the final result
 
-### Mở HTML report trong trình duyệt:
+### Open the HTML report in a browser:
 ```powershell
-# Trên Windows / PowerShell
+# On Windows / PowerShell
 Start-Process "coveragereport\index.html"
 
-# Trên Linux/macOS
+# On Linux/macOS
 xdg-open coveragereport/index.html || open coveragereport/index.html
 ```
 
-### Nén thư mục report thành file ZIP (Chỉ làm 1 lần vào cuối quy trình):
-Tạo thư mục `evidence` nếu chưa có và lưu file nén với tên `dotnet-final-coverage.zip`.
+### Archive the report directory as ZIP (do exactly once at the end):
+Create the `evidence` directory if missing and save the archive as `dotnet-final-coverage.zip`.
 
 ```powershell
 # PowerShell
@@ -130,9 +130,9 @@ zip -r evidence/dotnet-final-coverage.zip coveragereport/
 
 ---
 
-## 7. Mẫu xUnit & Moq / NSubstitute chuẩn
+## 7. Standard xUnit & Moq / NSubstitute samples
 
-### Mẫu Mock với Moq:
+### Mock sample with Moq:
 ```csharp
 public class OrderServiceTests
 {
@@ -171,7 +171,7 @@ public class OrderServiceTests
 }
 ```
 
-### Mẫu Mock với NSubstitute:
+### Mock sample with NSubstitute:
 ```csharp
 public class OrderServiceTests
 {
@@ -199,8 +199,8 @@ public class OrderServiceTests
 
 ---
 
-## 8. Anti-pattern (Nghiêm cấm)
+## 8. Anti-patterns (Forbidden)
 
-1. Sửa access modifier trong `src` (đổi `private` thành `public` hoặc `internal`) chỉ để phục vụ viết test thay vì kiểm thử qua public contract.
-2. Đặt `[Fact(Skip = "...")]` lên các test case đang fail để làm đẹp tỷ lệ pass/coverage.
-3. Chạy `dotnet test` toàn bộ solution khi chỉ sửa 1 method trong 1 class. Luôn dùng `--filter` để giữ tốc độ phản hồi dưới 5 giây.
+1. Do not change access modifiers in `src` (e.g. `private` to `public` or `internal`) just to ease testing; test through the public contract instead.
+2. Do not put `[Fact(Skip = "...")]` on failing test cases to beautify pass/coverage rates.
+3. Do not run `dotnet test` on the whole solution when only 1 method in 1 class changed. Always use `--filter` to keep feedback under 5 seconds.

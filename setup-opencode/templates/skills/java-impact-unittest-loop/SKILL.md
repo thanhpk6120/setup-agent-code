@@ -1,96 +1,96 @@
 ---
 name: java-impact-unittest-loop
-description: 'Phân tích vùng ảnh hưởng, tự động tạo test case JUnit/Mockito và chạy lặp để đạt 90% coverage cho mã nguồn Java.'
+description: 'Analyze impact scope, auto-generate JUnit/Mockito test cases, and loop until 90% coverage for Java source code.'
 ---
 
 # Java Impact Unittest Loop
 
-Sử dụng skill này sau khi đã hoàn tất thay đổi mã nguồn Java và người dùng yêu cầu kiểm tra lại (retest), đánh giá ảnh hưởng (impact), hoặc nâng cao độ phủ (coverage).
+Use this skill after Java source changes are complete and the user requests a retest, an impact assessment, or higher coverage.
 
-## 1. Phân tích vùng ảnh hưởng (Impact)
+## 1. Analyze impact scope (Impact)
 
-Sử dụng `git status` hoặc `git diff --name-only` để phân loại các file mã nguồn đã thay đổi.
-Nếu có GitNexus MCP, dùng lệnh `impact/context/trace` để quét đồ thị phụ thuộc.
-Nếu không, phân tích thủ công theo thứ tự đọc các lớp (Layer): `controller -> service -> repository -> entity`.
-Lập bảng đánh giá mức độ ảnh hưởng: File / Hàm / API tương ứng / Mức độ rủi ro (HIGH/MED/LOW).
+Use `git status` or `git diff --name-only` to classify changed source files.
+If GitNexus MCP is available, run `impact/context/trace` to scan the dependency graph.
+Otherwise, analyze manually in layer read order: `controller -> service -> repository -> entity`.
+Build an impact assessment table: File / Function / Corresponding API / Risk level (HIGH/MED/LOW).
 
-## 2. Xác định mục tiêu cần kiểm tra (Target)
+## 2. Determine test targets (Target)
 
-Chỉ định các hàm, API cụ thể cần viết test dựa trên quy tắc sau:
-- Bao gồm các hàm bị thay đổi trực tiếp.
-- Bao gồm các hàm gọi đến (callers) hoặc được gọi từ (callees) hàm thay đổi với khoảng cách 1 hop.
-- Bao gồm các API handler liên quan trực tiếp đến luồng logic thay đổi.
-- Loại trừ các đoạn mã được sinh tự động (generated code) hoặc các lớp cấu hình hệ thống (config).
+Specify the exact functions and APIs to test, following these rules:
+- Include directly changed functions.
+- Include callers or callees of the changed function within 1 hop.
+- Include API handlers directly related to the changed logic flow.
+- Exclude auto-generated code or system configuration classes.
 
-## 3. Tạo bài kiểm tra (Tạo test)
+## 3. Create tests
 
-Viết các bài kiểm tra bằng JUnit5 và Mockito.
-Đặt file test tại thư mục `src/test` với cấu trúc package phản chiếu chính xác thư mục `src/main`. Tên file test phải có hậu tố `Test`.
-Giả lập (mock) các đường ranh giới hệ thống như Database, HTTP client, hoặc Message Queue.
-Mỗi nhánh logic (branch) bị thay đổi phải có ít nhất một test case tương ứng:
-- Đường dẫn chuẩn (happy path)
-- Giá trị null
-- Dữ liệu trống (empty)
-- Bắn lỗi (exception)
-- Quyền truy cập (permission)
+Write tests with JUnit5 and Mockito.
+Place test files under `src/test` with a package structure mirroring `src/main`. Test file names must carry the `Test` suffix.
+Mock system boundaries such as Database, HTTP client, or Message Queue.
+Every changed logic branch must have at least one corresponding test case:
+- Happy path
+- Null values
+- Empty data
+- Error throwing (exception)
+- Access permission
 
-## 4. Chạy kiểm tra chọn lọc (Chạy selective)
+## 4. Run selective tests
 
-Thực thi test riêng lẻ trên các file vừa tạo hoặc thay đổi, cấm chạy toàn bộ test suite trừ khi vùng ảnh hưởng lan rộng toàn hệ thống.
-Với Maven: sử dụng lệnh `mvn -Dtest=[TênTestClass] -Dsurefire.failIfNoSpecifiedTests=false test`, sau đó chạy `mvn jacoco:report`.
-Với Gradle: sử dụng lệnh `gradle test --tests "[Package.TênTestClass]"`, sau đó chạy `gradle jacocoTestReport`.
+Run tests individually on newly created or changed files; never run the full test suite unless the impact spans the whole system.
+With Maven: run `mvn -Dtest=[TestClassName] -Dsurefire.failIfNoSpecifiedTests=false test`, then `mvn jacoco:report`.
+With Gradle: run `gradle test --tests "[Package.TestClassName]"`, then `gradle jacocoTestReport`.
 
-## 5. Vòng lặp cải thiện độ phủ (Loop-until-90)
+## 5. Coverage improvement loop (Loop-until-90)
 
-Đọc file báo cáo `target/site/jacoco/jacoco.xml` hoặc `build/reports/jacoco/test/jacocoTestReport.xml`.
-Thu thập các số đếm (counter): INSTRUCTION, LINE, BRANCH (MISSED và COVERED) đối với các lớp bị ảnh hưởng.
-Tính toán tỷ lệ phần trăm (COVERED / (MISSED + COVERED)).
-Điều kiện đạt: Tỷ lệ lớn hơn 90% ở cả 3 loại counter, hoặc tối thiểu ở INSTRUCTION và BRANCH.
-Nếu chưa đạt, chỉ sửa và bổ sung test case, sau đó chạy lại lệnh test và jacoco.
-Giới hạn tối đa 5 vòng lặp. Ở mỗi vòng, ghi nhật ký: Số thứ tự vòng lặp / Tỷ lệ coverage còn thiếu / Các nhánh (branch) chưa được phủ.
+Read the report at `target/site/jacoco/jacoco.xml` or `build/reports/jacoco/test/jacocoTestReport.xml`.
+Collect counters (INSTRUCTION, LINE, BRANCH with MISSED and COVERED) for the affected classes.
+Compute the percentage as (COVERED / (MISSED + COVERED)).
+Done criteria: over 90% on all 3 counter types, or at minimum on INSTRUCTION and BRANCH.
+If not met, only fix/add test cases, then rerun the test and jacoco commands.
+Maximum 5 iterations. Each iteration, log: iteration number / missing coverage ratio / uncovered branches.
 
-## 6. Dừng và xin ý kiến (Stop-and-ask)
+## 6. Stop and ask
 
-Dừng vòng lặp và hỏi người dùng nếu thỏa mãn một trong các điều kiện dừng thật:
-- Phát hiện lỗi logic nghiệp vụ nghiêm trọng có thể ảnh hưởng production.
-- Mã nguồn không thể viết test (untestable code) do thiết kế.
-- Coverage không tăng trong 2 vòng lặp liên tiếp.
-Khi dừng, trình bày rõ câu hỏi cùng với bằng chứng cụ thể từ logs hoặc code.
+Stop the loop and ask the user when any real stop condition holds:
+- A critical business-logic bug is found that could affect production.
+- The source is untestable by design.
+- Coverage does not increase for 2 consecutive iterations.
+When stopping, present the question clearly with concrete evidence from logs or code.
 
-## 7. Đóng gói kết quả (Zip evidence)
+## 7. Package results (Zip evidence)
 
-Việc tạo ZIP phải là bước cuối cùng sau khi thoát khỏi vòng lặp cải thiện độ phủ.
-Tạo thư mục `evidence/` và nén thư mục báo cáo JaCoCo (ví dụ: `target/site/jacoco/` hoặc `build/reports/jacoco/`) với tên file là `evidence/java-final-coverage.zip`.
+Creating the ZIP must be the final step after exiting the coverage improvement loop.
+Create the `evidence/` directory and archive the JaCoCo report directory (e.g. `target/site/jacoco/` or `build/reports/jacoco/`) as `evidence/java-final-coverage.zip`.
 
 ## Output
 
 ```markdown
 # Java Impact Test Loop Result
 
-## Bảng phân tích ảnh hưởng (Impact table)
-| File | Hàm | API | Mức độ rủi ro (HIGH/MED/LOW) |
+## Impact analysis table
+| File | Function | API | Risk level (HIGH/MED/LOW) |
 |------|-----|-----|------------------------------|
 
-## Danh sách cần kiểm tra (Retest list)
-- Class.method1 (Lý do chọn)
-- Class.method2 (Lý do chọn)
+## Retest list
+- Class.method1 (Selection reason)
+- Class.method2 (Selection reason)
 
-## Kết quả JaCoCo (JaCoCo result)
+## JaCoCo results
 - INSTRUCTION: X%
 - LINE: Y%
 - BRANCH: Z%
 
-## Nhật ký vòng lặp
-- Vòng 1: Đạt X% nhánh. Thiếu: Nhánh kiểm tra null.
-- Vòng 2: Đạt Y% nhánh. Thiếu: Nhánh kiểm tra ngoại lệ.
+## Iteration log
+- Iteration 1: X% branches. Missing: null-check branch.
+- Iteration 2: Y% branches. Missing: exception-check branch.
 
-## Bằng chứng kiểm thử (Evidence)
-- Nén bằng chứng: evidence/java-final-coverage.zip
+## Test evidence
+- Archived evidence: evidence/java-final-coverage.zip
 ```
 
 ## Safety boundaries
 
-- Không chỉnh sửa mã nguồn trong `src/main` trong quá trình chạy test loop.
-- Không hạ thấp ngưỡng coverage yêu cầu (90%).
-- Không xóa các test case cũ chỉ để làm tăng tỷ lệ coverage ảo.
-- Không tự ý commit hoặc push mã nguồn khi chưa có yêu cầu từ người dùng.
+- Do not modify source code in `src/main` during the test loop.
+- Do not lower the required coverage threshold (90%).
+- Do not delete old test cases just to inflate coverage.
+- Do not commit or push source code unless the user requests it.

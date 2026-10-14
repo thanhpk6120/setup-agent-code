@@ -1,96 +1,96 @@
 ---
 name: java-impact-unittest-loop
-description: 'Phân tích vùng ảnh hưởng, tự động tạo test case JUnit/Mockito và chạy lặp để đạt 90% coverage cho mã nguồn Java.'
+description: 'Analyze impact scope, automatically generate JUnit/Mockito test cases, and run in a loop to achieve 90% coverage on Java code.'
 ---
 
 # Java Impact Unittest Loop
 
-Sử dụng skill này sau khi đã hoàn tất thay đổi mã nguồn Java và người dùng yêu cầu kiểm tra lại (retest), đánh giá ảnh hưởng (impact), hoặc nâng cao độ phủ (coverage).
+Use this skill after Java code changes are completed and the user requests retesting, impact evaluation, or increasing test coverage.
 
-## 1. Phân tích vùng ảnh hưởng (Impact)
+## 1. Analyze Impact Scope
 
-Sử dụng `git status` hoặc `git diff --name-only` để phân loại các file mã nguồn đã thay đổi.
-Nếu có GitNexus MCP, dùng lệnh `impact/context/trace` để quét đồ thị phụ thuộc.
-Nếu không, phân tích thủ công theo thứ tự đọc các lớp (Layer): `controller -> service -> repository -> entity`.
-Lập bảng đánh giá mức độ ảnh hưởng: File / Hàm / API tương ứng / Mức độ rủi ro (HIGH/MED/LOW).
+Use `git status` or `git diff --name-only` to classify modified source files.
+If GitNexus MCP is available, use `impact/context/trace` to inspect dependency graphs.
+Otherwise, perform manual analysis following layer read order: `controller -> service -> repository -> entity`.
+Build an impact assessment table: File / Method / Corresponding API / Risk Level (HIGH/MED/LOW).
 
-## 2. Xác định mục tiêu cần kiểm tra (Target)
+## 2. Identify Target Scope
 
-Chỉ định các hàm, API cụ thể cần viết test dựa trên quy tắc sau:
-- Bao gồm các hàm bị thay đổi trực tiếp.
-- Bao gồm các hàm gọi đến (callers) hoặc được gọi từ (callees) hàm thay đổi với khoảng cách 1 hop.
-- Bao gồm các API handler liên quan trực tiếp đến luồng logic thay đổi.
-- Loại trừ các đoạn mã được sinh tự động (generated code) hoặc các lớp cấu hình hệ thống (config).
+Specify concrete functions and APIs requiring tests based on the following rules:
+- Include directly modified functions.
+- Include callers or callees of the changed function within a 1-hop distance.
+- Include API handlers directly related to the modified logic flow.
+- Exclude generated code and system configuration classes (config).
 
-## 3. Tạo bài kiểm tra (Tạo test)
+## 3. Generate Tests
 
-Viết các bài kiểm tra bằng JUnit5 và Mockito.
-Đặt file test tại thư mục `src/test` với cấu trúc package phản chiếu chính xác thư mục `src/main`. Tên file test phải có hậu tố `Test`.
-Giả lập (mock) các đường ranh giới hệ thống như Database, HTTP client, hoặc Message Queue.
-Mỗi nhánh logic (branch) bị thay đổi phải có ít nhất một test case tương ứng:
-- Đường dẫn chuẩn (happy path)
-- Giá trị null
-- Dữ liệu trống (empty)
-- Bắn lỗi (exception)
-- Quyền truy cập (permission)
+Write tests using JUnit 5 and Mockito.
+Place test files in the `src/test` directory mirroring the package structure of `src/main`. Test file names must have the `Test` suffix.
+Mock system boundaries such as Databases, HTTP clients, or Message Queues.
+Every modified logic branch must have at least one corresponding test case:
+- Happy path
+- Null values
+- Empty data
+- Thrown exceptions
+- Access permissions
 
-## 4. Chạy kiểm tra chọn lọc (Chạy selective)
+## 4. Run Selective Tests
 
-Thực thi test riêng lẻ trên các file vừa tạo hoặc thay đổi, cấm chạy toàn bộ test suite trừ khi vùng ảnh hưởng lan rộng toàn hệ thống.
-Với Maven: sử dụng lệnh `mvn -Dtest=[TênTestClass] -Dsurefire.failIfNoSpecifiedTests=false test`, sau đó chạy `mvn jacoco:report`.
-Với Gradle: sử dụng lệnh `gradle test --tests "[Package.TênTestClass]"`, sau đó chạy `gradle jacocoTestReport`.
+Execute tests individually on newly created or modified files. Running the full test suite is forbidden unless impact spreads system-wide.
+With Maven: use `mvn -Dtest=[TestClassName] -Dsurefire.failIfNoSpecifiedTests=false test`, then run `mvn jacoco:report`.
+With Gradle: use `gradle test --tests "[Package.TestClassName]"`, then run `gradle jacocoTestReport`.
 
-## 5. Vòng lặp cải thiện độ phủ (Loop-until-90)
+## 5. Coverage Evaluation Loop (Loop-until-90)
 
-Đọc file báo cáo `target/site/jacoco/jacoco.xml` hoặc `build/reports/jacoco/test/jacocoTestReport.xml`.
-Thu thập các số đếm (counter): INSTRUCTION, LINE, BRANCH (MISSED và COVERED) đối với các lớp bị ảnh hưởng.
-Tính toán tỷ lệ phần trăm (COVERED / (MISSED + COVERED)).
-Điều kiện đạt: Tỷ lệ lớn hơn 90% ở cả 3 loại counter, hoặc tối thiểu ở INSTRUCTION và BRANCH.
-Nếu chưa đạt, chỉ sửa và bổ sung test case, sau đó chạy lại lệnh test và jacoco.
-Giới hạn tối đa 5 vòng lặp. Ở mỗi vòng, ghi nhật ký: Số thứ tự vòng lặp / Tỷ lệ coverage còn thiếu / Các nhánh (branch) chưa được phủ.
+Read report file `target/site/jacoco/jacoco.xml` or `build/reports/jacoco/test/jacocoTestReport.xml`.
+Collect counters: INSTRUCTION, LINE, BRANCH (MISSED and COVERED) for affected classes.
+Calculate percentage: `COVERED / (MISSED + COVERED) * 100`.
+Passing criteria: Exceeding 90% across all 3 counter types, or at minimum for INSTRUCTION and BRANCH.
+If below 90%, only modify and add test cases, then re-run test and jacoco commands.
+Limit to a maximum of 5 iterations. At each iteration, log: Iteration number / Missing coverage percentage / Uncovered branches.
 
-## 6. Dừng và xin ý kiến (Stop-and-ask)
+## 6. Stop and Ask
 
-Dừng vòng lặp và hỏi người dùng nếu thỏa mãn một trong các điều kiện dừng thật:
-- Phát hiện lỗi logic nghiệp vụ nghiêm trọng có thể ảnh hưởng production.
-- Mã nguồn không thể viết test (untestable code) do thiết kế.
-- Coverage không tăng trong 2 vòng lặp liên tiếp.
-Khi dừng, trình bày rõ câu hỏi cùng với bằng chứng cụ thể từ logs hoặc code.
+Stop the loop and ask the user if any of the following true stopping conditions are met:
+- Severe business logic defect detected that may affect production.
+- Code is untestable by design.
+- Coverage does not increase across 2 consecutive iterations.
+When stopping, present the inquiry clearly along with concrete evidence from logs or code.
 
-## 7. Đóng gói kết quả (Zip evidence)
+## 7. Package Results (Zip Evidence)
 
-Việc tạo ZIP phải là bước cuối cùng sau khi thoát khỏi vòng lặp cải thiện độ phủ.
-Tạo thư mục `evidence/` và nén thư mục báo cáo JaCoCo (ví dụ: `target/site/jacoco/` hoặc `build/reports/jacoco/`) với tên file là `evidence/java-final-coverage.zip`.
+Creating the ZIP must be the final step after exiting the coverage loop.
+Create `evidence/` directory and compress the JaCoCo report directory (e.g.: `target/site/jacoco/` or `build/reports/jacoco/`) as `evidence/java-final-coverage.zip`.
 
 ## Output
 
 ```markdown
 # Java Impact Test Loop Result
 
-## Bảng phân tích ảnh hưởng (Impact table)
-| File | Hàm | API | Mức độ rủi ro (HIGH/MED/LOW) |
-|------|-----|-----|------------------------------|
+## Impact Table
+| File | Method | API | Risk Level (HIGH/MED/LOW) |
+|------|--------|-----|---------------------------|
 
-## Danh sách cần kiểm tra (Retest list)
-- Class.method1 (Lý do chọn)
-- Class.method2 (Lý do chọn)
+## Retest List
+- Class.method1 (Selection rationale)
+- Class.method2 (Selection rationale)
 
-## Kết quả JaCoCo (JaCoCo result)
+## JaCoCo Result
 - INSTRUCTION: X%
 - LINE: Y%
 - BRANCH: Z%
 
-## Nhật ký vòng lặp
-- Vòng 1: Đạt X% nhánh. Thiếu: Nhánh kiểm tra null.
-- Vòng 2: Đạt Y% nhánh. Thiếu: Nhánh kiểm tra ngoại lệ.
+## Iteration Log
+- Loop 1: Reached X% branches. Missing: Null-check branch.
+- Loop 2: Reached Y% branches. Missing: Exception-check branch.
 
-## Bằng chứng kiểm thử (Evidence)
-- Nén bằng chứng: evidence/java-final-coverage.zip
+## Evidence
+- Archive: evidence/java-final-coverage.zip
 ```
 
-## Safety boundaries
+## Safety Boundaries
 
-- Không chỉnh sửa mã nguồn trong `src/main` trong quá trình chạy test loop.
-- Không hạ thấp ngưỡng coverage yêu cầu (90%).
-- Không xóa các test case cũ chỉ để làm tăng tỷ lệ coverage ảo.
-- Không tự ý commit hoặc push mã nguồn khi chưa có yêu cầu từ người dùng.
+- Do not modify source code in `src/main` during test loops.
+- Do not lower the required coverage threshold (90%).
+- Do not delete existing test cases to artificially inflate coverage rates.
+- Do not autonomously commit or push source code without user request.

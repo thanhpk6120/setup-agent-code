@@ -1,14 +1,14 @@
 # Antigravity CLI - MCP map
-# Danh sach MCP server duoc bootstrap.ps1 quan ly (chon y/N tung server).
+# List of MCP servers managed by bootstrap.ps1 (prompt y/N per server).
 
-| Key trong templates/settings.json | Command | Ghi chu |
+| Key in templates/settings.json | Command | Notes |
 |---|---|---|
-| company-atlassian | mcp-atlassian (uvx mcp-atlassian==0.23.1) | Can JIRA_URL / JIRA_PERSONAL_TOKEN / CONFLUENCE_URL / CONFLUENCE_PERSONAL_TOKEN |
-| gitnexus | cmd /c <gitnexus> mcp | Do duong dan gitnexus tu PATH |
-| context7 | node <npm-root>/@upstash/context7-mcp/dist/index.js | Can CONTEXT7_API_KEY (optional, cho phep rong) |
-| glab | glab mcp serve | Can glab CLI + GITLAB_TOKEN (optional) |
-| cloakbrowser | node <CLOAKBROWSER_DIR>/mcp-server-full.mjs | Copy tu mcp-servers/cloakbrowser (neu co) |
+| company-atlassian | mcp-atlassian (uvx mcp-atlassian==0.23.1) | Requires JIRA_URL / JIRA_PERSONAL_TOKEN / CONFLUENCE_URL / CONFLUENCE_PERSONAL_TOKEN |
+| gitnexus | cmd /c <gitnexus> mcp | Resolves gitnexus path from PATH |
+| context7 | node <npm-root>/@upstash/context7-mcp/dist/index.js | Requires CONTEXT7_API_KEY (optional, allows empty) |
+| glab | glab mcp serve | Requires glab CLI + GITLAB_TOKEN (optional) |
+| cloakbrowser | node <CLOAKBROWSER_DIR>/mcp-server-full.mjs | Copied from mcp-servers/cloakbrowser (if available) |
 
-# Quy tac
-- SkipInstall / DryRun / non-interactive: tat ca MCP bi loai khoi settings.json.
-- Memorix: entry `memorix` trong settings.json (command `memorix`, args `serve --mode lite`); bootstrap loc `memorix` khi tat, chen section `memorix-agents-section.md` vao AGENTS.md khi bat, go khi tat.
+# Rules
+- SkipInstall / DryRun / non-interactive: all MCP servers are stripped from settings.json.
+- Memorix: entry `memorix` in settings.json (command `memorix`, args `serve --mode lite`); bootstrap removes `memorix` when disabled, injects `memorix-agents-section.md` into AGENTS.md when enabled, removes when disabled.

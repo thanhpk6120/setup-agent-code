@@ -179,7 +179,7 @@ try {
     if ($tomlOn -notmatch '\[mcp_servers\.agency\]') { throw "Assert failed: agency server missing when -EnableAgency" }
     if ($tomlOn -notmatch 'agency-mcp-server\.cmd') { throw "Assert failed: agency command path missing when -EnableAgency" }
     $agentsOn = Get-Content (Join-Path $testAgencyOnDir "AGENTS.md") -Raw
-    if ($agentsOn -notmatch 'Sử dụng Agency Agents MCP') { throw "Assert failed: agency marker missing in AGENTS.md" }
+    if ($agentsOn -notmatch 'Using Agency Agents MCP' -and $agentsOn -notmatch 'agency-agents-section') { throw "Assert failed: agency marker missing in AGENTS.md" }
 
     $testAgencyOffDir = Join-Path $tempDir "agency-off"
     & "$PSScriptRoot\bootstrap.ps1" -SkipInstall -DisableAgency -CodexDir $testAgencyOffDir

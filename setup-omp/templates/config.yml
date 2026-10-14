@@ -7,71 +7,66 @@ theme:
   light: light
 setupVersion: 2
 modelRoles:
-  default: custom/claude-sonnet-5:medium
+  default: custom/claude-sonnet-5:high
   smol: custom/claude-haiku-4-5-20251001:medium
-  slow: custom/claude-opus-5:xhigh
-  vision: custom/claude-haiku-4-5-20251001:medium
-  plan: custom/claude-opus-5:high
+  slow: custom/claude-fable-5:xhigh
+  vision: custom/claude-sonnet-5:medium
+  plan: custom/claude-fable-5:high
   designer: custom/claude-sonnet-5:medium
   commit: custom/claude-haiku-4-5-20251001:medium
   tiny: custom/claude-haiku-4-5-20251001:medium
-  task: custom/claude-sonnet-5:medium
-  advisor: custom/claude-opus-5:xhigh
-  memory: custom/claude-sonnet-5:medium
+  task: custom/claude-sonnet-5:high
+  advisor: custom/claude-opus-5:medium
+  memory: custom/claude-haiku-4-5-20251001:medium
 computer:
   enabled: true
 task:
   agentModelOverrides:
     task: custom/claude-sonnet-5:high
     scout: custom/claude-sonnet-5:medium
-    sonic: custom/claude-sonnet-5:medium
-    docs-fact-check: custom/claude-opus-5:high
-    docs-reviewer: custom/claude-opus-5:medium
-    docs-init: custom/claude-opus-5:medium
-    docs-update: custom/claude-opus-5:medium
+    sonic: custom/claude-sonnet-5:low
+    docs-fact-check: custom/claude-sonnet-5:high
+    docs-reviewer: custom/claude-sonnet-5:high
+    docs-init: custom/claude-sonnet-5:medium
+    docs-update: custom/claude-sonnet-5:medium
     docs-reader: custom/claude-sonnet-5:medium
     architect: custom/claude-opus-5:medium
     plan-reviewer: custom/claude-opus-5:medium
     reviewer: custom/claude-opus-5:medium
     security-reviewer: custom/claude-opus-5:high
-    dely-implementer: custom/claude-sonnet-5:medium
-    dely-reviewer: custom/claude-opus-5:high
-    memory: custom/claude-sonnet-5:medium
-  eager: always
+    memory: custom/claude-haiku-4-5-20251001:medium
+  eager: preferred
   batch: true
   maxConcurrency: 8
-  maxRecursionDepth: 2
+  maxRecursionDepth: 1
   agentAdvisor:
-    task: "on"
-    scout: "on"
-    sonic: "on"
+    task: "off"
+    scout: "off"
+    sonic: "off"
     docs-fact-check: "on"
     docs-reviewer: "on"
     docs-init: "on"
     docs-update: "on"
-    docs-reader: "on"
+    docs-reader: "off"
     architect: "on"
     plan-reviewer: "on"
     reviewer: "on"
     security-reviewer: "on"
-    dely-implementer: "on"
-    dely-reviewer: "on"
   agentPrewalk:
-    task: "on"
-    scout: "on"
-    sonic: "on"
+    task: "off"
+    scout: "off"
+    sonic: "off"
     docs-fact-check: "on"
     docs-reviewer: "on"
     docs-init: "on"
     docs-update: "on"
-    docs-reader: "on"
+    docs-reader: "off"
     architect: "on"
     plan-reviewer: "on"
     reviewer: "on"
     security-reviewer: "on"
-    dely-implementer: "on"
-    dely-reviewer: "on"
 snapcompact:
   systemPrompt: agents-md,rules-md
 dev:
   autoqaConsent: granted
+

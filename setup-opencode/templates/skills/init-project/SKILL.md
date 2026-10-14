@@ -7,7 +7,7 @@ description: Initialize a non-git project workspace into a valid Git repository 
 
 Initialize a non-git project workspace into a valid Git repository.
 
-**Triggers:** "init project", "init git", "khởi tạo git", "biến thư mục này thành git repo", "setup git repo", or when a tool explicitly requires a git repo and user asked to initialize it.
+**Triggers:** "init project", "init git", "initialize git", "turn this folder into a git repo", "setup git repo", or when a tool explicitly requires a git repo and user asked to initialize it.
 
 **Scope:** On-demand only. Never run automatically.
 

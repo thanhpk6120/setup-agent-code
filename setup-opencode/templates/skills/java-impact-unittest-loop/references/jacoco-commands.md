@@ -1,50 +1,50 @@
 # Jacoco & Test Commands Cheat Sheet
 
-## 1. Chạy test và tạo Jacoco Report (Chỉ định Class)
+## 1. Run tests and generate the JaCoCo report (specific classes)
 
 ### Maven
-Chạy test cho các class cụ thể và xuất report:
+Run tests for specific classes and export the report:
 ```bash
 mvn -Dtest=com.example.ClassATest,com.example.ClassBTest -Dsurefire.failIfNoSpecifiedTests=false test jacoco:report
 ```
 
-Chạy toàn bộ test và xuất report:
+Run the full test suite and export the report:
 ```bash
 mvn clean test jacoco:report
 ```
 
-Vị trí file report:
+Report file locations:
 - `target/site/jacoco/jacoco.xml`
 - `target/site/jacoco/index.html`
 
 ### Gradle
-Chạy test cho các class cụ thể và xuất report:
+Run tests for specific classes and export the report:
 ```bash
 ./gradlew test --tests "com.example.ClassATest" --tests "com.example.ClassBTest" jacocoTestReport
 ```
 
-Vị trí file report:
+Report file locations:
 - `build/reports/jacoco/test/jacocoTestReport.xml`
 - `build/reports/jacoco/test/html/index.html`
 
-## 2. Cách đọc và tính Coverage từ jacoco.xml
+## 2. Read and compute coverage from jacoco.xml
 
-Cấu trúc block counter trong file `jacoco.xml`:
+Counter block structure in `jacoco.xml`:
 ```xml
 <counter type="INSTRUCTION" missed="15" covered="85"/>
 <counter type="BRANCH" missed="5" covered="45"/>
 <counter type="LINE" missed="4" covered="36"/>
 ```
-Công thức tính %: `(covered / (covered + missed)) * 100`
+Percentage formula: `(covered / (covered + missed)) * 100`
 
-Script Python 1 dòng để tính % LINE coverage của một class (ví dụ `com/example/TargetClass`):
+One-line Python script to compute LINE coverage % for one class (e.g. `com/example/TargetClass`):
 ```bash
 python -c "import xml.etree.ElementTree as ET, sys; root = ET.parse(sys.argv[1]).getroot(); n = root.find('.//class[@name=\"com/example/TargetClass\"]'); c = n.find('counter[@type=\"LINE\"]') if n is not None else None; print(f'{int(c.attrib[\"covered\"]) / (int(c.attrib[\"covered\"]) + int(c.attrib[\"missed\"])) * 100:.2f}%' if c is not None else 'Class not found')" target/site/jacoco/jacoco.xml
 ```
 
-## 3. Ngưỡng check tự động (jacoco-check)
+## 3. Automatic threshold check (jacoco-check)
 
-Cấu hình rule trong `pom.xml` (Maven) để check coverage trên class bị ảnh hưởng (không áp dụng toàn project):
+Configure the rule in `pom.xml` (Maven) to check coverage on the affected class (not the whole project):
 ```xml
 <execution>
     <id>jacoco-check</id>
@@ -76,7 +76,7 @@ Cấu hình rule trong `pom.xml` (Maven) để check coverage trên class bị �
 </execution>
 ```
 
-## 4. 5 Pattern Mockito & JUnit5 tối thiểu
+## 4. 5 minimal Mockito & JUnit5 patterns
 
 Mock dependencies (Service/Repository):
 ```java
@@ -90,7 +90,7 @@ class TargetClassTest {
 }
 ```
 
-Giả lập hành vi (when) và xác minh (verify):
+Stub behavior (when) and verify:
 ```java
 @Test
 void testFindUser() {
@@ -102,7 +102,7 @@ void testFindUser() {
 }
 ```
 
-Bắt tham số bằng ArgumentCaptor:
+Capture arguments with ArgumentCaptor:
 ```java
 @Test
 void testSaveUser() {
@@ -115,7 +115,7 @@ void testSaveUser() {
 }
 ```
 
-Kiểm tra Exception (assertThrows):
+Check exceptions (assertThrows):
 ```java
 @Test
 void testUserNotFound() {
@@ -127,7 +127,7 @@ void testUserNotFound() {
 }
 ```
 
-Kiểm thử biên với @ParameterizedTest:
+Boundary tests with @ParameterizedTest:
 ```java
 @ParameterizedTest
 @CsvSource({"0, false", "-1, false", "18, true"})
@@ -136,19 +136,19 @@ void testAgeValidation(int age, boolean expected) {
 }
 ```
 
-## 5. Anti-pattern (Nghiêm cấm)
+## 5. Anti-patterns (Forbidden)
 
-1. Sửa source code `src/main` (như xóa logic khó test, thay đổi quyền truy cập biến) chỉ để dễ viết test và tăng coverage.
-2. Hạ threshold (từ 0.90 xuống thấp hơn) để bypass CI pipeline thay vì viết thêm test cho các trường hợp thiếu.
-3. Thêm các class bị ảnh hưởng hoặc có thay đổi logic vào danh sách `exclude` của plugin Jacoco để che giấu việc thiếu test.
+1. Do not edit `src/main` source (e.g. deleting hard-to-test logic, changing variable access) just to ease testing and raise coverage.
+2. Do not lower the threshold (below 0.90) to bypass the CI pipeline instead of adding tests for missing cases.
+3. Do not add affected or logic-changed classes to the JaCoCo plugin `exclude` list to hide missing tests.
 
-## 6. Nén Bằng Chứng (Evidence)
+## 6. Archive evidence
 
-Thực hiện sau khi kết thúc/thoát vòng lặp:
+Run after the loop finishes/exits:
 ```bash
 mkdir -p evidence
-# Với Maven:
+# With Maven:
 zip -r evidence/java-final-coverage.zip target/site/jacoco/
-# Với Gradle:
+# With Gradle:
 zip -r evidence/java-final-coverage.zip build/reports/jacoco/test/
 ```

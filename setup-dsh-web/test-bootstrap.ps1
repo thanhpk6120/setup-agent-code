@@ -160,7 +160,7 @@ try {
     $cordisOn = Get-Content (Join-Path $testProfileOn "cordis.patch.yml") -Raw
     if ($cordisOn -notmatch 'id:\s*mcp-agency') { throw "Assert failed: mcp-agency missing when -EnableAgency" }
     $agentsOn = Get-Content (Join-Path $testHomeOn "AGENTS.md") -Raw
-    if ($agentsOn -notmatch 'Sử dụng Agency Agents MCP') { throw "Assert failed: agency marker missing in AGENTS.md" }
+    if ($agentsOn -notmatch 'Using Agency Agents MCP') { throw "Assert failed: agency marker missing in AGENTS.md" }
 
     $testHomeOff = Join-Path $tempHome "agency-home-off"
     $testProfileOff = Join-Path $tempProfile "agency-profile-off"

@@ -1124,11 +1124,6 @@ $claudeMdTemplatePath = Join-Path $templatesDir "CLAUDE.md"
 $claudeMdContent = ""
 if (Test-Path $claudeMdTemplatePath) {
     $claudeMdContent = Get-Content -Path $claudeMdTemplatePath -Raw -Encoding UTF8
-} else {
-    $claudeMdSrc = Join-Path $PSScriptRoot "CLAUDE.md"
-    if (Test-Path $claudeMdSrc) {
-        $claudeMdContent = Get-Content -Path $claudeMdSrc -Raw -Encoding UTF8
-    }
 }
 
 if ($EnableMemorix) {
@@ -1145,12 +1140,14 @@ if ($installAgency) {
     $agencySecPath = Join-Path $templatesDir "agency-agents-section.md"
     if (Test-Path $agencySecPath) {
         $agencySec = (Get-Content -Path $agencySecPath -Raw -Encoding UTF8).Trim()
-        if ($claudeMdContent -notmatch "agency-agents-section") {
-            $claudeMdContent = $claudeMdContent.TrimEnd() + "`r`n`r`n<!-- agency-agents-section -->`r`n" + $agencySec + "`r`n<!-- /agency-agents-section -->`r`n"
+        if ($claudeMdContent -notmatch "agency-agents-section" -and $claudeMdContent -notmatch "## Using Agency Agents MCP") {
+            $claudeMdContent = $claudeMdContent.TrimEnd() + "`r`n`r`n" + $agencySec + "`r`n"
         }
     }
 } else {
     $claudeMdContent = [regex]::Replace($claudeMdContent, '(?s)<!-- agency-agents-section -->.*?<!-- /agency-agents-section -->\r?\n?', '')
+    $claudeMdContent = [regex]::Replace($claudeMdContent, "(?ms)\r?\n?<!-- /agency-agents-section -->\r?\n?", "`r`n")
+    $claudeMdContent = [regex]::Replace($claudeMdContent, "(?ms)\r?\n## (?:Using Agency Agents MCP|Agency: Multi-Agent Orchestration|Su dung Agency Agents MCP).*\z", "")
 }
 
 $targetClaudeMd = Join-Path $ClaudeDir "CLAUDE.md"

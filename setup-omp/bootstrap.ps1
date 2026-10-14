@@ -798,7 +798,10 @@ foreach ($entry in $files.GetEnumerator()) {
 # 3.10 Copy static files (AGENTS.md, RULES.md, SYSTEM.md) và skills/
 Write-Host "==> Copying static files and skills..." -ForegroundColor Cyan
 foreach ($mdFile in @("AGENTS.md", "RULES.md", "SYSTEM.md")) {
-    $srcPath = Join-Path $PSScriptRoot $mdFile
+    $srcPath = Join-Path $templatesDir $mdFile
+    if (-not (Test-Path $srcPath)) {
+        $srcPath = Join-Path $PSScriptRoot $mdFile
+    }
     $targetPath = Join-Path $OmpDir $mdFile
     if (-not (Test-Path $srcPath)) { continue }
 
@@ -882,7 +885,10 @@ if ($EnableAgency) {
     }
 }
 
-$srcSkills = Join-Path $PSScriptRoot "skills"
+$srcSkills = Join-Path $templatesDir "skills"
+if (-not (Test-Path $srcSkills)) {
+    $srcSkills = Join-Path $PSScriptRoot "skills"
+}
 $targetSkills = Join-Path $OmpDir "skills"
 if (Test-Path $srcSkills) {
     if (-not (Test-Path $targetSkills)) {

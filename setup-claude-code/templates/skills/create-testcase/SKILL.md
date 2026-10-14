@@ -6,7 +6,7 @@ description: Use when the user asks to create, draft, review, or update testcase
 # Rule 03 — Create Testcase
 
 > **Audience:** AI agent. Follow the steps in order. Do not skip a step and do not invent a step.
-> **Goal:** Tạo `testcase.md` từ `expect.md` để kiểm chứng feature theo acceptance criteria, trước hoặc song song với implement.
+> **Goal:** Create `testcase.md` from `expect.md` to verify features against acceptance criteria, prior to or alongside implementation.
 > **Scope of this file:** this rule is **project-agnostic**. It must work unchanged for every project in the company.
 > **Predecessor:** `docs/features/<TICKET-ID>/expect.md` (or `docs/rules/create-plan.md`).
 
@@ -33,70 +33,70 @@ The rule references these by name. Each `{{key}}` used in this file resolves fro
 
 ---
 
-## 1. Khi nào chạy
+## 1. When to run
 
-- Sau khi BA đã có `docs/features/<TICKET-ID>/expect.md`.
-- Nên chạy sau `create-plan.md` để tham chiếu plan, nhưng testcase vẫn phải bám `expect.md` làm nguồn chính.
+- After BA produces `docs/features/<TICKET-ID>/expect.md`.
+- Recommended to run after `create-plan.md` to reference the technical plan, but test cases must still treat `expect.md` as primary source.
 
-## 2. Tiêu chí dừng — kiểm tra trước khi viết bất cứ gì
+## 2. Stopping criteria — verify before writing anything
 
-DỪNG và hỏi người dùng nếu một trong các điều sau đúng:
+STOP and ask the user if any of the following holds true:
 
-1. `docs/features/<TICKET-ID>/expect.md` không tồn tại.
-2. `expect.md` thiếu acceptance criteria hoặc thiếu actor chính.
-3. Không thể xác định expected result cho một acceptance criteria nào đó — ghi vào `Open Questions`, không tự đoán.
+1. `docs/features/<TICKET-ID>/expect.md` does not exist.
+2. `expect.md` is missing acceptance criteria or missing primary actors.
+3. Cannot determine the expected result for an acceptance criterion — record under `Open Questions`, never guess.
 
 ---
 
-## 3. Inputs và outputs
+## 3. Inputs and outputs
 
 ### Inputs
 
 | Input | Source | Required |
 |---|---|---|
-| `docs/features/<TICKET-ID>/expect.md` | BA | **Yes** — nguồn chính |
-| `docs/features/<TICKET-ID>/plan.md` | Rule 01 | Nếu đã có — tham chiếu phạm vi kỹ thuật |
-| `docs/specs/<domain>.md` | docs | **Yes** cho mọi domain liên quan |
-| `docs/DESIGN.md` | docs | Khi feature có UI |
-| `{{EXTRA_RULES}}` | docs | Khi điều kiện kích hoạt của rule đó áp dụng |
+| `docs/features/<TICKET-ID>/expect.md` | BA | **Yes** — primary source |
+| `docs/features/<TICKET-ID>/plan.md` | Rule 01 | If available — technical scope reference |
+| `docs/specs/<domain>.md` | docs | **Yes** for all relevant domains |
+| `docs/DESIGN.md` | docs | When feature includes UI |
+| `{{EXTRA_RULES}}` | docs | When trigger conditions for companion rule apply |
 
 ### Outputs
 
 | Output | Description |
 |---|---|
-| `docs/features/<TICKET-ID>/testcase.md` | Bộ test case bám acceptance criteria, theo template ở Step 2 |
+| `docs/features/<TICKET-ID>/testcase.md` | Test suite covering acceptance criteria, following template in Step 2 |
 
-> **Output location is mandatory.** File phải được ghi trong `docs/features/<TICKET-ID>/` ở docs repo. Nếu thiếu quyền ghi vào đúng path đó, **hỏi xin quyền** — không ghi sang chỗ khác.
+> **Output location is mandatory.** File must be written inside `docs/features/<TICKET-ID>/` in the docs repo. If lacking write permissions to that path, **request permission** — do not write elsewhere.
 
 ---
 
-## 4. Quy trình
+## 4. Procedure
 
-### Step 0 — Bắt buộc trước khi viết testcase
+### Step 0 — Mandatory Pre-requisites Before Writing Test Cases
 
-- Chạy `git pull` trong `docs/`.
-- Đọc `expect.md` trước.
-- Chỉ dùng `plan.md` để hiểu phạm vi kỹ thuật; không tạo testcase cho chi tiết implementation nếu không có trong acceptance criteria.
+- Run `git pull` inside `docs/`.
+- Read `expect.md` first.
+- Only use `plan.md` to understand technical scope; do not create test cases for implementation details unless specified in acceptance criteria.
 
-Nếu `expect.md` thiếu acceptance criteria hoặc actor chính:
-- Dừng lại và hỏi BA/DEV.
+If `expect.md` is missing acceptance criteria or primary actors:
+- Stop and ask BA/DEV.
 
-### Step 1 — Trích xuất yêu cầu kiểm thử
+### Step 1 — Extract Test Requirements
 
-Từ `expect.md`, xác định:
+From `expect.md`, identify:
 - actor/user role,
-- precondition,
-- input chính,
-- hành động người dùng hoặc API call,
+- preconditions,
+- primary inputs,
+- user action or API call,
 - expected result,
-- out-of-scope không cần test,
-- dữ liệu đặc biệt cần chuẩn bị.
+- out-of-scope non-tested items,
+- special test data to prepare.
 
-Nếu `{{IMPACT_TOOL}}` không phải `none` và có index cho service liên quan, dùng nó để tìm regression flows. Với GitNexus: `mcp__gitnexus__query` để tìm execution flow liên quan, `mcp__gitnexus__context` trên symbol/API chính để biết callers/callees, và `mcp__gitnexus__route_map` khi testcase cần xác định API handler/consumer. Dùng kết quả này để bổ sung regression flows cần kiểm thử, không dùng để thay thế Acceptance Criteria trong `expect.md`.
+If `{{IMPACT_TOOL}}` is not `none` and has an index for the relevant service, use it to identify regression flows. With GitNexus: `mcp__gitnexus__query` for execution flows, `mcp__gitnexus__context` on key symbols/APIs for callers/callees, and `mcp__gitnexus__route_map` when identifying API handlers/consumers. Use results to augment regression flows, not to replace Acceptance Criteria in `expect.md`.
 
-### Step 2 — Viết testcase theo hành vi
+### Step 2 — Write Behavioral Test Cases
 
-Cấu trúc tối thiểu:
+Minimum structure:
 
 ```md
 # <TICKET-ID> — Testcase
@@ -117,29 +117,29 @@ Cấu trúc tối thiểu:
 ## Open Questions
 ```
 
-Quy tắc:
-- Mỗi acceptance criteria phải có ít nhất một testcase.
-- Testcase phải mô tả hành vi quan sát được, không mô tả tên hàm/class nội bộ.
-- UI testcase phải có bước người dùng rõ ràng.
-- API testcase phải có request/response kỳ vọng ở mức business, không cần bịa endpoint nếu plan/docs chưa xác định.
+Rules:
+- Every acceptance criterion must have at least one testcase.
+- Test cases must describe observable behavior, not internal function/class names.
+- UI test cases must have explicit user steps.
+- API test cases must define expected request/response at business level, without fabricating endpoints if not yet defined.
 
-### Step 3 — Bao phủ luồng lỗi và biên
+### Step 3 — Cover Error Flows and Boundaries
 
-Tạo testcase cho:
+Create test cases for:
 - happy path,
-- input thiếu/sai,
-- quyền không đủ nếu feature có phân quyền,
-- dữ liệu rỗng,
-- trạng thái đã tồn tại/trùng lặp nếu nghiệp vụ có khả năng đó.
+- missing/invalid inputs,
+- insufficient permissions if RBAC applies,
+- empty data,
+- pre-existing/duplicate states if business logic permits.
 
-Không tạo testcase giả cho tình huống không có trong scope.
+Do not create fabricated test cases for scenarios outside scope.
 
-### Step 4 — Liên kết testcase với acceptance criteria
+### Step 4 — Link Test Cases to Acceptance Criteria
 
-- Nếu `expect.md` có mã AC, dùng mã đó trong testcase.
-- Nếu không có mã AC, đánh số `AC1`, `AC2`, ... theo thứ tự trong `expect.md` và ghi rõ mapping.
+- If `expect.md` defines AC identifiers, use them in the test cases.
+- If lacking AC identifiers, number `AC1`, `AC2`, ... in order of appearance in `expect.md` and document the mapping.
 
-Ví dụ:
+Example:
 
 ```md
 ## Acceptance Criteria Mapping
@@ -149,23 +149,23 @@ Ví dụ:
 | AC1 | TC-001, TC-002 |
 ```
 
-### Step 5 — Câu hỏi mở
+### Step 5 — Open Questions
 
-Nếu không thể xác định expected result:
-- Không tự đoán.
-- Ghi vào `Open Questions`.
-- Đánh dấu testcase liên quan là `blocked` hoặc `draft` theo `{{STATUS_VOCABULARY}}`.
+If expected results cannot be determined:
+- Never guess.
+- Record under `Open Questions`.
+- Mark associated test cases as `blocked` or `draft` per `{{STATUS_VOCABULARY}}`.
 
 ---
 
-## 5. Tiêu chí dừng
+## 5. Stopping criteria
 
-- Dừng sau khi tạo `docs/features/<TICKET-ID>/testcase.md`.
-- Không code trong rule này.
-- Không sửa `plan.md` trừ khi DEV yêu cầu rõ.
-- Không tự claim testcase hoàn chỉnh nếu còn `Open Questions` ảnh hưởng acceptance criteria.
+- Stop after generating `docs/features/<TICKET-ID>/testcase.md`.
+- Do not write code in this rule.
+- Do not modify `plan.md` unless explicitly requested by DEV.
+- Do not claim test cases complete while open questions affecting acceptance criteria remain.
 
-> `testcase.md` được Rule 02 (`implement-task.md`) đọc ở Step 4 và kiểm chứng ở Step 8. Mọi test case trong scope phải pass, hoặc được ghi rõ lý do trong `report.md`, trước khi đề xuất docs diff cho Gate 2.
+> `testcase.md` is consumed by Rule 02 (`implement-task.md`) at Step 4 and verified at Step 8. All scoped test cases must pass, or have explicit explanations in `report.md`, before proposing docs diff for Gate 2.
 
 ---
 

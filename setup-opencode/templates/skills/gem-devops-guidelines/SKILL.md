@@ -10,7 +10,7 @@ Apply only sections relevant to workload/provider/environment/acceptance criteri
 ## Deployment strategy
 
 - Rolling (default): gradual, zero-downtime replacement.
-- Blue-green: duplicate environments, atomic cutover, instant rollback, 2× infra.
+- Blue-green: duplicate environments, atomic cutover, instant rollback, 2x infra.
 - Canary: route small % first; requires traffic splitting.
 
 ## Docker
