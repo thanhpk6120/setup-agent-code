@@ -15,14 +15,14 @@ modelRoles:
   designer: custom/claude-sonnet-5:medium
   commit: custom/claude-haiku-4-5-20251001:medium
   tiny: custom/claude-haiku-4-5-20251001:medium
-  task: custom/claude-sonnet-5:high
+  task: custom/claude-sonnet-5:medium
   advisor: custom/claude-opus-5:medium
   memory: custom/claude-haiku-4-5-20251001:medium
 computer:
   enabled: true
 task:
   agentModelOverrides:
-    task: custom/claude-sonnet-5:high
+    task: custom/claude-sonnet-5:medium
     scout: custom/claude-sonnet-5:medium
     sonic: custom/claude-sonnet-5:low
     docs-fact-check: custom/claude-sonnet-5:high
