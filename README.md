@@ -14,9 +14,8 @@ Repository đóng vai trò là kho quản lý tập trung (monorepo) chứa các
 | `setup-opencode/` | **OpenCode CLI** | `~/.config/opencode/opencode.json`, `~/.config/opencode/AGENTS.md` | Hoạt động đầy đủ |
 | `setup-codex-cli/` | **OpenAI Codex CLI** | `~/.codex/config.toml`, `~/.codex/AGENTS.md` (alias `CODEX.md`) | Hoạt động đầy đủ |
 | `setup-omp/` | **Oh My Prompt (OMP / Orca OMP)** | `~/.omp/agent/config.yml`, `~/.omp/agent/models.yml`, `~/.omp/agent/mcp.json`, `~/.omp/agent/AGENTS.md`, `~/.omp/agent/skills/`, `~/.omp/extensions/no-hard-delete.ts` | Hoạt động đầy đủ |
-| `setup-dsh/` | **DeepSeek Harness (DSH Desktop)** | `%APPDATA%\dsh-desktop\harness\profiles\web\cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml`, `~/.dsh/AGENTS.md`, `~/.dsh/skills/` | Hoạt động đầy đủ |
+| `setup-dsh/` | **DeepSeek Harness (DSH CLI)** | `%APPDATA%\dsh-desktop\harness\profiles\web\cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml`, `~/.dsh/AGENTS.md`, `~/.dsh/skills/` | Hoạt động đầy đủ |
 | `setup-antigravity-cli/` | **Antigravity CLI** | `~/.gemini/antigravity-cli/settings.json`, `~/.gemini/antigravity-cli/keybindings.json`, `~/.gemini/antigravity-cli/AGENTS.md`, `~/.gemini/antigravity-cli/hooks/`, `~/.gemini/antigravity-cli/skills/` | Hoạt động đầy đủ |
-| `setup-dsh-web/` | **DSH Web Runner** | `%APPDATA%\dsh-desktop\harness\profiles\web-runner\cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml`, `~/.dsh/AGENTS.md`, `~/.dsh/skills/` | Hoạt động đầy đủ |
 
 ---
 
@@ -69,31 +68,22 @@ setup-agent-code/
 │   ├── README.md                  # Tài liệu chi tiết cho DSH
 │   └── templates/                 # File mẫu: cordis.patch.yml, templates/.credentials.yaml, memorix-agents-section.md, templates/.env.example
 │
-├── setup-antigravity-cli/         # Bộ cài đặt & cấu hình Antigravity CLI
-│   ├── install.ps1                # Local runner: gọi bootstrap.ps1 nội bộ (không tải zip)
-│   ├── bootstrap.ps1              # Script cài đặt chính và xử lý cấu hình
-│   ├── test-bootstrap.ps1         # Bộ test assertion cô lập môi trường
-│   ├── AGENTS.md                  # Nguồn quy tắc agent (copy sang AgyDir/AGENTS.md)
-│   ├── README.md                  # Tài liệu chi tiết cho Antigravity CLI
-│   ├── templates/                 # File mẫu: settings.json, keybindings.json, memorix-agents-section.md, templates/.env.example
-│   ├── hooks/                     # Hook Trash Guard (antigravity-pre-tool.*)
-│   └── skills/                    # Kho kỹ năng (copy sang AgyDir/skills/)
-│
-└── setup-dsh-web/                 # Bộ cài đặt & cấu hình DSH Web Runner (profile web-runner tách biệt setup-dsh profiles\web)
+└── setup-antigravity-cli/         # Bộ cài đặt & cấu hình Antigravity CLI
     ├── install.ps1                # Local runner: gọi bootstrap.ps1 nội bộ (không tải zip)
     ├── bootstrap.ps1              # Script cài đặt chính và xử lý cấu hình
     ├── test-bootstrap.ps1         # Bộ test assertion cô lập môi trường
-    ├── AGENTS.md                  # Nguồn quy tắc agent (copy sang DshHome/AGENTS.md)
-    ├── README.md                  # Tài liệu chi tiết cho DSH Web Runner
-    ├── templates/                 # File mẫu: cordis.patch.yml, .credentials.yaml, memorix-agents-section.md, templates/.env.example
-    └── skills/                    # Kho kỹ năng (copy sang DshHome/skills/)
+    ├── AGENTS.md                  # Nguồn quy tắc agent (copy sang AgyDir/AGENTS.md)
+    ├── README.md                  # Tài liệu chi tiết cho Antigravity CLI
+    ├── templates/                 # File mẫu: settings.json, keybindings.json, memorix-agents-section.md, templates/.env.example
+    ├── hooks/                     # Hook Trash Guard (antigravity-pre-tool.*)
+    └── skills/                    # Kho kỹ năng (copy sang AgyDir/skills/)
 ```
 
 ---
 
 ## 3. Kiến trúc & Nguyên tắc cốt lõi
 
-Toàn bộ các gói cài đặt trong kho tuân thủ chặt chẽ 7 nguyên tắc kiến trúc:
+Toàn bộ các gói cài đặt trong kho tuân thủ chặt chẽ 6 nguyên tắc kiến trúc:
 
 ### 3.1. Kết nối AI Gateway chuẩn hóa
 - Mặc định trỏ về Gateway nội bộ: `http://localhost:20128/v1`.
@@ -126,7 +116,7 @@ Trước khi ghi đè bất kỳ file cấu hình nào đã tồn tại trên m�
 - Triển khai chặn xóa cứng:
   - OMP: Extension `setup-omp/extensions/no-hard-delete.ts` cài vào `~/.omp/extensions/`.
   - Claude Code: Hook tiền xử lý lệnh công cụ `setup-claude-code/trash-guard/claude-pre-tool.ps1` / `claude-pre-tool.js` và script tiện ích `trash-cli.ps1`, kèm `trash-guard.ps1` / `trash-guard.sh`.
-  - Tất cả 7 script `bootstrap.ps1` đều nhúng hàm chuyển vào Recycle Bin qua API .NET `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile` / `DeleteDirectory` với tham số `SendToRecycleBin`.
+  - Tất cả 6 script `bootstrap.ps1` đều nhúng hàm chuyển vào Recycle Bin qua API .NET `Microsoft.VisualBasic.FileIO.FileSystem::DeleteFile` / `DeleteDirectory` với tham số `SendToRecycleBin`.
 
 ### 3.5. Kho kỹ năng nghiệp vụ chuyên sâu (`skills/`)
 Nằm tại `setup-omp/skills/`, cung cấp 36 kỹ năng tiêu chuẩn cho các quy trình phát triển phần mềm:
@@ -146,7 +136,7 @@ Mỗi bộ cài đặt đều trang bị file `test-bootstrap.ps1`. Bộ kiểm 
 ---
 
 ### 3.7. Chuẩn hóa tập tin chỉ dẫn Agent (Canonical Instruction Files)
-Tất cả các tệp chỉ dẫn tác tử (`AGENTS.md`, `CLAUDE.md`, `RULES.md`, `SYSTEM.md`) cùng các file mẫu đi kèm trong thư mục `templates/` của toàn bộ 7 setup được quy chuẩn hóa đồng nhất:
+Tất cả các tệp chỉ dẫn tác tử (`AGENTS.md`, `CLAUDE.md`, `RULES.md`, `SYSTEM.md`) cùng các file mẫu đi kèm trong thư mục `templates/` của toàn bộ 6 setup được quy chuẩn hóa đồng nhất:
 - **Canonical templates:** Mọi tệp mẫu cấu hình và chỉ dẫn nguồn được lưu trữ chuẩn hóa tại thư mục `templates/` (hoặc thư mục gốc của từng setup theo đặc thù runtime).
 - **English-only rule for instruction files:** All agent instruction files and prompt templates (`AGENTS.md`, `CLAUDE.md`, `RULES.md`, `SYSTEM.md`, and section snippets) MUST be maintained in English to ensure cross-model compatibility, deterministic system prompt interpretation, and uniform behavior across heterogeneous CLI runtimes. (This rule applies strictly to agent instruction files and prompt templates; repository-level user documentation such as this `README.md` remains in Vietnamese).
 
@@ -157,7 +147,7 @@ Tất cả các tệp chỉ dẫn tác tử (`AGENTS.md`, `CLAUDE.md`, `RULES.md
 Mở PowerShell trên máy mục tiêu, chạy 1 dòng duy nhất. Dispatcher root (`install.ps1`) đọc `$env:SETUP_TARGET` để hỗ trợ online `irm|iex` một dòng có biến, sau đó dispatch sang `setup-<target>/bootstrap.ps1` đúng thứ tự, log rõ target nào đang chạy. Không sửa logic bên trong các setup con.
 
 ```powershell
-# Cài tất cả target theo thứ tự: omp -> claude-code -> opencode -> codex-cli -> dsh -> antigravity-cli -> dsh-web
+# Cài tất cả target theo thứ tự: omp -> claude-code -> opencode -> codex-cli -> dsh -> antigravity-cli
 irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
 
 # Cài 1 target qua biến môi trường (online 1 dòng có biến):
@@ -166,7 +156,6 @@ $env:SETUP_TARGET='claude-code'; irm https://raw.githubusercontent.com/thanhpk61
 $env:SETUP_TARGET='opencode'; irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
 $env:SETUP_TARGET='codex-cli'; irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
 $env:SETUP_TARGET='dsh'; irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
-$env:SETUP_TARGET='dsh-web'; irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
 $env:SETUP_TARGET='antigravity-cli'; irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
 ```
 
@@ -182,14 +171,13 @@ copy .env.example .env   # gộp AI_BASE_URL/AI_API_KEY/JIRA/CONFLUENCE/CONTEXT7
 
 | Giá trị `-Target` / `$env:SETUP_TARGET` | Dispatch tới | Ghi chú |
 |---|---|---|
-| `all` (mặc định) | Lần lượt `omp` -> `claude-code` -> `opencode` -> `codex-cli` -> `dsh` -> `antigravity-cli` -> `dsh-web` | Log rõ `[i/n] TARGET: <t>` từng bước |
+| `all` (mặc định) | Lần lượt `omp` -> `claude-code` -> `opencode` -> `codex-cli` -> `dsh` -> `antigravity-cli` | Log rõ `[i/n] TARGET: <t>` từng bước |
 | `omp` | `setup-omp/bootstrap.ps1` | Oh My Prompt |
 | `claude-code` | `setup-claude-code/bootstrap.ps1` | Claude Code CLI |
 | `opencode` | `setup-opencode/bootstrap.ps1` | OpenCode CLI |
 | `codex-cli` | `setup-codex-cli/bootstrap.ps1` | OpenAI Codex CLI |
-| `dsh` | `setup-dsh/bootstrap.ps1` | DeepSeek Harness Desktop (`profiles\web`) |
+| `dsh` | `setup-dsh/bootstrap.ps1` | DeepSeek Harness (DSH CLI) |
 | `antigravity-cli` | `setup-antigravity-cli/bootstrap.ps1` | Antigravity CLI (`AGY_MODEL`, Memorix MCP `memorix serve --mode lite` + chèn/gỡ `templates/memorix-agents-section.md` vào `AGENTS.md`) |
-| `dsh-web` | `setup-dsh-web/bootstrap.ps1` | DSH Web Runner (`profiles\web-runner` tách biệt `setup-dsh`, Memorix block `mcp-memorix` + chèn/gỡ `templates/memorix-agents-section.md` vào `~/.dsh/AGENTS.md`) |
 
 > Phân biệt installer: `install.ps1` ở root là dispatcher — dùng bản local nếu có `setup-*/bootstrap.ps1`, nếu không thì tải zip monorepo `setup-agent-code/main.zip` rồi dispatch. `install.ps1` trong từng `setup-*/` là local runner — chỉ gọi `bootstrap.ps1` nội bộ cùng thư mục, không tải zip.
 
@@ -209,14 +197,11 @@ irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/setup-co
 # 4. Oh My Prompt (OMP)
 irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/setup-omp/install.ps1 | iex
 
-# 5. DeepSeek Harness (DSH Desktop, profiles\web)
+# 5. DeepSeek Harness (DSH CLI, `npm install -g @deepseek-ai/dsh`)
 irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/setup-dsh/install.ps1 | iex
 
 # 6. Antigravity CLI (1 dòng online)
 irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/setup-antigravity-cli/install.ps1 | iex
-
-# 7. DSH Web Runner (1 dòng online, profile web-runner)
-irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/setup-dsh-web/install.ps1 | iex
 ```
 
 ### 4.2. Cài đặt từ mã nguồn cục bộ (Offline / Local clone)
@@ -243,16 +228,12 @@ cd ..\setup-codex-cli
 cd ..\setup-omp
 .\bootstrap.ps1
 
-# Cấu hình DSH Desktop (profiles\web)
+# Cấu hình DSH CLI (`dsh` trong PATH)
 cd ..\setup-dsh
 .\bootstrap.ps1
 
 # Cấu hình Antigravity CLI
 cd ..\setup-antigravity-cli
-.\bootstrap.ps1
-
-# Cấu hình DSH Web Runner (profiles\web-runner tách biệt setup-dsh)
-cd ..\setup-dsh-web
 .\bootstrap.ps1
 ```
 
@@ -292,9 +273,6 @@ pwsh -NoProfile -File setup-dsh/test-bootstrap.ps1
 
 # Kiểm thử setup-antigravity-cli (Memorix MCP + AGENTS.md)
 pwsh -NoProfile -File setup-antigravity-cli/test-bootstrap.ps1
-
-# Kiểm thử setup-dsh-web (profile web-runner + Memorix)
-pwsh -NoProfile -File setup-dsh-web/test-bootstrap.ps1
 ```
 
 ---

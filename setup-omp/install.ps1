@@ -41,6 +41,11 @@ if (-not $ompCmd) {
     if ([string]::IsNullOrWhiteSpace($installOmpPrompt) -or $installOmpPrompt.Trim().ToLower() -eq 'y') {
         $terminalType = if ($PSVersionTable.PSEdition -eq "Core") { "PowerShell Core / pwsh" } else { "Windows PowerShell" }
         Write-Host "==> Nhận diện terminal: $terminalType (PSVersion: $($PSVersionTable.PSVersion))." -ForegroundColor Cyan
+        if ($SkipInstall) {
+            Write-Host "  -> [-SkipInstall] Bo qua cai dat OMP CLI. Tiep tuc cau hinh..." -ForegroundColor DarkGray
+        } elseif ($DryRun) {
+            Write-Host "  -> [WhatIf] Se chay: irm https://omp.sh/install.ps1 | iex -Binary" -ForegroundColor DarkGray
+        } else {
         Write-Host "==> Đang cài đặt OMP chính gốc qua https://omp.sh/install.ps1..." -ForegroundColor Cyan
         try {
             & ([scriptblock]::Create((Invoke-RestMethod -Uri "https://omp.sh/install.ps1" -UseBasicParsing))) -Binary
@@ -80,6 +85,7 @@ if (-not $ompCmd) {
             }
         } catch {
             Write-Host "[!] Lỗi khi cài đặt OMP CLI: $_" -ForegroundColor Red
+        }
         }
     } else {
         Write-Host "[!] Bỏ qua cài đặt OMP CLI. Tiếp tục cấu hình môi trường setup-omp..." -ForegroundColor Yellow
@@ -139,22 +145,34 @@ if ($PSBoundParameters.ContainsKey('EnableMemorix')) {
 $env:AI_BASE_URL = $aiBaseUrl
 $env:AI_API_KEY = $aiApiKey
 
-$zipUrl = "https://github.com/thanhpk6120/setup-omp/archive/refs/heads/main.zip"
+$monoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip"
+$subFolder = "setup-omp"
 $tempBase = Join-Path $env:TEMP ("omp-install-" + [System.Guid]::NewGuid().ToString("N"))
 $zipFile = Join-Path $env:TEMP ("omp-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
+$localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+$extractedRoot = $null
 
 try {
     Write-Host ""
-    Write-Host "==> Downloading setup-omp package from GitHub..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
+    if (Test-Path $localBootstrap) {
+        $extractedRoot = $PSScriptRoot
+        Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor DarkGray
+    } else {
+        Write-Host "==> Khong thay bootstrap local. Tai monorepo setup-agent-code tu GitHub..." -ForegroundColor Cyan
+        Write-Host "    URL: $monoZipUrl (subfolder: $subFolder)" -ForegroundColor DarkGray
+        Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
 
-    Write-Host "==> Extracting files..." -ForegroundColor Cyan
-    Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
+        Write-Host "==> Extracting files..." -ForegroundColor Cyan
+        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
 
-    $extractedRoot = Join-Path $tempBase "setup-omp-main"
-    if (-not (Test-Path $extractedRoot)) {
-        $found = Get-ChildItem -Directory $tempBase | Select-Object -First 1
-        if ($found) { $extractedRoot = $found.FullName }
+        $extractedRoot = Join-Path $tempBase (Join-Path "setup-agent-code-main" $subFolder)
+        if (-not (Test-Path (Join-Path $extractedRoot "bootstrap.ps1"))) {
+            $found = Get-ChildItem -Directory $tempBase -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName "bootstrap.ps1")) } | Select-Object -First 1
+            if ($found) { $extractedRoot = $found.FullName }
+        }
+        if (-not (Test-Path (Join-Path $extractedRoot "bootstrap.ps1"))) {
+            throw "Loi: Khong tim thay $subFolder/bootstrap.ps1 trong goi monorepo da giai nen."
+        }
     }
 
     $bootstrapScript = Join-Path $extractedRoot "bootstrap.ps1"
@@ -162,13 +180,15 @@ try {
         throw "Loi: Khong tim thay bootstrap.ps1 trong goi cai dat."
     }
 
-    # Ghi file .env tạm thời để bootstrap.ps1 có thể nạp
-    $envFilePath = Join-Path $extractedRoot ".env"
-    $envContent = @"
+    # Ghi file .env tạm thời để bootstrap.ps1 có thể nạp (chỉ khi dùng gói tải về; local dùng $env: sẵn có)
+    if ($extractedRoot -ne $PSScriptRoot) {
+        $envFilePath = Join-Path $extractedRoot ".env"
+        $envContent = @"
 AI_BASE_URL=$aiBaseUrl
 AI_API_KEY=$aiApiKey
 "@
-    Set-Content -Path $envFilePath -Value $envContent -Encoding utf8
+        Set-Content -Path $envFilePath -Value $envContent -Encoding utf8
+    }
 
     Write-Host "==> Launching bootstrap..." -ForegroundColor Cyan
     $bootstrapParams = @{}

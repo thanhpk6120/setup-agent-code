@@ -37,32 +37,40 @@ if (-not $claudeCmd) {
         }
         Write-Host "==> Nhận diện terminal: $terminalType (PSVersion: $($PSVersionTable.PSVersion))." -ForegroundColor Cyan
 
-        Write-Host "==> Đang cài đặt Claude Code chính thức..." -ForegroundColor Cyan
+        Write-Host "==> Dang cai dat Claude Code chinh thuc..." -ForegroundColor Cyan
         $claudeInstalled = $false
+        $claudeViaNpm = $false
+        if ($SkipInstall) {
+            Write-Host "  -> Bo qua cai dat Claude Code CLI do -SkipInstall." -ForegroundColor Yellow
+        } elseif ($DryRun) {
+            Write-Host "  -> [WhatIf] Se chay: irm https://claude.ai/install.ps1 | iex (fallback: npm install -g @anthropic-ai/claude-code)" -ForegroundColor DarkGray
+            $claudeInstalled = $true
+        } else {
         try {
-            Write-Host "  -> Đang chạy installer chính thức của Anthropic (https://storage.googleapis.com/claude-code-dist/install.ps1)..." -ForegroundColor Cyan
-            & ([scriptblock]::Create((Invoke-RestMethod -Uri "https://storage.googleapis.com/claude-code-dist/install.ps1" -UseBasicParsing)))
+            Write-Host "  -> Dang chay installer chinh thuc cua Anthropic (https://claude.ai/install.ps1)..." -ForegroundColor Cyan
+            & ([scriptblock]::Create((Invoke-RestMethod -Uri "https://claude.ai/install.ps1" -UseBasicParsing)))
             $claudeInstalled = $true
         } catch {
-            Write-Host "  [!] Installer chính thức gặp lỗi: $($_.Exception.Message)" -ForegroundColor Yellow
-            Write-Host "  -> Thử cài đặt qua npm: npm install -g @anthropic-ai/claude-code..." -ForegroundColor Cyan
+            Write-Host "  [!] Installer chinh thuc gap loi: $($_.Exception.Message)" -ForegroundColor Yellow
+            Write-Host "  -> Thu cai dat qua npm: npm install -g @anthropic-ai/claude-code..." -ForegroundColor Cyan
             if (Get-Command "npm" -ErrorAction SilentlyContinue) {
                 npm install -g @anthropic-ai/claude-code
                 $claudeInstalled = ($LASTEXITCODE -eq 0)
+                $claudeViaNpm = $claudeInstalled
             } else {
-                Write-Warning "Không tìm thấy npm trên hệ thống để cài đặt fallback."
+                Write-Warning "Khong tim thay npm tren he thong de cai dat fallback."
             }
         }
-        # Nạp lại $env:PATH trong session hiện tại
-        Write-Host "==> Đang nạp lại biến môi trường PATH trong session hiện tại..." -ForegroundColor Cyan
+        # Nap lai PATH session: irm hang (~/.claude) + npm fallback (prefix -g, APPDATA/npm)
+        Write-Host "==> Dang nap lai bien moi truong PATH trong session hien tai..." -ForegroundColor Cyan
         $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
         $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
         $npmPrefix = ""
         try {
             $npmPrefix = (npm config get prefix 2>$null).Trim()
         } catch {}
-
         $searchPaths = @(
+            (Join-Path $env:USERPROFILE ".claude"),
             "$env:APPDATA\npm",
             "$env:LOCALAPPDATA\npm",
             $npmPrefix,
@@ -72,12 +80,13 @@ if (-not $claudeCmd) {
             Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path $_) } |
             Select-Object -Unique
         $env:PATH = ($allPaths -join ';')
-
+        Write-Host "  -> Da cap nhat PATH session (irm: ~/.claude; npm: $npmPrefix / %APPDATA%\npm)." -ForegroundColor DarkGray
         $claudeCheck = Get-Command "claude" -ErrorAction SilentlyContinue
         if ($claudeCheck) {
-            Write-Host "==> Đã nhận diện lệnh 'claude' tại: $($claudeCheck.Source)" -ForegroundColor Green
+            Write-Host "==> Da nhan dien lenh 'claude' tai: $($claudeCheck.Source)" -ForegroundColor Green
         } else {
-            Write-Warning "Lệnh 'claude' chưa nhận diện được ngay qua Get-Command. Bạn có thể cần mở lại terminal sau khi cài đặt hoàn tất."
+            Write-Warning "Lenh 'claude' chua nhan dien duoc ngay qua Get-Command. Ban co the can mo lai terminal sau khi cai dat hoan tat."
+        }
         }
     } else {
         Write-Host "[-] Đã bỏ qua cài đặt Claude Code CLI theo lựa chọn của người dùng." -ForegroundColor Yellow
@@ -143,37 +152,46 @@ AI_BASE_URL=$aiBaseUrl
 AI_API_KEY=$aiApiKey
 "@
 
-$zipUrl = "https://github.com/thanhpk6120/setup-claude-code/archive/refs/heads/main.zip"
+$monoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip"
+$subFolder = "setup-claude-code"
 $tempBase = Join-Path $env:TEMP ("claude-code-install-" + [System.Guid]::NewGuid().ToString("N"))
 $zipFile = Join-Path $env:TEMP ("claude-code-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
+$localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+$extractedRoot = $null
 
 try {
-    # Tạo thư mục tạm
-    New-Item -ItemType Directory -Path $tempBase -Force | Out-Null
+    if (Test-Path $localBootstrap) {
+        $extractedRoot = $PSScriptRoot
+        Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor DarkGray
+    } else {
+        # Tạo thư mục tạm
+        New-Item -ItemType Directory -Path $tempBase -Force | Out-Null
 
-    # Lưu file .env tạm thời tại thư mục gốc tạm
-    $tempEnvPath = Join-Path $tempBase ".env"
-    Set-Content -Path $tempEnvPath -Value $envContent -Encoding UTF8
+        Write-Host "==> Khong thay bootstrap local. Tai monorepo setup-agent-code tu GitHub..." -ForegroundColor Cyan
+        Write-Host "    URL: $monoZipUrl (subfolder: $subFolder)" -ForegroundColor DarkGray
+        Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
 
-    Write-Host "==> Đang tải gói setup-claude-code từ GitHub..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
+        Write-Host "==> Đang giải nén tập tin..." -ForegroundColor Cyan
+        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
 
-    Write-Host "==> Đang giải nén tập tin..." -ForegroundColor Cyan
-    Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
+        $extractedRoot = Join-Path $tempBase (Join-Path "setup-agent-code-main" $subFolder)
+        if (-not (Test-Path (Join-Path $extractedRoot "bootstrap.ps1"))) {
+            $found = Get-ChildItem -Directory $tempBase -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName "bootstrap.ps1")) } | Select-Object -First 1
+            if ($found) { $extractedRoot = $found.FullName }
+        }
 
-    $extractedRoot = Join-Path $tempBase "setup-claude-code-main"
-    if (-not (Test-Path $extractedRoot)) {
-        $found = Get-ChildItem -Directory $tempBase | Where-Object { $_.Name -ne "setup-claude-code-main" } | Select-Object -First 1
-        if ($found) { $extractedRoot = $found.FullName }
+        if (-not (Test-Path (Join-Path $extractedRoot "bootstrap.ps1"))) {
+            throw "Lỗi: Không tìm thấy $subFolder/bootstrap.ps1 trong gói monorepo đã giải nén."
+        }
     }
 
-    if (-not (Test-Path $extractedRoot)) {
-        throw "Lỗi: Không tìm thấy thư mục package đã giải nén trong $tempBase."
+    # Ghi file .env tạm thời để bootstrap.ps1 đọc (chỉ khi dùng gói tải về; local dùng $env: sẵn có)
+    if ($extractedRoot -ne $PSScriptRoot) {
+        $tempEnvPath = Join-Path $tempBase ".env"
+        Set-Content -Path $tempEnvPath -Value $envContent -Encoding UTF8
+        $extractedEnvPath = Join-Path $extractedRoot ".env"
+        Copy-Item -Path $tempEnvPath -Destination $extractedEnvPath -Force
     }
-
-    # Sao chép file .env tạm thời vào thư mục mã nguồn giải nén để bootstrap.ps1 đọc
-    $extractedEnvPath = Join-Path $extractedRoot ".env"
-    Copy-Item -Path $tempEnvPath -Destination $extractedEnvPath -Force
 
     $bootstrapScript = Join-Path $extractedRoot "bootstrap.ps1"
     if (-not (Test-Path $bootstrapScript)) {

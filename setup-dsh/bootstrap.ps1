@@ -1,4 +1,4 @@
-# bootstrap.ps1 - Bootstrap DSH Desktop environment on fresh machine
+# bootstrap.ps1 - Bootstrap DSH CLI environment on fresh machine
 [CmdletBinding()]
 param(
     [switch]$DryRun,
@@ -237,6 +237,19 @@ foreach ($tool in @("node", "npm", "git")) {
     }
 }
 
+# 5b. Yeu cau DSH CLI (dsh) trong PATH (cai bang: npm install -g @deepseek-ai/dsh)
+$dshBinCmd = Get-Command "dsh" -ErrorAction SilentlyContinue
+if (-not $dshBinCmd) {
+    $dshMsg = "Loi: Khong tim thay 'dsh' trong PATH. Vui long chay setup-dsh/install.ps1 de cai dat DSH CLI (npm install -g @deepseek-ai/dsh) truoc."
+    if ($DryRun -or $SkipInstall) {
+        Write-Host "[!] $dshMsg (bo qua do -DryRun/-SkipInstall, tiep tuc cau hinh...)" -ForegroundColor Yellow
+    } else {
+        throw $dshMsg
+    }
+} else {
+    Write-Host "  -> Tim thay dsh: $($dshBinCmd.Source)" -ForegroundColor DarkGray
+}
+
 $nodeVerRaw = (node -v 2>$null | Out-String).Trim()
 try {
     $nodeVer = [version]($nodeVerRaw.TrimStart('v'))
@@ -435,16 +448,18 @@ function Get-CloakBrowserInstallDir {
 
     $drives = @()
     try {
-        $rawDrives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq [System.IO.DriveType]::Fixed -and $_.IsReady }
-        foreach ($d in $rawDrives) {
-            $letter = $d.Name.TrimEnd('\')
-            if (-not $letter.EndsWith(':')) { $letter = "$letter`:" }
-            $freeGb = [math]::Round($d.AvailableFreeSpace / 1GB, 1)
-            $drives += [PSCustomObject]@{
-                Letter   = $letter
-                FreeGB   = $freeGb
-                FreeByte = $d.AvailableFreeSpace
-            }
+        foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+            try {
+                if ($d.DriveType -ne [System.IO.DriveType]::Fixed -or -not $d.IsReady) { continue }
+                $letter = $d.Name.TrimEnd('\')
+                if (-not $letter.EndsWith(':')) { $letter = "$letter`:" }
+                $freeGb = [math]::Round($d.AvailableFreeSpace / 1GB, 1)
+                $drives += [PSCustomObject]@{
+                    Letter   = $letter
+                    FreeGB   = $freeGb
+                    FreeByte = $d.AvailableFreeSpace
+                }
+            } catch { continue }
         }
     } catch {}
 
@@ -1163,5 +1178,5 @@ if (Test-Path $sourceSkillsDir) {
 }
 
 Write-Host ""
-Write-Host "Hoan tat bootstrap DSH Desktop!" -ForegroundColor Cyan
+Write-Host "Hoan tat bootstrap DSH CLI!" -ForegroundColor Cyan
 

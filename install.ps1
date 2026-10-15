@@ -3,7 +3,7 @@
 # Chi doc $env:SETUP_TARGET va tham so -Target de chon dispatch sang setup-<target>/bootstrap.ps1.
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'omp', 'claude-code', 'opencode', 'antigravity', 'codex-cli', 'dsh', 'antigravity-cli', 'dsh-web')]
+    [ValidateSet('all', 'omp', 'claude-code', 'opencode', 'antigravity', 'codex-cli', 'dsh', 'antigravity-cli')]
     [string]$Target = 'all',
     [switch]$DryRun,
     [switch]$SkipInstall,
@@ -16,8 +16,8 @@ param(
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$AllowedTargets = @('all', 'omp', 'claude-code', 'opencode', 'antigravity', 'codex-cli', 'dsh', 'antigravity-cli', 'dsh-web')
-$OrderedTargets = @('omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity-cli', 'dsh-web')
+$AllowedTargets = @('all', 'omp', 'claude-code', 'opencode', 'antigravity', 'codex-cli', 'dsh', 'antigravity-cli')
+$OrderedTargets = @('omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity-cli')
 $RepoZipUrl = 'https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip'
 
 # 1. Giai quyet target: -Target uu tien, sau do $env:SETUP_TARGET (phuc vu online irm|iex), mac dinh 'all'.

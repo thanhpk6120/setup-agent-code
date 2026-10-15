@@ -38,32 +38,63 @@ Write-Host "================================================================" -F
 Write-Host "             SETUP-DSH INSTALLER - INTERACTIVE SETUP            " -ForegroundColor Cyan
 Write-Host "================================================================" -ForegroundColor Cyan
 
-# 1. Kiem tra DSH Desktop va moi truong runtime (Node.js, Git)
-Write-Host "==> Kiem tra ung dung DSH Desktop va runtime..." -ForegroundColor Cyan
-$dshExePaths = @(
-    "C:\Program Files\DSH Desktop\DSH Desktop.exe",
-    "$env:LOCALAPPDATA\Programs\DSH Desktop\DSH Desktop.exe",
-    "$env:ProgramFiles\DSH Desktop\DSH Desktop.exe"
-)
-$dshInstalled = $false
-foreach ($exe in $dshExePaths) {
-    if (Test-Path $exe) {
-        $dshInstalled = $true
-        Write-Host "==> Da phat hien DSH Desktop tai: $exe" -ForegroundColor Green
-        break
+# 1. Kiem tra DSH CLI (dsh) va moi truong runtime (Node.js, Git)
+Write-Host "==> Kiem tra DSH CLI trong he thong..." -ForegroundColor Cyan
+$dshCmd = Get-Command "dsh" -ErrorAction SilentlyContinue
+if (-not $dshCmd) {
+    Write-Host "[!] DSH CLI (dsh) chua duoc cai dat trong PATH." -ForegroundColor Yellow
+    if ($SkipInstall) {
+        Write-Host "  -> [-SkipInstall] Bo qua cai dat DSH CLI. Tiep tuc cau hinh..." -ForegroundColor DarkGray
+    } elseif ($DryRun) {
+        Write-Host "  -> [WhatIf] Se chay: npm install -g @deepseek-ai/dsh" -ForegroundColor DarkGray
+    } else {
+        $installPrompt = ""
+        if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
+            $installPrompt = "y"
+        } else {
+            $installPrompt = Read-Host "DSH CLI chua duoc cai dat. Ban co muon cai dat DSH CLI chinh goc ngay bay gio khong? [Y/n]"
+        }
+        if ([string]::IsNullOrWhiteSpace($installPrompt) -or $installPrompt.Trim().ToLower() -eq 'y' -or $installPrompt.Trim().ToLower() -eq 'yes') {
+            Write-Host "==> Dang cai dat DSH CLI qua npm (npm install -g @deepseek-ai/dsh)..." -ForegroundColor Cyan
+            try {
+                npm install -g @deepseek-ai/dsh
+                Write-Host "==> Cai dat DSH CLI hoan tat. Dang cap nhat PATH trong session hien tai..." -ForegroundColor Green
+                $npmGlobal = $null
+                try { $npmGlobal = ((npm prefix -g 2>$null) | Out-String).Trim() } catch {}
+                $candidatePaths = @(
+                    $npmGlobal,
+                    (Join-Path $env:APPDATA "npm")
+                )
+                try {
+                    $userPath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::User)
+                    $machinePath = [System.Environment]::GetEnvironmentVariable("Path", [System.EnvironmentVariableTarget]::Machine)
+                    foreach ($p in ("$userPath;$machinePath" -split ';')) {
+                        if (-not [string]::IsNullOrWhiteSpace($p)) { $candidatePaths += $p.Trim() }
+                    }
+                } catch {}
+                $pathItems = ($env:PATH -split ';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() }
+                foreach ($cand in ($candidatePaths | Select-Object -Unique)) {
+                    if (-not [string]::IsNullOrWhiteSpace($cand) -and (Test-Path $cand) -and ($pathItems -notcontains $cand)) {
+                        $env:PATH = "$cand;$env:PATH"
+                        $pathItems += $cand
+                        Write-Host "  -> Da them vao PATH (session): $cand" -ForegroundColor DarkGray
+                    }
+                }
+                $dshCmd = Get-Command "dsh" -ErrorAction SilentlyContinue
+                if ($dshCmd) {
+                    Write-Host "==> Da tim thay DSH CLI tai: $($dshCmd.Source)" -ForegroundColor Green
+                } else {
+                    Write-Host "[!] Da chay npm install nhung chua nhan dien duoc 'dsh' trong session hien tai. Ban co the can mo lai terminal sau khi cai dat." -ForegroundColor Yellow
+                }
+            } catch {
+                Write-Host "[!] Loi khi cai dat DSH CLI: $_" -ForegroundColor Red
+            }
+        } else {
+            Write-Host "[!] Bo qua cai dat DSH CLI. Tiep tuc cau hinh moi truong setup-dsh..." -ForegroundColor Yellow
+        }
     }
-}
-if (-not $dshInstalled) {
-    $dshAppData = Join-Path $env:APPDATA "dsh-desktop"
-    if (Test-Path $dshAppData) {
-        Write-Host "==> Da phat hien thu muc profile DSH Desktop tai: $dshAppData" -ForegroundColor Green
-        $dshInstalled = $true
-    }
-}
-
-if (-not $dshInstalled) {
-    Write-Host "[!] DSH Desktop chua duoc cai dat trong he thong." -ForegroundColor Yellow
-    Write-Host "  -> Luu y: Ban can cai dat ung dung DSH Desktop de su dung profile va harness." -ForegroundColor DarkGray
+} else {
+    Write-Host "==> Da phat hien DSH CLI tai: $($dshCmd.Source)" -ForegroundColor Green
 }
 
 foreach ($tool in @("node", "git")) {
@@ -126,23 +157,34 @@ if ($PSBoundParameters.ContainsKey('EnableMemorix')) {
 $env:AI_BASE_URL = $aiBaseUrl
 $env:AI_API_KEY = $aiApiKey
 
-# 4. Tai va giai nen setup-dsh tu GitHub
-$zipUrl = "https://github.com/thanhpk6120/setup-dsh/archive/refs/heads/main.zip"
+# 4. Dung bootstrap local neu co, fallback monorepo zip + subfolder setup-dsh
+$RepoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip"
+$SubFolder = "setup-dsh"
 $tempBase = Join-Path $env:TEMP ("dsh-install-" + [System.Guid]::NewGuid().ToString("N"))
 $zipFile = Join-Path $env:TEMP ("dsh-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
 
 try {
-    Write-Host ""
-    Write-Host "==> Downloading setup-dsh package from GitHub..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
+    $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+    if (Test-Path $localBootstrap) {
+        Write-Host ""
+        Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor Cyan
+        $extractedRoot = $PSScriptRoot
+    } else {
+        Write-Host ""
+        Write-Host "==> Downloading monorepo setup-agent-code tu GitHub..." -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipFile -UseBasicParsing
 
-    Write-Host "==> Extracting files..." -ForegroundColor Cyan
-    Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
+        Write-Host "==> Extracting files..." -ForegroundColor Cyan
+        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
 
-    $extractedRoot = Join-Path $tempBase "setup-dsh-main"
-    if (-not (Test-Path $extractedRoot)) {
-        $found = Get-ChildItem -Directory $tempBase | Select-Object -First 1
-        if ($found) { $extractedRoot = $found.FullName }
+        $extractedRoot = Join-Path (Join-Path $tempBase "setup-agent-code-main") $SubFolder
+        if (-not (Test-Path $extractedRoot)) {
+            $found = Get-ChildItem -Directory $tempBase | Select-Object -First 1
+            if ($found) {
+                $candSub = Join-Path $found.FullName $SubFolder
+                if (Test-Path $candSub) { $extractedRoot = $candSub } else { $extractedRoot = $found.FullName }
+            }
+        }
     }
 
     $bootstrapScript = Join-Path $extractedRoot "bootstrap.ps1"
@@ -189,5 +231,5 @@ finally {
 
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
-Write-Host " CAI DAT THANH CONG CHO DSH DESKTOP!" -ForegroundColor Green
+Write-Host " CAI DAT THANH CONG CHO DSH CLI!" -ForegroundColor Green
 Write-Host "================================================================" -ForegroundColor Green

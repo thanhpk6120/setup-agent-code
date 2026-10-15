@@ -459,11 +459,8 @@ if ($installAgency) {
         if ($foundAgency -and $foundAgency.Source) {
             $agencyCmd = $foundAgency.Source
         } else {
-            if ($DryRun) {
-                $agencyCmd = $AgencyPath
-            } else {
-                throw "Loi: Khong tim thay agency-mcp-server. Dung cai dat hoac truyen -AgencyPath."
-            }
+            Write-Warning "Khong tim thay 'agency-mcp-server'; su dung duong dan mac dinh: $AgencyPath"
+            $agencyCmd = if ($AgencyPath) { $AgencyPath } else { "C:\nvm4w\nodejs\agency-mcp-server.cmd" }
         }
     }
     $escapedAgency = $agencyCmd.Replace('\', '\\')
@@ -477,16 +474,18 @@ function Get-CloakBrowserInstallDir {
 
     $drives = @()
     try {
-        $rawDrives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq [System.IO.DriveType]::Fixed -and $_.IsReady }
-        foreach ($d in $rawDrives) {
-            $letter = $d.Name.TrimEnd('\')
-            if (-not $letter.EndsWith(':')) { $letter = "$letter`:" }
-            $freeGb = [math]::Round($d.AvailableFreeSpace / 1GB, 1)
-            $drives += [PSCustomObject]@{
-                Letter   = $letter
-                FreeGB   = $freeGb
-                FreeByte = $d.AvailableFreeSpace
-            }
+        foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+            try {
+                if ($d.DriveType -ne [System.IO.DriveType]::Fixed -or -not $d.IsReady) { continue }
+                $letter = $d.Name.TrimEnd('\')
+                if (-not $letter.EndsWith(':')) { $letter = "$letter`:" }
+                $freeGb = [math]::Round($d.AvailableFreeSpace / 1GB, 1)
+                $drives += [PSCustomObject]@{
+                    Letter   = $letter
+                    FreeGB   = $freeGb
+                    FreeByte = $d.AvailableFreeSpace
+                }
+            } catch { continue }
         }
     } catch {}
 

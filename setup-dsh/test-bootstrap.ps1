@@ -31,6 +31,7 @@ Set-Content -Path (Join-Path $mockContext7Path "index.js") -Value "// mock"
 $mockBinDir = Join-Path $env:TEMP ("dsh-mock-bin-" + [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $mockBinDir | Out-Null
 Set-Content -Path (Join-Path $mockBinDir "gitnexus.cmd") -Value "@echo off`necho gitnexus"
+Set-Content -Path (Join-Path $mockBinDir "dsh.cmd") -Value "@echo off`necho dsh-mock"
 Set-Content -Path (Join-Path $mockBinDir "npm.cmd") -Value "@echo off`nif `"%1`"==`"root`" if `"%2`"==`"-g`" (echo $mockNpmDir& exit /b 0)`nexit /b 0"
 $oldPath = $env:Path
 $env:Path = "$mockBinDir;$env:Path"

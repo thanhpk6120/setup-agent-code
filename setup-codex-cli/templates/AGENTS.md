@@ -114,13 +114,12 @@ Define success criteria and verify. Do not stop mid-task unless blocked by safet
 
 ### Subagent Role Directory
 - `scout`: Rapid reading and codebase exploration when structure or file locations are unfamiliar.
-- `reviewer`: Code review, architectural standards, and convention compliance evaluation.
 - `security-reviewer`: Security audit, vulnerability scanning, and risk assessment.
 - `architect`: System architecture design, high-level planning for large module decomposition.
 - `plan-reviewer`: Independent review and gate approval of technical plans (`plan.md`).
 - `sonic`: High-speed mechanical edits and bulk data transformations.
 - `implementer`: Autonomous coding, TDD following approved design contracts.
-- `reviewer`: Independent code review, reproduction of test gates, and counterexample evaluation.
+- `reviewer`: Code review, architectural standards, convention compliance, test-gate reproduction, and counterexample evaluation.
 - `docs-*`: Full lifecycle management of Spec-Driven documentation.
 
 ### Multi-Agent Spawning Guidelines

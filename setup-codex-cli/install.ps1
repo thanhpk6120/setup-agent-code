@@ -48,6 +48,11 @@ if (-not $codexCmd) {
         $installPrompt = Read-Host "Codex CLI chua duoc cai dat. Ban co muon cai dat Codex CLI chinh goc ngay bay gio khong? [Y/n]"
     }
     if ([string]::IsNullOrWhiteSpace($installPrompt) -or $installPrompt.Trim().ToLower() -eq 'y') {
+        if ($SkipInstall) {
+            Write-Host "  -> [-SkipInstall] Bo qua cai dat Codex CLI. Tiep tuc cau hinh..." -ForegroundColor DarkGray
+        } elseif ($DryRun) {
+            Write-Host "  -> [WhatIf] Se chay: npm install -g @openai/codex" -ForegroundColor DarkGray
+        } else {
         Write-Host "==> Dang cai dat Codex CLI qua npm (npm install -g @openai/codex)..." -ForegroundColor Cyan
         try {
             npm install -g @openai/codex
@@ -83,6 +88,7 @@ if (-not $codexCmd) {
             }
         } catch {
             Write-Host "[!] Loi khi cai dat Codex CLI: $_" -ForegroundColor Red
+        }
         }
     } else {
         Write-Host "[!] Bo qua cai dat Codex CLI. Tiep tuc cau hinh moi truong setup-codex-cli..." -ForegroundColor Yellow
@@ -142,23 +148,34 @@ if ($PSBoundParameters.ContainsKey('EnableMemorix')) {
 $env:AI_BASE_URL = $aiBaseUrl
 $env:AI_API_KEY = $aiApiKey
 
-# 4. Tai va giai nen setup-codex-cli tu GitHub
-$zipUrl = "https://github.com/thanhpk6120/setup-codex-cli/archive/refs/heads/main.zip"
+# 4. Dung bootstrap local neu co, fallback monorepo zip + subfolder setup-codex-cli
+$RepoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip"
+$SubFolder = "setup-codex-cli"
 $tempBase = Join-Path $env:TEMP ("codex-install-" + [System.Guid]::NewGuid().ToString("N"))
 $zipFile = Join-Path $env:TEMP ("codex-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
 
 try {
-    Write-Host ""
-    Write-Host "==> Downloading setup-codex-cli package from GitHub..." -ForegroundColor Cyan
-    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
+    $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+    if (Test-Path $localBootstrap) {
+        Write-Host ""
+        Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor Cyan
+        $extractedRoot = $PSScriptRoot
+    } else {
+        Write-Host ""
+        Write-Host "==> Downloading monorepo setup-agent-code tu GitHub..." -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipFile -UseBasicParsing
 
-    Write-Host "==> Extracting files..." -ForegroundColor Cyan
-    Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
+        Write-Host "==> Extracting files..." -ForegroundColor Cyan
+        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
 
-    $extractedRoot = Join-Path $tempBase "setup-codex-cli-main"
-    if (-not (Test-Path $extractedRoot)) {
-        $found = Get-ChildItem -Directory $tempBase | Select-Object -First 1
-        if ($found) { $extractedRoot = $found.FullName }
+        $extractedRoot = Join-Path (Join-Path $tempBase "setup-agent-code-main") $SubFolder
+        if (-not (Test-Path $extractedRoot)) {
+            $found = Get-ChildItem -Directory $tempBase | Select-Object -First 1
+            if ($found) {
+                $candSub = Join-Path $found.FullName $SubFolder
+                if (Test-Path $candSub) { $extractedRoot = $candSub } else { $extractedRoot = $found.FullName }
+            }
+        }
     }
 
     $bootstrapScript = Join-Path $extractedRoot "bootstrap.ps1"
@@ -167,11 +184,12 @@ try {
     }
 
     $envFilePath = Join-Path $extractedRoot ".env"
+    $isLocalSource = ($extractedRoot -eq $PSScriptRoot)
     $envContent = @"
 AI_BASE_URL=$aiBaseUrl
 AI_API_KEY=$aiApiKey
 "@
-    Set-Content -Path $envFilePath -Value $envContent -Encoding utf8
+    if (-not $isLocalSource) { Set-Content -Path $envFilePath -Value $envContent -Encoding utf8 }
 
     Write-Host "==> Launching bootstrap..." -ForegroundColor Cyan
     $bootstrapParams = @{}

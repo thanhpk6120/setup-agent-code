@@ -44,6 +44,31 @@ if (-not $agyCmd) {
 }
 if (-not $agyCmd) {
     Write-Host "[!] Antigravity CLI (agy) chua duoc cai dat trong PATH." -ForegroundColor Yellow
+    if ($SkipInstall) {
+        Write-Host "  -> [-SkipInstall] Bo qua cai dat Antigravity CLI. Tiep tuc cau hinh..." -ForegroundColor DarkGray
+    } elseif ($DryRun) {
+        Write-Host "  -> [WhatIf] Se chay: irm https://antigravity.google/cli/install.ps1 | iex" -ForegroundColor DarkGray
+    } else {
+        $agyPrompt = ''
+        if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) { $agyPrompt = 'y' } else { $agyPrompt = Read-Host "Antigravity CLI chua duoc cai dat. Ban co muon cai dat Antigravity CLI chinh goc ngay bay gio khong? [Y/n]" }
+        if ([string]::IsNullOrWhiteSpace($agyPrompt) -or $agyPrompt.Trim().ToLower() -eq 'y') {
+            Write-Host '==> Dang cai dat Antigravity CLI chinh goc (https://antigravity.google/cli/install.ps1)...' -ForegroundColor Cyan
+            try {
+                & ([scriptblock]::Create((Invoke-RestMethod -Uri 'https://antigravity.google/cli/install.ps1' -UseBasicParsing)))
+                Write-Host '==> Cai dat Antigravity CLI hoan tat. Dang cap nhat PATH trong session hien tai...' -ForegroundColor Green
+                $agyCands = @((Join-Path $env:LOCALAPPDATA 'agy/bin'), (Join-Path $env:LOCALAPPDATA 'Programs/antigravity'), (Join-Path $env:USERPROFILE '.antigravity/bin'))
+                try {
+                    $uP = [Environment]::GetEnvironmentVariable('Path','User'); $mP = [Environment]::GetEnvironmentVariable('Path','Machine')
+                    foreach ($pp in (("$uP;$mP" -split ';'))) { if (-not [string]::IsNullOrWhiteSpace($pp)) { $agyCands += $pp.Trim() } }
+                } catch {}
+                $cur = ($env:PATH -split ';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | ForEach-Object { $_.Trim() }
+                foreach ($c in ($agyCands | Select-Object -Unique)) { if (-not [string]::IsNullOrWhiteSpace($c) -and (Test-Path $c) -and ($cur -notcontains $c)) { $env:PATH = "$c;$env:PATH"; Write-Host "  -> Da them vao PATH session: $c" -ForegroundColor DarkGray } }
+                $agyCmd = Get-Command 'agy' -ErrorAction SilentlyContinue
+                if (-not $agyCmd) { $agyCmd = Get-Command 'antigravity' -ErrorAction SilentlyContinue }
+                if ($agyCmd) { Write-Host "==> Da nhan dien Antigravity CLI tai: $($agyCmd.Source)" -ForegroundColor Green } else { Write-Warning "Chua nhan dien duoc 'agy'. Co the can mo lai terminal." }
+            } catch { Write-Warning "Cai dat Antigravity CLI gap loi: $($_.Exception.Message)" }
+        } else { Write-Host '[-] Da bo qua cai dat Antigravity CLI theo lua chon cua nguoi dung.' -ForegroundColor Yellow }
+    }
 } else {
     Write-Host "==> Da phat hien Antigravity CLI tai: $($agyCmd.Source)" -ForegroundColor Green
 }
@@ -131,19 +156,49 @@ $env:AI_BASE_URL = $aiBaseUrl
 $env:AI_API_KEY = $aiApiKey
 $env:AGY_MODEL = $agyModel
 
-# 5. Chay truc tiep bootstrap.ps1 noi bo
-$bootstrapPath = Join-Path $PSScriptRoot "bootstrap.ps1"
-if (-not (Test-Path $bootstrapPath)) {
-    throw "Khong tim thay bootstrap.ps1 tai: $bootstrapPath"
-}
+# 5. Uu tien bootstrap local, fallback monorepo zip + subfolder
+$monoZipUrl = 'https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip'
+$subFolder = 'setup-antigravity-cli'
+$localBootstrap = Join-Path $PSScriptRoot 'bootstrap.ps1'
+$bootstrapRoot = $null
+$tempBase = $null
+$zipFile = $null
+try {
+    if (Test-Path $localBootstrap) {
+        $bootstrapRoot = $PSScriptRoot
+        Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor DarkGray
+    } else {
+        $tempParent = $env:TEMP
+        if ([string]::IsNullOrWhiteSpace($tempParent)) { $tempParent = [System.IO.Path]::GetTempPath() }
+        $tempBase = Join-Path $tempParent ('antigravity-install-' + [System.Guid]::NewGuid().ToString('N'))
+        $zipFile = Join-Path $tempParent ('antigravity-repo-' + [System.Guid]::NewGuid().ToString('N') + '.zip')
+        New-Item -ItemType Directory -Path $tempBase -Force | Out-Null
+        Write-Host '==> Khong thay bootstrap local. Tai monorepo setup-agent-code tu GitHub...' -ForegroundColor Cyan
+        Write-Host "    URL: $monoZipUrl (subfolder: $subFolder)" -ForegroundColor DarkGray
+        Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
+        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
+        $bootstrapRoot = Join-Path $tempBase (Join-Path 'setup-agent-code-main' $subFolder)
+        if (-not (Test-Path (Join-Path $bootstrapRoot 'bootstrap.ps1'))) {
+            $found = Get-ChildItem -Directory $tempBase -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName 'bootstrap.ps1')) } | Select-Object -First 1
+            if ($found) { $bootstrapRoot = $found.FullName }
+        }
+        if (-not (Test-Path (Join-Path $bootstrapRoot 'bootstrap.ps1'))) {
+            throw "Khong tim thay $subFolder/bootstrap.ps1 trong goi monorepo da giai nen."
+        }
+    }
+    $bootstrapPath = Join-Path $bootstrapRoot 'bootstrap.ps1'
 
-$splat = @{
-    AgyDir = $AgyDir
-}
-if ($Force) { $splat['Force'] = $true }
-if ($OverwriteAll) { $splat['OverwriteAll'] = $true }
-if ($DryRun) { $splat['DryRun'] = $true }
-if ($SkipInstall) { $splat['SkipInstall'] = $true }
-if ($enableMemorix) { $splat['EnableMemorix'] = $true } else { $splat['DisableMemorix'] = $true }
+    $splat = @{
+        AgyDir = $AgyDir
+    }
+    if ($Force) { $splat['Force'] = $true }
+    if ($OverwriteAll) { $splat['OverwriteAll'] = $true }
+    if ($DryRun) { $splat['DryRun'] = $true }
+    if ($SkipInstall) { $splat['SkipInstall'] = $true }
+    if ($enableMemorix) { $splat['EnableMemorix'] = $true } else { $splat['DisableMemorix'] = $true }
 
-& $bootstrapPath @splat
+    & $bootstrapPath @splat
+} finally {
+    if ($zipFile) { Safe-Trash -Path $zipFile }
+    if ($tempBase) { Safe-Trash -Path $tempBase }
+}

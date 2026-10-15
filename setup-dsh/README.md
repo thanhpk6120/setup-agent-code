@@ -1,6 +1,6 @@
 # setup-deepseek-harness
 
-Script bootstrap thiết lập môi trường và cấu hình cho DeepSeek Harness (DSH Desktop / Web profile) trên máy mới, bám sát tài liệu chính thức của từng nhà cung cấp MCP. Default AI Base URL sử dụng `http://localhost:20128/v1`.
+Script bootstrap thiết lập môi trường và cấu hình cho DeepSeek Harness (DSH CLI, `npm install -g @deepseek-ai/dsh`) trên máy mới, bám sát tài liệu chính thức của từng nhà cung cấp MCP. Default AI Base URL sử dụng `http://localhost:20128/v1`.
 
 ## Cấu hình sinh ra (`cordis.patch.yml` & `.credentials.yaml`)
 
@@ -38,7 +38,7 @@ Hệ thống tuân thủ nghiêm ngặt quy tắc an toàn dữ liệu:
 Mở PowerShell trên máy mới và chạy trực tiếp lệnh duy nhất sau:
 
 ```powershell
-irm https://raw.githubusercontent.com/thanhpk6120/setup-dsh/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/setup-dsh/install.ps1 | iex
 ```
 
 ### Quy trình cài đặt tương tác (Interactive Setup Flow)

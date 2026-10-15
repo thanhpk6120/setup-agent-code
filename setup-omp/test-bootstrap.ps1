@@ -74,9 +74,9 @@ try {
         if ($remaining -contains "root" -and $remaining -contains "-g") {
             return $mockNpmDir
         }
-        $realNpm = Get-Command npm -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        $realNpm = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($realNpm) {
-            & $realNpm @remaining
+            & $realNpm.Source @remaining
         }
     }
 
