@@ -19,6 +19,237 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # 1. Ham xac nhan cai dat tung MCP Server (interactive choice y/N, mac dinh N)
+# ==============================================================================
+# Helper: Resume .env + Auto-Fix + Wait-UserIntervention
+# (Lay lai bien da nhap/chon, chi hoi cai thieu, hoi truoc khi auto-fix, cho confirm)
+# ==============================================================================
+$script:FixedTempBase = if ($env:SETUP_RESUME_TEMP_DIR) { $env:SETUP_RESUME_TEMP_DIR } else { Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code" }
+$script:ResumeEnvFile = if ($env:SETUP_RESUME_ENV_PATH) { $env:SETUP_RESUME_ENV_PATH } else { Join-Path $script:FixedTempBase ".env" }
+$script:FallbackResumeEnvFile = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code-saved.env"
+$script:ReusedVars = @{}
+$script:DidPromptReuse = $false
+$script:IsReuseAccepted = $false
+
+function Test-IsIsolatedTestRun {
+    if ($env:SETUP_ENABLE_RESUME -eq '1') { return $false }
+    if ($SkipInstall -or $DryRun -or $env:CI -or [Console]::IsInputRedirected) { return $true }
+    foreach ($varName in @('OmpDir', 'ClaudeDir', 'OpenCodeDir', 'CodexDir', 'DshHome', 'AgyDir', 'DshProfileDir')) {
+        $val = Get-Variable -Name $varName -ValueOnly -ErrorAction SilentlyContinue
+        if ($val -and ("$val").StartsWith([System.IO.Path]::GetTempPath(), [StringComparison]::OrdinalIgnoreCase)) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Get-SavedEnvFilePath {
+    if (Test-Path -LiteralPath (Join-Path $PSScriptRoot ".env")) { return (Join-Path $PSScriptRoot ".env") }
+    if (Test-Path -LiteralPath $script:ResumeEnvFile) { return $script:ResumeEnvFile }
+    if (Test-Path -LiteralPath $script:FallbackResumeEnvFile) { return $script:FallbackResumeEnvFile }
+    return $null
+}
+
+function Save-ResumeKey {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [string]$Value
+    )
+    if ($DryRun) { return }
+    if (Test-IsIsolatedTestRun) { return }
+    try {
+        $parent = Split-Path -Parent $script:ResumeEnvFile
+        if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
+        
+        $lines = @()
+        if (Test-Path -LiteralPath $script:ResumeEnvFile) {
+            $lines = Get-Content -LiteralPath $script:ResumeEnvFile -Encoding UTF8 -ErrorAction SilentlyContinue
+        }
+        $newLines = @()
+        $found = $false
+        foreach ($l in $lines) {
+            $trimmed = $l.Trim()
+            if ($trimmed.StartsWith("$Key=") -or $trimmed.StartsWith("$Key =")) {
+                $newLines += "$Key=$Value"
+                $found = $true
+            } else {
+                $newLines += $l
+            }
+        }
+        if (-not $found) {
+            $newLines += "$Key=$Value"
+        }
+        $content = $newLines -join "`r`n"
+        Set-Content -LiteralPath $script:ResumeEnvFile -Value $content -Encoding UTF8 -Force
+        Set-Content -LiteralPath $script:FallbackResumeEnvFile -Value $content -Encoding UTF8 -Force
+    } catch {}
+}
+
+function Prompt-ReuseSavedEnv {
+    if ($script:DidPromptReuse) { return $script:IsReuseAccepted }
+    $script:DidPromptReuse = $true
+    
+    # Neu dang chay trong test tu dong/co lap/SkipInstall thi KHONG prompt va KHONG nap lai .env cu
+    if (Test-IsIsolatedTestRun) {
+        $script:IsReuseAccepted = $false
+        return $false
+    }
+    
+    $savedPath = Get-SavedEnvFilePath
+    if (-not $savedPath) {
+        $script:IsReuseAccepted = $false
+        return $false
+    }
+    
+    $map = @{}
+    try {
+        Get-Content -LiteralPath $savedPath -Encoding UTF8 -ErrorAction Stop | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith("#")) {
+                $idx = $line.IndexOf("=")
+                if ($idx -gt 0) {
+                    $k = $line.Substring(0, $idx).Trim()
+                    $v = $line.Substring($idx + 1).Trim()
+                    if (($v.StartsWith('"') -and $v.EndsWith('"')) -or ($v.StartsWith("'") -and $v.EndsWith("'"))) {
+                        $v = $v.Substring(1, $v.Length - 2)
+                    }
+                    if ($k -and $v) { $map[$k] = $v }
+                }
+            }
+        }
+    } catch {}
+    
+    if ($map.Count -eq 0) {
+        $script:IsReuseAccepted = $false
+        return $false
+    }
+    
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Cyan
+    Write-Host " [?] PHAT HIEN CAU HINH TU LAN CHAY TRUOC ($savedPath)" -ForegroundColor Cyan
+    Write-Host "================================================================" -ForegroundColor Cyan
+    foreach ($k in $map.Keys) {
+        $dispVal = if ($k -match 'KEY|TOKEN|SECRET|PASSWORD') { "***" } else { $map[$k] }
+        Write-Host "  -> $k = $dispVal" -ForegroundColor DarkGray
+    }
+    Write-Host "================================================================" -ForegroundColor Cyan
+    
+    $reuse = $true
+    if (-not [Environment]::UserInteractive -or $env:CI) {
+        Write-Host "  -> [Non-Interactive] Tu dong su dung lai cau hinh truoc do." -ForegroundColor DarkGray
+        $reuse = $true
+    } else {
+        $ans = Read-Host "[?] Ban co muon su dung lai cac bien da nhap khong? (Chi hoi nhung cai chua co) [Y/n]"
+        if (-not [string]::IsNullOrWhiteSpace($ans) -and $ans.Trim().ToLower() -match '^(n|no)$') {
+            $reuse = $false
+        }
+    }
+    
+    if ($reuse) {
+        $script:IsReuseAccepted = $true
+        $script:ReusedVars = $map
+        foreach ($k in $map.Keys) {
+            $curr = [Environment]::GetEnvironmentVariable($k, "Process")
+            if ([string]::IsNullOrWhiteSpace($curr)) {
+                [Environment]::SetEnvironmentVariable($k, $map[$k], "Process")
+            }
+        }
+        Write-Host "  -> [OK] Da nap cau hinh cu. Script se CHI HOI nhung bien chua co." -ForegroundColor Green
+        return $true
+    } else {
+        $script:IsReuseAccepted = $false
+        Write-Host "  -> Nguoi dung chon nhap moi tu dau." -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Invoke-AutoFix {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Issue,
+        [Parameter(Mandatory = $true)]
+        [string]$ActionDescription,
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$FixAction
+    )
+    if ($DryRun -or $SkipInstall -or $Force -or $OverwriteAll) { return $false }
+    if ((Test-IsIsolatedTestRun -or -not [Environment]::UserInteractive) -and ($env:SETUP_TEST_AUTOFIX -ne '1')) {
+        return $false
+    }
+
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Yellow
+    Write-Host " [!] PHAT HIEN SU CO CO THE TU DONG SUA LOI (AUTO-FIX)" -ForegroundColor Yellow
+    Write-Host "================================================================" -ForegroundColor Yellow
+    Write-Host " Su co: $Issue" -ForegroundColor White
+    Write-Host " De xuat can thiep: $ActionDescription" -ForegroundColor Cyan
+    Write-Host "================================================================" -ForegroundColor Yellow
+
+    $ans = Read-Host "[?] Ban co cho phep script tu can thiep sua loi ($ActionDescription) khong? [Y/n]"
+    if ([string]::IsNullOrWhiteSpace($ans) -or $ans.Trim().ToLower() -eq 'y' -or $ans.Trim().ToLower() -eq 'yes') {
+        Write-Host "  -> Dang thuc hien can thiep..." -ForegroundColor Cyan
+        try {
+            & $FixAction
+            Write-Host "  -> [OK] Da thuc hien can thiep xong!" -ForegroundColor Green
+            return $true
+        } catch {
+            Write-Warning "Can thiep gap loi: $($_.Exception.Message)"
+            return $false
+        }
+    } else {
+        Write-Host "  -> Nguoi dung tu choi can thiep tu dong." -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Wait-UserIntervention {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ErrorMessage,
+        [Parameter(Mandatory = $true)]
+        [string]$Instructions,
+        [scriptblock]$RecheckCondition = $null
+    )
+    if ($DryRun -or $SkipInstall -or $Force -or $OverwriteAll) { return $false }
+    if ((Test-IsIsolatedTestRun -or -not [Environment]::UserInteractive) -and ($env:SETUP_TEST_AUTOFIX -ne '1')) {
+        return $false
+    }
+
+    Write-Host ""
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host " [!] PHAT HIEN SU CO CAN NGUOI DUNG CAN THIEP" -ForegroundColor Red
+    Write-Host "================================================================" -ForegroundColor Red
+    Write-Host " Chi tiet loi: $ErrorMessage" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host " HUONG DAN XU LY:" -ForegroundColor Cyan
+    Write-Host " $Instructions" -ForegroundColor White
+    Write-Host "================================================================" -ForegroundColor Red
+
+    while ($true) {
+        $ans = Read-Host "[?] Sau khi ban da xu ly xong o cua so khac, nhan [Enter] de tiep tuc kiem tra lai hoac [c] de huy"
+        if ($ans -and $ans.Trim().ToLower() -eq 'c') {
+            Write-Host "Nguoi dung da huy qua trinh cai dat." -ForegroundColor Yellow
+            return $false
+        }
+        if ($null -ne $RecheckCondition) {
+            Write-Host "  -> Dang kiem tra lai..." -ForegroundColor Cyan
+            $ok = & $RecheckCondition
+            if ($ok) {
+                Write-Host "  -> [OK] Kiem tra lai thanh cong! Tiep tuc cai dat..." -ForegroundColor Green
+                return $true
+            } else {
+                Write-Host "  -> [!] Dieu kien van chua dat. Vui long kiem tra lai theo huong dan tren." -ForegroundColor Yellow
+            }
+        } else {
+            return $true
+        }
+    }
+}
+
+# Goi khoi tao Prompt-ReuseSavedEnv ngay khi load helpers
+Prompt-ReuseSavedEnv | Out-Null
+
 function Confirm-McpInstall {
     param([string]$Name)
     if ($Force -or $OverwriteAll) {
@@ -29,14 +260,20 @@ function Confirm-McpInstall {
         Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP '$Name'." -ForegroundColor DarkGray
         return $false
     }
+    $mcpKey = "SETUP_MCP_" + ($Name.ToUpperInvariant() -replace '[^A-Z0-9]', '_')
+    if ($script:IsReuseAccepted -and $script:ReusedVars -and $script:ReusedVars.ContainsKey($mcpKey)) {
+        $savedVal = [bool]($script:ReusedVars[$mcpKey] -eq 'true' -or $script:ReusedVars[$mcpKey] -eq '1')
+        $reusedText = if ($savedVal) { "CO" } else { "KHONG" }
+        Write-Host "  -> [Reuse] Su dung lai lua chon MCP '$Name': $reusedText" -ForegroundColor DarkGray
+        return $savedVal
+    }
     if (-not [Environment]::UserInteractive -or $env:CI) {
         return $false
     }
     $choice = Read-Host "[?] Cai dat MCP '$Name'? [y/N]"
-    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
-        return $true
-    }
-    return $false
+    $chosen = (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes'))
+    Save-ResumeKey $mcpKey ([string]$chosen).ToLower()
+    return $chosen
 }
 # Ham go bo mot block id khoi chuoi YAML
 function Remove-CordisBlock {
@@ -55,14 +292,19 @@ function Confirm-Agency {
         Write-Host "  -> [WhatIf] Bo qua prompt cai dat MCP 'agency'." -ForegroundColor DarkGray
         return $false
     }
+    if ($script:IsReuseAccepted -and $script:ReusedVars -and $script:ReusedVars.ContainsKey("SETUP_MCP_AGENCY")) {
+        $savedVal = [bool]($script:ReusedVars["SETUP_MCP_AGENCY"] -eq 'true' -or $script:ReusedVars["SETUP_MCP_AGENCY"] -eq '1')
+        $reusedText = if ($savedVal) { "CO" } else { "KHONG" }
+        Write-Host "  -> [Reuse] Su dung lai lua chon MCP 'agency': $reusedText" -ForegroundColor DarkGray
+        return $savedVal
+    }
     if (-not [Environment]::UserInteractive -or $env:CI) {
         return $false
     }
     $choice = Read-Host "[?] Cai dat MCP 'agency' (multi-agent orchestration)? [y/N]"
-    if (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes')) {
-        return $true
-    }
-    return $false
+    $chosen = (-not [string]::IsNullOrWhiteSpace($choice) -and ($choice.Trim().ToLower() -eq 'y' -or $choice.Trim().ToLower() -eq 'yes'))
+    Save-ResumeKey "SETUP_MCP_AGENCY" ([string]$chosen).ToLower()
+    return $chosen
 }
 
 # Xu ly lua chon Memorix
@@ -556,7 +798,57 @@ if ($installMemorix) {
                     Write-Host $npmOut
                     if ($LASTEXITCODE -ne 0 -or $npmOut -match "EBUSY") {
                         if ($npmOut -match "EBUSY" -or $npmOut -match "lancedb\.node") {
-                            Write-Warning "Cai dat/cap nhat Memorix gap loi EBUSY: file lancedb.node dang bi tien trinh khac khoa. Vui long dong cac agent/terminal dang chay va chay lai bootstrap.ps1 sau. Tiep tuc cac buoc tiep theo..."
+                                                $autofixDone = Invoke-AutoFix -Issue "File lancedb.node dang bi tien trinh khac khoa (EBUSY)" -ActionDescription "Dong cac tien trinh node/mcp dang khoa file va thu cai lai" -FixAction {
+                        Stop-Process -Name node,mcp-atlassian,agency-mcp-server -Force -ErrorAction SilentlyContinue
+                        Start-Sleep -Seconds 1
+                        $npmOut = npm install -g memorix 2>&1 | Out-String
+                        Write-Host $npmOut
+                    }
+                    if (-not $autofixDone -or $npmOut -match "EBUSY") {
+                        Wait-UserIntervention -ErrorMessage "File lancedb.node van bi khoa boi tien trinh khac." -Instructions "Vui long dong cac cua so terminal, IDE hoac process 'node.exe' trong Task Manager dang su dung Memorix." -RecheckCondition {
+                            $res = npm install -g memorix 2>&1 | Out-String
+                            return ($LASTEXITCODE -eq 0 -and $res -notmatch "EBUSY")
+                        }
+                    }
+
+                                            $autofixDone = Invoke-AutoFix -Issue "File lancedb.node dang bi tien trinh khac khoa (EBUSY)" -ActionDescription "Dong cac tien trinh node/mcp dang khoa file va thu cai lai" -FixAction {
+                        Stop-Process -Name node,mcp-atlassian,agency-mcp-server -Force -ErrorAction SilentlyContinue
+                        Start-Sleep -Seconds 1
+                        $npmOut = npm install -g memorix 2>&1 | Out-String
+                        Write-Host $npmOut
+                    }
+                    if (-not $autofixDone -or $npmOut -match "EBUSY") {
+                        Wait-UserIntervention -ErrorMessage "File lancedb.node van bi khoa boi tien trinh khac." -Instructions "Vui long dong cac cua so terminal, IDE hoac process 'node.exe' trong Task Manager dang su dung Memorix." -RecheckCondition {
+                            $res = npm install -g memorix 2>&1 | Out-String
+                            return ($LASTEXITCODE -eq 0 -and $res -notmatch "EBUSY")
+                        }
+                    }
+
+                                            $autofixDone = Invoke-AutoFix -Issue "File lancedb.node dang bi khoa boi tien trinh khac (EBUSY)" -ActionDescription "Thu lai cai dat Memorix voi tuy chon --force va bo qua cache" -FixAction {
+                        Start-Sleep -Milliseconds 800
+                        $npmOut = npm install -g memorix --force 2>&1 | Out-String
+                        Write-Host $npmOut
+                    }
+                    if (-not $autofixDone -or $npmOut -match "EBUSY") {
+                        Wait-UserIntervention -ErrorMessage "File lancedb.node van bi khoa boi tien trinh khac." -Instructions "Vui long dong cac cua so terminal, IDE hoac tien trinh dang su dung Memorix roi quay lai day." -RecheckCondition {
+                            $res = npm install -g memorix 2>&1 | Out-String
+                            return ($LASTEXITCODE -eq 0 -and $res -notmatch "EBUSY")
+                        }
+                    }
+
+                                            $autofixDone = Invoke-AutoFix -Issue "File lancedb.node dang bi khoa boi tien trinh khac (EBUSY)" -ActionDescription "Thu lai cai dat Memorix voi tuy chon --force va bo qua cache" -FixAction {
+                        Start-Sleep -Milliseconds 800
+                        $npmOut = npm install -g memorix --force 2>&1 | Out-String
+                        Write-Host $npmOut
+                    }
+                    if (-not $autofixDone -or $npmOut -match "EBUSY") {
+                        Wait-UserIntervention -ErrorMessage "File lancedb.node van bi khoa boi tien trinh khac." -Instructions "Vui long dong cac cua so terminal, IDE hoac tien trinh dang su dung Memorix roi quay lai day." -RecheckCondition {
+                            $res = npm install -g memorix 2>&1 | Out-String
+                            return ($LASTEXITCODE -eq 0 -and $res -notmatch "EBUSY")
+                        }
+                    }
+
+                        Write-Warning "Cai dat/cap nhat Memorix gap loi EBUSY: file lancedb.node dang bi tien trinh khac khoa. Vui long dong cac agent/terminal dang chay va chay lai bootstrap.ps1 sau. Tiep tuc cac buoc tiep theo..."
                         } else {
                             Write-Warning "Cai dat/cap nhat Memorix gap loi (Exit code $LASTEXITCODE): $npmOut"
                         }

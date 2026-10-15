@@ -96,22 +96,59 @@ try {
     if ($null -eq $repoRoot) {
         $tempParent = $env:TEMP
         if ([string]::IsNullOrWhiteSpace($tempParent)) { $tempParent = [System.IO.Path]::GetTempPath() }
-        $tempBase = Join-Path $tempParent ('setup-agent-code-' + [System.Guid]::NewGuid().ToString('N'))
-        $zipFile = Join-Path $tempParent ('setup-agent-code-' + [System.Guid]::NewGuid().ToString('N') + '.zip')
-        Write-Host '==> Khong thay setup con local. Tai monorepo setup-agent-code tu GitHub...' -ForegroundColor Cyan
-        Write-Host "    URL: $RepoZipUrl" -ForegroundColor DarkGray
-        Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipFile -UseBasicParsing
-        Write-Host '==> Giai nen goi cai dat...' -ForegroundColor Cyan
-        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
-        $extractedRoot = Join-Path $tempBase 'setup-agent-code-main'
-        if (-not (Test-Path $extractedRoot)) {
-            $found = Get-ChildItem -Directory $tempBase | Select-Object -First 1
-            if ($found) { $extractedRoot = $found.FullName }
+        # Thu muc temp co dinh: chua repo va file .env de tai su dung giua cac lan chay
+        $tempBase = Join-Path $tempParent 'setup-agent-code'
+        $repoDir = Join-Path $tempBase 'repo'
+        $zipFile = Join-Path $tempParent 'setup-agent-code-repo.zip'
+        if (-not (Test-Path $tempBase)) { New-Item -ItemType Directory -Path $tempBase -Force | Out-Null }
+        
+        $gitCmd = Get-Command "git" -ErrorAction SilentlyContinue
+        $useGitClone = $false
+        if ($gitCmd) {
+            try {
+                if (Test-Path (Join-Path $repoDir ".git")) {
+                    Write-Host "==> Thu muc temp co dinh da ton tai: $repoDir. Cap nhat code moi nhat (git pull)..." -ForegroundColor Cyan
+                    git -C $repoDir fetch --quiet 2>$null
+                    git -C $repoDir checkout main --quiet 2>$null
+                    git -C $repoDir pull --quiet 2>$null
+                    $useGitClone = (Test-Path (Join-Path $repoDir 'setup-omp/bootstrap.ps1'))
+                } else {
+                    Write-Host "==> Clone monorepo ve thu muc temp co dinh: $repoDir..." -ForegroundColor Cyan
+                    git clone --depth 1 https://github.com/thanhpk6120/setup-agent-code.git $repoDir --quiet 2>$null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $repoDir 'setup-omp/bootstrap.ps1'))) {
+                        $useGitClone = $true
+                    }
+                }
+            } catch { $useGitClone = $false }
         }
-        if (-not (Test-Path (Join-Path $extractedRoot 'setup-omp/bootstrap.ps1'))) {
-            throw 'Loi: Khong tim thay setup-omp/bootstrap.ps1 trong goi tai ve.'
+        
+        if (-not $useGitClone) {
+            Write-Host '==> Tai monorepo setup-agent-code qua ZIP tu GitHub ve thu muc temp co dinh...' -ForegroundColor Cyan
+            Write-Host "    URL: $RepoZipUrl" -ForegroundColor DarkGray
+            Invoke-WebRequest -Uri $RepoZipUrl -OutFile $zipFile -UseBasicParsing
+            Write-Host '==> Giai nen goi cai dat vao thu muc temp co dinh...' -ForegroundColor Cyan
+            if (-not (Test-Path $repoDir)) { New-Item -ItemType Directory -Path $repoDir -Force | Out-Null }
+            Expand-Archive -Path $zipFile -DestinationPath $repoDir -Force
+            $extractedRoot = Join-Path $repoDir 'setup-agent-code-main'
+            if (-not (Test-Path $extractedRoot)) {
+                $found = Get-ChildItem -Directory $repoDir | Where-Object { Test-Path (Join-Path $_.FullName 'setup-omp/bootstrap.ps1') } | Select-Object -First 1
+                if ($found) { $extractedRoot = $found.FullName }
+            }
+            if (-not $extractedRoot -or -not (Test-Path (Join-Path $extractedRoot 'setup-omp/bootstrap.ps1'))) {
+                if (Test-Path (Join-Path $repoDir 'setup-omp/bootstrap.ps1')) { $extractedRoot = $repoDir }
+                else { throw 'Loi: Khong tim thay setup-omp/bootstrap.ps1 trong goi tai ve.' }
+            }
+            $repoDir = $extractedRoot
         }
-        $repoRoot = $extractedRoot
+        
+        # Bao ve va dong bo file .env giua tempBase va repoDir
+        $envInTemp = Join-Path $tempBase ".env"
+        $envInRepo = Join-Path $repoDir ".env"
+        if ((Test-Path $envInTemp) -and -not (Test-Path $envInRepo)) {
+            Copy-Item -LiteralPath $envInTemp -Destination $envInRepo -Force
+        }
+        
+        $repoRoot = $repoDir
         $downloaded = $true
     } else {
         Write-Host "==> Dung ma nguon local: $repoRoot" -ForegroundColor DarkGray
@@ -184,6 +221,7 @@ try {
 } finally {
     if ($downloaded) {
         if ($zipFile -and (Test-Path $zipFile)) { Move-ToRecycleBinSafe -Path $zipFile }
-        if ($tempBase -and (Test-Path $tempBase)) { Move-ToRecycleBinSafe -Path $tempBase }
+        # Giu lai thu muc temp co dinh $tempBase de luu .env va cau hinh resume cho lan chay sau
+        # if ($tempBase -and (Test-Path $tempBase)) { Move-ToRecycleBinSafe -Path $tempBase }
     }
 }

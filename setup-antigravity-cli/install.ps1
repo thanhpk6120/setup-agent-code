@@ -168,22 +168,50 @@ try {
         $bootstrapRoot = $PSScriptRoot
         Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor DarkGray
     } else {
-        $tempParent = $env:TEMP
-        if ([string]::IsNullOrWhiteSpace($tempParent)) { $tempParent = [System.IO.Path]::GetTempPath() }
-        $tempBase = Join-Path $tempParent ('antigravity-install-' + [System.Guid]::NewGuid().ToString('N'))
-        $zipFile = Join-Path $tempParent ('antigravity-repo-' + [System.Guid]::NewGuid().ToString('N') + '.zip')
-        New-Item -ItemType Directory -Path $tempBase -Force | Out-Null
-        Write-Host '==> Khong thay bootstrap local. Tai monorepo setup-agent-code tu GitHub...' -ForegroundColor Cyan
-        Write-Host "    URL: $monoZipUrl (subfolder: $subFolder)" -ForegroundColor DarkGray
-        Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
-        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
-        $bootstrapRoot = Join-Path $tempBase (Join-Path 'setup-agent-code-main' $subFolder)
-        if (-not (Test-Path (Join-Path $bootstrapRoot 'bootstrap.ps1'))) {
-            $found = Get-ChildItem -Directory $tempBase -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName 'bootstrap.ps1')) } | Select-Object -First 1
-            if ($found) { $bootstrapRoot = $found.FullName }
+        $tempBase = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code"
+        $zipFile = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code-repo.zip"
+        $repoDir = Join-Path $tempBase "repo"
+        if (-not (Test-Path $tempBase)) { New-Item -ItemType Directory -Path $tempBase -Force | Out-Null }
+        
+        $gitCmd = Get-Command "git" -ErrorAction SilentlyContinue
+        $useGitClone = $false
+        if ($gitCmd) {
+            try {
+                if (Test-Path (Join-Path $repoDir ".git")) {
+                    Write-Host "==> Thu muc temp co dinh da ton tai: $repoDir. Dong bo ma nguon moi nhat (git pull)..." -ForegroundColor Cyan
+                    git -C $repoDir fetch --quiet 2>$null
+                    git -C $repoDir checkout main --quiet 2>$null
+                    git -C $repoDir pull --quiet 2>$null
+                    $useGitClone = (Test-Path (Join-Path $repoDir (Join-Path $subFolder "bootstrap.ps1")))
+                } else {
+                    Write-Host "==> Clone monorepo ve thu muc temp co dinh: $repoDir..." -ForegroundColor Cyan
+                    git clone --depth 1 https://github.com/thanhpk6120/setup-agent-code.git $repoDir --quiet 2>$null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $repoDir (Join-Path $subFolder "bootstrap.ps1")))) {
+                        $useGitClone = $true
+                    }
+                }
+            } catch { $useGitClone = $false }
         }
-        if (-not (Test-Path (Join-Path $bootstrapRoot 'bootstrap.ps1'))) {
-            throw "Khong tim thay $subFolder/bootstrap.ps1 trong goi monorepo da giai nen."
+        
+        if (-not $useGitClone) {
+            Write-Host "==> Khong thay bootstrap local. Tai monorepo setup-agent-code qua ZIP..." -ForegroundColor Cyan
+            Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
+            Write-Host "==> Giai nen goi cai dat..." -ForegroundColor Cyan
+            if (-not (Test-Path $repoDir)) { New-Item -ItemType Directory -Path $repoDir -Force | Out-Null }
+            Expand-Archive -Path $zipFile -DestinationPath $repoDir -Force
+            $foundRoot = Join-Path $repoDir "setup-agent-code-main"
+            if (-not (Test-Path $foundRoot)) {
+                $item = Get-ChildItem -Directory $repoDir | Where-Object { Test-Path (Join-Path $_.FullName (Join-Path $subFolder "bootstrap.ps1")) } | Select-Object -First 1
+                if ($item) { $foundRoot = $item.FullName } else { $foundRoot = $repoDir }
+            }
+            $repoDir = $foundRoot
+        }
+        
+        $bootstrapRoot = Join-Path $repoDir $subFolder
+        if (-not (Test-Path (Join-Path $bootstrapRoot "bootstrap.ps1"))) {
+            $found = Get-ChildItem -Directory $repoDir -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName "bootstrap.ps1")) } | Select-Object -First 1
+            if ($found) { $bootstrapRoot = $found.FullName }
+            else { throw "Khong tim thay bootstrap.ps1 cua $subFolder trong thu muc $repoDir." }
         }
     }
     $bootstrapPath = Join-Path $bootstrapRoot 'bootstrap.ps1'
@@ -200,7 +228,7 @@ try {
     & $bootstrapPath @splat
 } finally {
     if ($zipFile) { Safe-Trash -Path $zipFile }
-    if ($tempBase) { Safe-Trash -Path $tempBase }
+    # Giu lai thu muc temp co dinh $tempBase de luu .env va cau hinh resume
 }
 
 # Verify agent binary sau cai (test-safe: bo qua khi DryRun)

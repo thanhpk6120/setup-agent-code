@@ -154,8 +154,8 @@ AI_API_KEY=$aiApiKey
 
 $monoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/heads/main.zip"
 $subFolder = "setup-claude-code"
-$tempBase = Join-Path $env:TEMP ("claude-code-install-" + [System.Guid]::NewGuid().ToString("N"))
-$zipFile = Join-Path $env:TEMP ("claude-code-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
+$tempBase = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code"
+$zipFile = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code-repo.zip"
 
 # Verify agent binary sau cai (test-safe: bo qua khi DryRun)
 if (-not $DryRun) {
@@ -174,24 +174,50 @@ try {
         $extractedRoot = $PSScriptRoot
         Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor DarkGray
     } else {
-        # Tạo thư mục tạm
-        New-Item -ItemType Directory -Path $tempBase -Force | Out-Null
-
-        Write-Host "==> Khong thay bootstrap local. Tai monorepo setup-agent-code tu GitHub..." -ForegroundColor Cyan
-        Write-Host "    URL: $monoZipUrl (subfolder: $subFolder)" -ForegroundColor DarkGray
-        Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
-
-        Write-Host "==> Đang giải nén tập tin..." -ForegroundColor Cyan
-        Expand-Archive -Path $zipFile -DestinationPath $tempBase -Force
-
-        $extractedRoot = Join-Path $tempBase (Join-Path "setup-agent-code-main" $subFolder)
-        if (-not (Test-Path (Join-Path $extractedRoot "bootstrap.ps1"))) {
-            $found = Get-ChildItem -Directory $tempBase -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName "bootstrap.ps1")) } | Select-Object -First 1
-            if ($found) { $extractedRoot = $found.FullName }
+        # Thu muc temp co dinh: uu tien git clone / pull vao subfolder repo de giu .env
+        $repoDir = Join-Path $tempBase "repo"
+        if (-not (Test-Path $tempBase)) { New-Item -ItemType Directory -Path $tempBase -Force | Out-Null }
+        
+        $gitCmd = Get-Command "git" -ErrorAction SilentlyContinue
+        $useGitClone = $false
+        if ($gitCmd) {
+            try {
+                if (Test-Path (Join-Path $repoDir ".git")) {
+                    Write-Host "==> Thu muc temp co dinh da ton tai: $repoDir. Dong bo ma nguon moi nhat (git pull)..." -ForegroundColor Cyan
+                    git -C $repoDir fetch --quiet 2>$null
+                    git -C $repoDir checkout main --quiet 2>$null
+                    git -C $repoDir pull --quiet 2>$null
+                    $useGitClone = (Test-Path (Join-Path $repoDir (Join-Path $subFolder "bootstrap.ps1")))
+                } else {
+                    Write-Host "==> Clone monorepo ve thu muc temp co dinh: $repoDir..." -ForegroundColor Cyan
+                    git clone --depth 1 https://github.com/thanhpk6120/setup-agent-code.git $repoDir --quiet 2>$null
+                    if ($LASTEXITCODE -eq 0 -and (Test-Path (Join-Path $repoDir (Join-Path $subFolder "bootstrap.ps1")))) {
+                        $useGitClone = $true
+                    }
+                }
+            } catch { $useGitClone = $false }
         }
-
+        
+        if (-not $useGitClone) {
+            Write-Host "==> Khong thay bootstrap local. Tai monorepo setup-agent-code qua ZIP..." -ForegroundColor Cyan
+            Write-Host "    URL: $monoZipUrl (subfolder: $subFolder)" -ForegroundColor DarkGray
+            Invoke-WebRequest -Uri $monoZipUrl -OutFile $zipFile -UseBasicParsing
+            Write-Host "==> Giai nen goi cai dat..." -ForegroundColor Cyan
+            if (-not (Test-Path $repoDir)) { New-Item -ItemType Directory -Path $repoDir -Force | Out-Null }
+            Expand-Archive -Path $zipFile -DestinationPath $repoDir -Force
+            $foundRoot = Join-Path $repoDir "setup-agent-code-main"
+            if (-not (Test-Path $foundRoot)) {
+                $item = Get-ChildItem -Directory $repoDir | Where-Object { Test-Path (Join-Path $_.FullName (Join-Path $subFolder "bootstrap.ps1")) } | Select-Object -First 1
+                if ($item) { $foundRoot = $item.FullName } else { $foundRoot = $repoDir }
+            }
+            $repoDir = $foundRoot
+        }
+        
+        $extractedRoot = Join-Path $repoDir $subFolder
         if (-not (Test-Path (Join-Path $extractedRoot "bootstrap.ps1"))) {
-            throw "Lỗi: Không tìm thấy $subFolder/bootstrap.ps1 trong gói monorepo đã giải nén."
+            $found = Get-ChildItem -Directory $repoDir -Recurse | Where-Object { $_.Name -eq $subFolder -and (Test-Path (Join-Path $_.FullName "bootstrap.ps1")) } | Select-Object -First 1
+            if ($found) { $extractedRoot = $found.FullName }
+            else { throw "Khong tim thay bootstrap.ps1 cua $subFolder trong thu muc $repoDir." }
         }
     }
 
@@ -253,17 +279,7 @@ try {
         }
     }
 
-    if (Test-Path $tempBase) {
-        try {
-            [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory(
-                $tempBase,
-                [Microsoft.VisualBasic.FileIO.UIOption]::OnlyErrorDialogs,
-                [Microsoft.VisualBasic.FileIO.RecycleOption]::SendToRecycleBin
-            )
-        } catch {
-            Write-Warning "Không thể chuyển thư mục tạm vào Thùng rác: $($_.Exception.Message)"
-        }
-    }
+    # Giu lai thu muc temp co dinh $tempBase de luu .env va cau hinh resume cho lan chay sau
 }
 
 Write-Host ""
