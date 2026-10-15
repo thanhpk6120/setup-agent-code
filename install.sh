@@ -502,7 +502,68 @@ if $INSTALL_AGENCY && ! $SKIP_INSTALL && ! $DRY_RUN; then
   npm install -g agency-mcp-server --silent || true
 fi
 
-# Ham sao chep skills/ chung
+# ==============================================================================
+# HELPER: TEMPLATE RENDERING & DOC COPY
+# ==============================================================================
+render_template() {
+  local src="$1"
+  local dest="$2"
+  if [[ ! -f "$src" ]]; then return 0; fi
+
+  local gn_path
+  gn_path=$(command -v gitnexus 2>/dev/null || echo "gitnexus")
+  local agency_path
+  agency_path=$(command -v agency-mcp-server 2>/dev/null || echo "agency-mcp-server")
+  local ctx_path=""
+  if command -v npm &>/dev/null; then
+    local n_root
+    n_root=$(npm root -g 2>/dev/null || true)
+    if [[ -n "$n_root" && -f "$n_root/@upstash/context7-mcp/dist/index.js" ]]; then
+      ctx_path="$n_root/@upstash/context7-mcp/dist/index.js"
+    fi
+  fi
+  if [[ -z "$ctx_path" ]]; then ctx_path="node_modules/@upstash/context7-mcp/dist/index.js"; fi
+  local cb_path="$SETUP_HOME_DIR/mcp-servers/cloakbrowser/index.js"
+  local agy_m="${AGY_MODEL:-gemini-2.5-pro}"
+
+  mkdir -p "$(dirname "$dest")"
+  sed \
+    -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
+    -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
+    -e "s|__JIRA_URL__|${JIRA_URL:-https://jira.cybertech.vn}|g" \
+    -e "s|__JIRA_PERSONAL_TOKEN__|${JIRA_PERSONAL_TOKEN:-YOUR_JIRA_PERSONAL_TOKEN}|g" \
+    -e "s|__CONFLUENCE_URL__|${CONFLUENCE_URL:-https://conf.cybertech.vn}|g" \
+    -e "s|__CONFLUENCE_PERSONAL_TOKEN__|${CONFLUENCE_PERSONAL_TOKEN:-YOUR_CONFLUENCE_PERSONAL_TOKEN}|g" \
+    -e "s|__CONTEXT7_API_KEY__|${CONTEXT7_API_KEY:-}|g" \
+    -e "s|__GITLAB_HOST__|${GITLAB_HOST:-10.30.1.17}|g" \
+    -e "s|__GITLAB_TOKEN__|${GITLAB_TOKEN:-}|g" \
+    -e "s|__GITNEXUS_PATH__|$gn_path|g" \
+    -e "s|__AGENCY_PATH__|$agency_path|g" \
+    -e "s|__CONTEXT7_PATH__|$ctx_path|g" \
+    -e "s|__CLOAKBROWSER_SCRIPT__|$cb_path|g" \
+    -e "s|__AGY_MODEL__|$agy_m|g" \
+    -e 's|"cmd", "/c", ||g' \
+    -e 's|"cmd"|"bash"|g' \
+    -e 's|"/c", ||g' \
+    -e 's|\.cmd"|"|g' \
+    -e 's|cmd = "cmd"|cmd = "bash"|g' \
+    -e 's|args = \["/c", |args = \[|g' \
+    "$src" > "$dest"
+}
+
+copy_doc() {
+  local agent_dir="$1"
+  local doc_name="$2"
+  local dest_dir="$3"
+  local dest_name="${4:-$doc_name}"
+  mkdir -p "$dest_dir"
+  if [[ -f "$MONO_ROOT/$agent_dir/templates/$doc_name" ]]; then
+    cp -f "$MONO_ROOT/$agent_dir/templates/$doc_name" "$dest_dir/$dest_name"
+  elif [[ -f "$MONO_ROOT/$agent_dir/$doc_name" ]]; then
+    cp -f "$MONO_ROOT/$agent_dir/$doc_name" "$dest_dir/$dest_name"
+  fi
+}
+
 sync_skills() {
   local target_skills_dir="$1"
   local src_skills="$MONO_ROOT/setup-omp/skills"
@@ -543,25 +604,15 @@ install_claude_code() {
     mkdir -p "$claude_dir" "$claude_dir/hud" "$SETUP_HOME_DIR/.trash-guard"
     
     # 1. CLAUDE.md
-    if [[ -f "$MONO_ROOT/setup-claude-code/templates/CLAUDE.md" ]]; then
-      cp -f "$MONO_ROOT/setup-claude-code/templates/CLAUDE.md" "$claude_dir/CLAUDE.md"
-    elif [[ -f "$MONO_ROOT/setup-claude-code/CLAUDE.md" ]]; then
-      cp -f "$MONO_ROOT/setup-claude-code/CLAUDE.md" "$claude_dir/CLAUDE.md"
-    fi
+    copy_doc "setup-claude-code" "CLAUDE.md" "$claude_dir"
 
     # 2. .claude.json
     local claude_json="$SETUP_HOME_DIR/.claude.json"
-    if [[ -f "$MONO_ROOT/setup-claude-code/templates/claude.json" && ! -f "$claude_json" ]]; then
-      sed -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          "$MONO_ROOT/setup-claude-code/templates/claude.json" > "$claude_json"
-    fi
+    render_template "$MONO_ROOT/setup-claude-code/templates/claude.json" "$claude_json"
 
     # 3. settings.json
     local settings_json="$claude_dir/settings.json"
-    if [[ -f "$MONO_ROOT/setup-claude-code/templates/settings.json" && ! -f "$settings_json" ]]; then
-      cp -f "$MONO_ROOT/setup-claude-code/templates/settings.json" "$settings_json"
-    fi
+    render_template "$MONO_ROOT/setup-claude-code/templates/settings.json" "$settings_json"
 
     # 4. Trash Guard Hook
     if [[ -d "$MONO_ROOT/setup-claude-code/trash-guard" ]]; then
@@ -589,41 +640,17 @@ install_omp() {
   if ! $DRY_RUN; then
     mkdir -p "$omp_dir" "$SETUP_HOME_DIR/.omp/extensions"
     
-    for f in AGENTS.md RULES.md SYSTEM.md; do
-      if [[ -f "$MONO_ROOT/setup-omp/$f" ]]; then cp -f "$MONO_ROOT/setup-omp/$f" "$omp_dir/$f"; fi
-    done
+    copy_doc "setup-omp" "AGENTS.md" "$omp_dir"
+    copy_doc "setup-omp" "RULES.md" "$omp_dir"
+    copy_doc "setup-omp" "SYSTEM.md" "$omp_dir"
 
-    # config.yml: thay doi shellPath sang /bin/zsh tren macOS
-    if [[ -f "$MONO_ROOT/setup-omp/templates/config.yml" && ! -f "$omp_dir/config.yml" ]]; then
-      sed -e "s|shellPath: .*|shellPath: \"/bin/zsh\"|g" \
-          -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          "$MONO_ROOT/setup-omp/templates/config.yml" > "$omp_dir/config.yml"
-    fi
+    # config.yml
+    render_template "$MONO_ROOT/setup-omp/templates/config.yml" "$omp_dir/config.yml"
+    sed -i '' 's|shellPath: .*|shellPath: "/bin/zsh"|g' "$omp_dir/config.yml" 2>/dev/null || sed -i 's|shellPath: .*|shellPath: "/bin/zsh"|g' "$omp_dir/config.yml" 2>/dev/null || true
 
-    # models.yml
-    if [[ -f "$MONO_ROOT/setup-omp/templates/models.yml" && ! -f "$omp_dir/models.yml" ]]; then
-      sed -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          "$MONO_ROOT/setup-omp/templates/models.yml" > "$omp_dir/models.yml"
-    fi
-
-    # mcp.json: chuyen cmd /c ... .cmd sang native command tren macOS
-    if [[ -f "$MONO_ROOT/setup-omp/templates/mcp.json" && ! -f "$omp_dir/mcp.json" ]]; then
-      sed -e 's|"cmd"|"bash"|g' \
-          -e 's|"/c", ||g' \
-          -e 's|\.cmd"|"|g' \
-          -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          -e "s|__JIRA_URL__|${JIRA_URL:-}|g" \
-          -e "s|__JIRA_PERSONAL_TOKEN__|${JIRA_PERSONAL_TOKEN:-}|g" \
-          -e "s|__CONFLUENCE_URL__|${CONFLUENCE_URL:-}|g" \
-          -e "s|__CONFLUENCE_PERSONAL_TOKEN__|${CONFLUENCE_PERSONAL_TOKEN:-}|g" \
-          -e "s|__GITLAB_HOST__|${GITLAB_HOST:-10.30.1.17}|g" \
-          -e "s|__GITLAB_TOKEN__|${GITLAB_TOKEN:-}|g" \
-          -e "s|__CONTEXT7_API_KEY__|${CONTEXT7_API_KEY:-}|g" \
-          "$MONO_ROOT/setup-omp/templates/mcp.json" > "$omp_dir/mcp.json"
-    fi
+    # models.yml & mcp.json
+    render_template "$MONO_ROOT/setup-omp/templates/models.yml" "$omp_dir/models.yml"
+    render_template "$MONO_ROOT/setup-omp/templates/mcp.json" "$omp_dir/mcp.json"
 
     # Extension Trash Guard
     if [[ -f "$MONO_ROOT/setup-omp/extensions/no-hard-delete.ts" ]]; then
@@ -649,26 +676,14 @@ install_opencode() {
   local oc_dir="$SETUP_HOME_DIR/.config/opencode"
   if ! $DRY_RUN; then
     mkdir -p "$oc_dir/plugins" "$oc_dir/hooks"
-    if [[ -f "$MONO_ROOT/setup-opencode/AGENTS.md" ]]; then cp -f "$MONO_ROOT/setup-opencode/AGENTS.md" "$oc_dir/AGENTS.md"; fi
-    
-    if [[ -f "$MONO_ROOT/setup-opencode/templates/opencode.json" && ! -f "$oc_dir/opencode.json" ]]; then
-      sed -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          -e "s|__JIRA_URL__|${JIRA_URL:-}|g" \
-          -e "s|__JIRA_PERSONAL_TOKEN__|${JIRA_PERSONAL_TOKEN:-}|g" \
-          -e "s|__CONFLUENCE_URL__|${CONFLUENCE_URL:-}|g" \
-          -e "s|__CONFLUENCE_PERSONAL_TOKEN__|${CONFLUENCE_PERSONAL_TOKEN:-}|g" \
-          -e 's|"cmd", "/c", ||g' \
-          -e 's|\.cmd"|"|g' \
-          "$MONO_ROOT/setup-opencode/templates/opencode.json" > "$oc_dir/opencode.json"
-    fi
+    copy_doc "setup-opencode" "AGENTS.md" "$oc_dir"
+    render_template "$MONO_ROOT/setup-opencode/templates/opencode.json" "$oc_dir/opencode.json"
 
     # Plugins no-hard-delete
     if [[ -d "$MONO_ROOT/setup-opencode/templates/plugins" ]]; then
       cp -Rf "$MONO_ROOT/setup-opencode/templates/plugins"/* "$oc_dir/plugins/" 2>/dev/null || true
     fi
 
-    # Skills
     sync_skills "$oc_dir/skills"
   else
     echo "  -> [WhatIf] Cau hinh OpenCode tai $oc_dir"
@@ -687,18 +702,9 @@ install_codex_cli() {
   local codex_dir="$SETUP_HOME_DIR/.codex"
   if ! $DRY_RUN; then
     mkdir -p "$codex_dir"
-    if [[ -f "$MONO_ROOT/setup-codex-cli/AGENTS.md" ]]; then
-      cp -f "$MONO_ROOT/setup-codex-cli/AGENTS.md" "$codex_dir/AGENTS.md"
-      cp -f "$MONO_ROOT/setup-codex-cli/AGENTS.md" "$codex_dir/CODEX.md"
-    fi
-    if [[ -f "$MONO_ROOT/setup-codex-cli/templates/config.toml" && ! -f "$codex_dir/config.toml" ]]; then
-      sed -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          -e 's|cmd = "cmd"|cmd = "bash"|g' \
-          -e 's|args = \["/c", |args = \[|g' \
-          -e 's|\.cmd"|"|g' \
-          "$MONO_ROOT/setup-codex-cli/templates/config.toml" > "$codex_dir/config.toml"
-    fi
+    copy_doc "setup-codex-cli" "AGENTS.md" "$codex_dir"
+    copy_doc "setup-codex-cli" "AGENTS.md" "$codex_dir" "CODEX.md"
+    render_template "$MONO_ROOT/setup-codex-cli/templates/config.toml" "$codex_dir/config.toml"
     sync_skills "$codex_dir/skills"
   else
     echo "  -> [WhatIf] Cau hinh Codex CLI tai $codex_dir"
@@ -722,24 +728,37 @@ install_dsh() {
 
   if ! $DRY_RUN; then
     mkdir -p "$dsh_home" "$dsh_profile"
-    if [[ -f "$MONO_ROOT/setup-dsh/AGENTS.md" ]]; then cp -f "$MONO_ROOT/setup-dsh/AGENTS.md" "$dsh_home/AGENTS.md"; fi
+    copy_doc "setup-dsh" "AGENTS.md" "$dsh_home"
     
     # cordis.patch.yml
-    if [[ -f "$MONO_ROOT/setup-dsh/templates/cordis.patch.yml" && ! -f "$dsh_profile/cordis.patch.yml" ]]; then
-      sed -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          "$MONO_ROOT/setup-dsh/templates/cordis.patch.yml" > "$dsh_profile/cordis.patch.yml"
+    render_template "$MONO_ROOT/setup-dsh/templates/cordis.patch.yml" "$dsh_profile/cordis.patch.yml"
+    local ctx_path=""
+    if command -v npm &>/dev/null; then
+      local n_root
+      n_root=$(npm root -g 2>/dev/null || true)
+      if [[ -n "$n_root" && -f "$n_root/@upstash/context7-mcp/dist/index.js" ]]; then
+        ctx_path="$n_root/@upstash/context7-mcp/dist/index.js"
+      fi
     fi
+    if [[ -z "$ctx_path" ]]; then ctx_path="node_modules/@upstash/context7-mcp/dist/index.js"; fi
+    sed -i '' \
+      -e "s|__MEMORIX_CONFIG__|    command: memorix\\"$'\n'"    args:\\"$'\n'"      - mcp|g" \
+      -e "s|__GITNEXUS_CONFIG__|    command: gitnexus\\"$'\n'"    args:\\"$'\n'"      - mcp|g" \
+      -e "s|__CONTEXT7_CONFIG__|    command: node\\"$'\n'"    args:\\"$'\n'"      - $ctx_path|g" \
+      "$dsh_profile/cordis.patch.yml" 2>/dev/null || sed -i \
+      -e "s|__MEMORIX_CONFIG__|    command: memorix\n    args:\n      - mcp|g" \
+      -e "s|__GITNEXUS_CONFIG__|    command: gitnexus\n    args:\n      - mcp|g" \
+      -e "s|__CONTEXT7_CONFIG__|    command: node\n    args:\n      - $ctx_path|g" \
+      "$dsh_profile/cordis.patch.yml" 2>/dev/null || true
 
     # .credentials.yaml
     local creds_file
     creds_file="$(dirname "$(dirname "$dsh_profile")")/.credentials.yaml"
-    if [[ ! -f "$creds_file" ]]; then
-      cat <<EOF > "$creds_file"
+    mkdir -p "$(dirname "$creds_file")"
+    cat <<EOF > "$creds_file"
 Refs:
   ANTHROPIC_API_KEY: "$AI_API_KEY"
 EOF
-    fi
 
     sync_skills "$dsh_home/skills"
   else
@@ -760,17 +779,11 @@ install_antigravity_cli() {
 
   if ! $DRY_RUN; then
     mkdir -p "$agy_dir/hooks" "$agy_user_dir"
-    if [[ -f "$MONO_ROOT/setup-antigravity-cli/AGENTS.md" ]]; then cp -f "$MONO_ROOT/setup-antigravity-cli/AGENTS.md" "$agy_dir/AGENTS.md"; fi
-    
-    # settings.json
-    if [[ -f "$MONO_ROOT/setup-antigravity-cli/templates/settings.json" && ! -f "$agy_dir/settings.json" ]]; then
-      sed -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-          -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-          "$MONO_ROOT/setup-antigravity-cli/templates/settings.json" > "$agy_dir/settings.json"
-    fi
+    copy_doc "setup-antigravity-cli" "AGENTS.md" "$agy_dir"
+    render_template "$MONO_ROOT/setup-antigravity-cli/templates/settings.json" "$agy_dir/settings.json"
 
     # keybindings.json
-    if [[ -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" && ! -f "$agy_dir/keybindings.json" ]]; then
+    if [[ -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" ]]; then
       cp -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" "$agy_dir/keybindings.json"
       cp -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" "$agy_user_dir/keybindings.json" 2>/dev/null || true
     fi
