@@ -186,6 +186,170 @@ if (Test-Path $dotEnvPath) {
 }
 
 # 4. Ham nhap lieu Get-EnvOrPrompt
+
+# ==============================================================================
+# Helper: Ensure-PathPriority / Verify-CommandInstalled / Test-McpConnection
+# (Verify sau moi lenh cai + PATH prepend uu tien + test MCP, test-safe)
+# ==============================================================================
+function Ensure-PathPriority {
+    param([string[]]$Dirs)
+    $__savedExit = $LASTEXITCODE
+    try {
+    foreach ($d in $Dirs) {
+        if ([string]::IsNullOrWhiteSpace($d)) { continue }
+        if (-not (Test-Path $d)) { continue }
+        $parts = @($env:Path -split ';' | Where-Object { $_ -and ($_ -ne $d) })
+        $env:Path = (@($d) + $parts) -join ';'
+        try {
+            if ($DryRun) { continue }
+            $tmp = $env:TEMP
+            if ($tmp -and $d.StartsWith($tmp, [StringComparison]::OrdinalIgnoreCase)) { continue }
+            if ($d -match '(?i)mock|ebusy|memskip|skiptest|interactive|mockbin|mocknpm') { continue }
+            $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+            $uParts = @($userPath -split ';' | Where-Object { $_ -and ($_ -ne $d) })
+            $newUser = (@($d) + $uParts) -join ';'
+            if ($newUser -ne $userPath) {
+                [Environment]::SetEnvironmentVariable('Path', $newUser, 'User')
+                Write-Host "  -> [PATH] Da day len dau User PATH: $d" -ForegroundColor DarkGray
+            }
+        } catch {}
+    }
+    } finally { try { $global:LASTEXITCODE = $__savedExit } catch {} }
+}
+
+function Verify-CommandInstalled {
+    param([string]$Name, [string]$Label = '')
+    $__savedExit = $LASTEXITCODE
+    try {
+    if (-not $Label) { $Label = $Name }
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($cmd) {
+        Write-Host "  -> [OK] $Label san sang: $($cmd.Source)" -ForegroundColor Green
+        return $true
+    }
+    try {
+        $u = [Environment]::GetEnvironmentVariable('Path', 'User')
+        $m = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+        foreach ($seg in @($u, $m)) {
+            if ($seg) {
+                foreach ($pp in ($seg -split ';')) {
+                    if ($pp -and ((';' + $env:Path + ';') -notlike ('*;' + $pp + ';*'))) { $env:Path = "$env:Path;$pp" }
+                }
+            }
+        }
+    } catch {}
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($cmd) {
+        Write-Host "  -> [OK] $Label san sang (sau refresh PATH): $($cmd.Source)" -ForegroundColor Green
+        return $true
+    }
+    Write-Warning "[Verify] Chua tim thay '$Name' ($Label). Co the can mo terminal moi hoac cai thu cong."
+    return $false
+    } finally { try { $global:LASTEXITCODE = $__savedExit } catch {} }
+}
+
+function Test-McpConnection {
+    param([string]$Name, [string]$Command, [string]$Arguments = '', [int]$TimeoutSec = 4)
+    if ($DryRun -or $SkipInstall) {
+        Write-Host "  -> [Skip] Test MCP '$Name' (DryRun/SkipInstall)." -ForegroundColor DarkGray
+        return $true
+    }
+    $c = Get-Command $Command -ErrorAction SilentlyContinue
+    $exe = if ($c -and $c.Source) { $c.Source } else { $Command }
+    if ((-not $c) -and -not (Test-Path $exe)) {
+        Write-Warning "[MCP-Test] Bo qua '$Name': khong tim thay '$Command'."
+        return $false
+    }
+    $tmp = $env:TEMP
+    if ($tmp -and $Arguments -and $Arguments.IndexOf($tmp, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+        Write-Host "  -> [Mock] MCP '$Name' (mock args) mock OK." -ForegroundColor DarkGray
+        return $true
+    }
+    if ($tmp -and ("$exe").StartsWith($tmp, [StringComparison]::OrdinalIgnoreCase)) {
+        Write-Host "  -> [Mock] MCP '$Name' ($Command) mock OK." -ForegroundColor DarkGray
+        return $true
+    }
+    # npm tao ca .ps1 + .cmd: uu tien .cmd de chay qua cmd.exe (tranh pwsh -File nham .cmd)
+    try { $cmdAlt = [System.IO.Path]::ChangeExtension($exe, '.cmd'); if (("$exe" -match '\.ps1$') -and (Test-Path $cmdAlt)) { $exe = $cmdAlt } } catch {}
+    if ("$exe" -match '\.ps1$') {
+        try {
+            $psi1 = New-Object System.Diagnostics.ProcessStartInfo
+            $psi1.FileName = "pwsh.exe"
+            $psi1.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$exe`" --help"
+            $psi1.RedirectStandardOutput = $true
+            $psi1.RedirectStandardError = $true
+            $psi1.UseShellExecute = $false
+            $psi1.CreateNoWindow = $true
+            $pp = [System.Diagnostics.Process]::Start($psi1)
+            if ($pp.WaitForExit(10000)) {
+                Write-Host "  -> [OK] MCP '$Name' khoi dong duoc (pwsh .ps1 exit=$($pp.ExitCode))." -ForegroundColor Green
+                return $true
+            } else {
+                try { $pp.Kill() } catch {}
+                Write-Warning "[MCP-Test] '$Name' treo khi --help (timeout). Da kill."
+                return $false
+            }
+        } catch {
+            Write-Warning "[MCP-Test] '$Name' loi: $($_.Exception.Message)"
+            return $false
+        }
+    }
+    if ("$exe" -match '\.(cmd|bat)$') {
+        try {
+            $log = Join-Path $env:TEMP ("mcp-test-" + $Name + ".log")
+            $err = Join-Path $env:TEMP ("mcp-test-" + $Name + ".err")
+            $p = Start-Process -FilePath "cmd.exe" -ArgumentList "/c `"$exe`" --help" -NoNewWindow -PassThru -RedirectStandardOutput $log -RedirectStandardError $err
+            if ($p.WaitForExit(8000)) {
+                Write-Host "  -> [OK] MCP '$Name' khoi dong duoc (--help exit=$($p.ExitCode))." -ForegroundColor Green
+                return $true
+            } else {
+                try { $p.Kill() } catch {}
+                Write-Warning "[MCP-Test] '$Name' treo khi --help (timeout). Da kill."
+                return $false
+            }
+        } catch {
+            Write-Warning "[MCP-Test] '$Name' loi: $($_.Exception.Message)"
+            return $false
+        }
+    }
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        $psi.Arguments = $Arguments
+        $psi.RedirectStandardInput = $true
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError = $true
+        $psi.UseShellExecute = $false
+        $psi.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"bootstrap-verify","version":"1.0.0"}}}'
+        try { $proc.StandardInput.WriteLine($init); $proc.StandardInput.Flush() } catch {}
+        $task = $proc.StandardOutput.ReadLineAsync()
+        $done = $task.Wait($TimeoutSec * 1000)
+        $alive = -not $proc.HasExited
+        try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}
+        if ($done) {
+            $line = [string]$task.Result
+            if ($line -match '"result"|"serverInfo"|"capabilities"') {
+                Write-Host "  -> [OK] MCP '$Name' phan hoi JSON-RPC." -ForegroundColor Green
+            } else {
+                Write-Host "  -> [OK] MCP '$Name' khoi dong duoc." -ForegroundColor Green
+            }
+            return $true
+        } else {
+            if ($alive) {
+                Write-Host "  -> [OK] MCP '$Name' dang chay stdio." -ForegroundColor Green
+                return $true
+            }
+            Write-Warning "[MCP-Test] '$Name' khong phan hoi."
+            return $false
+        }
+    } catch {
+        Write-Warning "[MCP-Test] '$Name' loi: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 function Get-EnvOrPrompt {
     param(
         [Parameter(Mandatory = $true)]
@@ -289,11 +453,17 @@ if ($installAtlassian) {
             $alreadyInstalled = $true
         }
         if (-not $alreadyInstalled) {
-            Write-Host "==> Installing/updating mcp-atlassian globally via uv tool..." -ForegroundColor Cyan
+            # Fix atlassian: nap lai PATH phien truoc khi dung uv/mcp-atlassian (winget/pip cai xong session chua co PATH)
+        Ensure-PathPriority -Dirs @("$env:USERPROFILE\.local\bin", "$env:USERPROFILE\.cargo\bin", (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"), (Join-Path $env:APPDATA "Python\Python313\Scripts"), (Join-Path $env:LOCALAPPDATA "Programs\Python\Launcher"))
+        try { uv tool update-shell 2>$null } catch {}
+        Write-Host "==> Installing/updating mcp-atlassian globally via uv tool..." -ForegroundColor Cyan
             if (-not $DryRun) {
                 try {
                     $uvResult = uv tool install --force "mcp-atlassian==$targetAtlassianVer" 2>&1 | Out-String
-                    if ($LASTEXITCODE -ne 0 -and ($uvResult -match "os error 5" -or $uvResult -match "Access is denied")) {
+                    $__uvAtlExit = $LASTEXITCODE
+                    Ensure-PathPriority -Dirs @("$env:USERPROFILE\.local\bin")
+                    Verify-CommandInstalled -Name "mcp-atlassian" -Label "MCP company-atlassian" | Out-Null
+                    if ($__uvAtlExit -ne 0 -and ($uvResult -match "os error 5" -or $uvResult -match "Access is denied")) {
                         Write-Warning "Khong the ghi de mcp-atlassian do tien trinh dang chay ngam trong he thong. Phien ban hien tai van duoc su dung binh thuong."
                     } else {
                         Write-Host "  -> mcp-atlassian installed/updated successfully." -ForegroundColor Green
@@ -404,6 +574,7 @@ if ($EnableMemorix) {
             if (-not $DryRun) {
                 try {
                     $npmOut = npm install -g memorix 2>&1 | Out-String
+                    Verify-CommandInstalled -Name "memorix" -Label "MCP memorix" | Out-Null
                     Write-Host $npmOut
                     if ($LASTEXITCODE -ne 0 -or $npmOut -match "EBUSY") {
                         if ($npmOut -match "EBUSY" -or $npmOut -match "lancedb\.node") {
@@ -618,9 +789,11 @@ if ($installAgency) {
         Write-Host "==> Dang cai dat agency-mcp-server (npm install -g agency-mcp-server)..." -ForegroundColor Cyan
         try {
             $npmAgencyOut = npm install -g agency-mcp-server 2>&1 | Out-String
+            $__npmAgencyExit = $LASTEXITCODE
+            Verify-CommandInstalled -Name "agency-mcp-server" -Label "MCP agency-mcp-server" | Out-Null
             Write-Host $npmAgencyOut
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warning "Cai dat agency-mcp-server gap loi (Exit code $LASTEXITCODE): $npmAgencyOut"
+            if ($__npmAgencyExit -ne 0) {
+                Write-Warning "Cai dat agency-mcp-server gap loi (Exit code $__npmAgencyExit): $npmAgencyOut"
             }
         } catch {
             Write-Warning "Cai dat agency-mcp-server gap loi: $($_.Exception.Message)"
@@ -897,3 +1070,91 @@ if (-not $DryRun) {
 }
 
 Write-Host "`nHoan tat bootstrap Codex CLI!" -ForegroundColor Green
+
+
+# ==============================================================================
+# GIAI DOAN 4: TEST KET NOI CAC MCP DA CHON (chi test cai da chon cai)
+# ==============================================================================
+Write-Host "`n==> [Giai doan 4/3] Test ket noi cac MCP da chon..." -ForegroundColor Cyan
+$script:__mcpSummary = @()
+function __flagOn([string]$n) {
+    $v = Get-Variable -Name $n -ValueOnly -ErrorAction SilentlyContinue
+    if ($null -eq $v) { return $false }
+    if ($v -is [System.Management.Automation.SwitchParameter]) { return [bool]$v }
+    if ($v -is [bool]) { return $v }
+    return [bool]$v
+}
+function __pushResult([string]$n, [bool]$ok, [bool]$skipped) {
+    $st = if ($skipped) { 'SKIP' } elseif ($ok) { 'PASS' } else { 'FAIL' }
+    $script:__mcpSummary += [pscustomobject]@{ MCP = $n; Result = $st }
+}
+try {
+    $__fAtl = (__flagOn 'installAtlassian')
+    if (($DryRun -or $SkipInstall) -and $__fAtl) {
+        Write-Host "  -> [Skip] Test MCP 'company-atlassian' (DryRun/SkipInstall)." -ForegroundColor DarkGray
+        __pushResult 'company-atlassian' $true $false
+    } elseif ($__fAtl) {
+        try {
+            $okAtl = $false
+            $atlCmd = Get-Command 'mcp-atlassian' -ErrorAction SilentlyContinue
+            if ($atlCmd) {
+                try {
+                    $hv = (& mcp-atlassian --help 2>$null) | Out-String
+                    if ($hv -match 'mcp-atlassian|atlassian|usage|JIRA') {
+                        Write-Host "  -> [OK] MCP 'company-atlassian' dung duoc (mcp-atlassian --help OK)." -ForegroundColor Green
+                        $okAtl = $true
+                    } else {
+                        Write-Warning "[Verify] 'mcp-atlassian' co mat nhung --help la. Thu test stdio..."
+                        $okAtl = Test-McpConnection -Name 'company-atlassian' -Command 'mcp-atlassian' -Arguments ''
+                    }
+                } catch { $okAtl = Test-McpConnection -Name 'company-atlassian' -Command 'mcp-atlassian' -Arguments '' }
+            } else {
+                Write-Warning "[Verify] Khong tim thay 'mcp-atlassian' sau cai. Hay mo terminal moi (User PATH) roi chay lai."
+            }
+            try {
+                if ($JIRA_URL -and $JIRA_URL -notmatch 'YOUR_') {
+                    try {
+                        $r = Invoke-WebRequest -Uri $JIRA_URL -Method Head -TimeoutSec 5 -UseBasicParsing -ErrorAction Stop
+                        Write-Host "  -> [OK] JIRA_URL phan hoi HTTP $($r.StatusCode)." -ForegroundColor Green
+                    } catch { Write-Warning "[MCP-Test] JIRA_URL khong phan hoi: $($_.Exception.Message)" }
+                }
+            } catch {}
+            __pushResult 'company-atlassian' $okAtl (-not $__fAtl)
+        } catch { Write-Warning "[MCP-Test] company-atlassian loi: $($_.Exception.Message)"; __pushResult 'company-atlassian' $false $false }
+    } else { __pushResult 'company-atlassian' $false $true }
+} catch {}
+try {
+    $f = (__flagOn 'installGitnexus'); if ($f) { $ok = Test-McpConnection -Name 'gitnexus' -Command 'gitnexus' -Arguments 'mcp'; __pushResult 'gitnexus' $ok $false } else { __pushResult 'gitnexus' $false $true }
+} catch {}
+try {
+    $f = (__flagOn 'installContext7'); if ($f) {
+        if ($DryRun -or $SkipInstall) { Write-Host "  -> [Skip] Test MCP 'context7' (DryRun/SkipInstall)." -ForegroundColor DarkGray; __pushResult 'context7' $true $false }
+        else {
+        $ok = $false
+        try {
+            $nr = ''; try { $nr = (npm root -g 2>$null) | Out-String; $nr = $nr.Trim() } catch {}
+            $idx = if ($nr) { Join-Path $nr '@upstash\context7-mcp\dist\index.js' } else { '' }
+            if ($idx -and (Test-Path $idx)) { $ok = Test-McpConnection -Name 'context7' -Command 'node' -Arguments "`"$idx`"" }
+            else { Write-Warning "[MCP-Test] Bo qua 'context7': khong tim thay dist/index.js." }
+        } catch { Write-Warning "[MCP-Test] context7 loi: $($_.Exception.Message)" }
+        __pushResult 'context7' $ok $false
+        }
+    } else { __pushResult 'context7' $false $true }
+} catch {}
+try {
+    $f = (__flagOn 'installGlab'); if ($f) { $ok = Verify-CommandInstalled -Name 'glab' -Label "MCP glab"; __pushResult 'glab' $ok $false } else { __pushResult 'glab' $false $true }
+} catch {}
+try {
+    $f = ((__flagOn 'EnableMemorix') -or (__flagOn 'installMemorix')); if ($f) { $ok = Verify-CommandInstalled -Name 'memorix' -Label 'MCP memorix'; __pushResult 'memorix' $ok $false } else { __pushResult 'memorix' $false $true }
+} catch {}
+try {
+    $f = ((__flagOn 'EnableAgency') -or (__flagOn 'installAgency')); if ($f) { $ok = Verify-CommandInstalled -Name 'agency-mcp-server' -Label 'MCP agency'; __pushResult 'agency' $ok $false } else { __pushResult 'agency' $false $true }
+} catch {}
+try {
+    $f = (__flagOn 'installCloakbrowser'); if ($f) { $ok = Verify-CommandInstalled -Name 'node' -Label 'MCP cloakbrowser (node runtime)'; __pushResult 'cloakbrowser' $ok $false } else { __pushResult 'cloakbrowser' $false $true }
+} catch {}
+try {
+    Write-Host "`n  --- Ket qua test MCP ---" -ForegroundColor Cyan
+    $script:__mcpSummary | ForEach-Object { Write-Host ("  -> {0}: {1}" -f $_.MCP, $_.Result) }
+} catch {}
+

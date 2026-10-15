@@ -155,7 +155,17 @@ $tempBase = Join-Path $env:TEMP ("opencode-install-" + [System.Guid]::NewGuid().
 $zipFile = Join-Path $env:TEMP ("opencode-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
 
 try {
-    $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+    
+# Verify agent binary sau cai (test-safe: bo qua khi DryRun)
+if (-not $DryRun) {
+    $ac = Get-Command "opencode" -ErrorAction SilentlyContinue
+    if ($ac) { Write-Host "  -> [OK] Agent binary 'opencode' san sang: $($ac.Source)" -ForegroundColor Green }
+    else { Write-Warning "[Verify] Chua tim thay binary 'opencode' sau cai. Hay mo terminal moi (PATH) roi chay lai." }
+} else {
+    Write-Host "  -> [WhatIf] Bo qua verify binary 'opencode' (DryRun)." -ForegroundColor DarkGray
+}
+
+$localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
     if (Test-Path $localBootstrap) {
         Write-Host ""
         Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor Cyan

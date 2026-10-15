@@ -149,6 +149,16 @@ $monoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/head
 $subFolder = "setup-omp"
 $tempBase = Join-Path $env:TEMP ("omp-install-" + [System.Guid]::NewGuid().ToString("N"))
 $zipFile = Join-Path $env:TEMP ("omp-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
+
+# Verify agent binary sau cai (test-safe: bo qua khi DryRun)
+if (-not $DryRun) {
+    $ac = Get-Command "omp" -ErrorAction SilentlyContinue
+    if ($ac) { Write-Host "  -> [OK] Agent binary 'omp' san sang: $($ac.Source)" -ForegroundColor Green }
+    else { Write-Warning "[Verify] Chua tim thay binary 'omp' sau cai. Hay mo terminal moi (PATH) roi chay lai." }
+} else {
+    Write-Host "  -> [WhatIf] Bo qua verify binary 'omp' (DryRun)." -ForegroundColor DarkGray
+}
+
 $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
 $extractedRoot = $null
 

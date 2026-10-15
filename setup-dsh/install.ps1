@@ -164,7 +164,17 @@ $tempBase = Join-Path $env:TEMP ("dsh-install-" + [System.Guid]::NewGuid().ToStr
 $zipFile = Join-Path $env:TEMP ("dsh-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
 
 try {
-    $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+    
+# Verify agent binary sau cai (test-safe: bo qua khi DryRun)
+if (-not $DryRun) {
+    $ac = Get-Command "dsh" -ErrorAction SilentlyContinue
+    if ($ac) { Write-Host "  -> [OK] Agent binary 'dsh' san sang: $($ac.Source)" -ForegroundColor Green }
+    else { Write-Warning "[Verify] Chua tim thay binary 'dsh' sau cai. Hay mo terminal moi (PATH) roi chay lai." }
+} else {
+    Write-Host "  -> [WhatIf] Bo qua verify binary 'dsh' (DryRun)." -ForegroundColor DarkGray
+}
+
+$localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
     if (Test-Path $localBootstrap) {
         Write-Host ""
         Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor Cyan

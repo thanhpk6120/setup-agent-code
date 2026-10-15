@@ -156,6 +156,16 @@ $monoZipUrl = "https://github.com/thanhpk6120/setup-agent-code/archive/refs/head
 $subFolder = "setup-claude-code"
 $tempBase = Join-Path $env:TEMP ("claude-code-install-" + [System.Guid]::NewGuid().ToString("N"))
 $zipFile = Join-Path $env:TEMP ("claude-code-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
+
+# Verify agent binary sau cai (test-safe: bo qua khi DryRun)
+if (-not $DryRun) {
+    $ac = Get-Command "claude" -ErrorAction SilentlyContinue
+    if ($ac) { Write-Host "  -> [OK] Agent binary 'claude' san sang: $($ac.Source)" -ForegroundColor Green }
+    else { Write-Warning "[Verify] Chua tim thay binary 'claude' sau cai. Hay mo terminal moi (PATH) roi chay lai." }
+} else {
+    Write-Host "  -> [WhatIf] Bo qua verify binary 'claude' (DryRun)." -ForegroundColor DarkGray
+}
+
 $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
 $extractedRoot = $null
 

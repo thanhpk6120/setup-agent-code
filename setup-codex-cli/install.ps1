@@ -155,7 +155,17 @@ $tempBase = Join-Path $env:TEMP ("codex-install-" + [System.Guid]::NewGuid().ToS
 $zipFile = Join-Path $env:TEMP ("codex-repo-" + [System.Guid]::NewGuid().ToString("N") + ".zip")
 
 try {
-    $localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
+    
+# Verify agent binary sau cai (test-safe: bo qua khi DryRun)
+if (-not $DryRun) {
+    $ac = Get-Command "codex" -ErrorAction SilentlyContinue
+    if ($ac) { Write-Host "  -> [OK] Agent binary 'codex' san sang: $($ac.Source)" -ForegroundColor Green }
+    else { Write-Warning "[Verify] Chua tim thay binary 'codex' sau cai. Hay mo terminal moi (PATH) roi chay lai." }
+} else {
+    Write-Host "  -> [WhatIf] Bo qua verify binary 'codex' (DryRun)." -ForegroundColor DarkGray
+}
+
+$localBootstrap = Join-Path $PSScriptRoot "bootstrap.ps1"
     if (Test-Path $localBootstrap) {
         Write-Host ""
         Write-Host "==> Dung bootstrap local: $localBootstrap" -ForegroundColor Cyan

@@ -202,3 +202,13 @@ try {
     if ($zipFile) { Safe-Trash -Path $zipFile }
     if ($tempBase) { Safe-Trash -Path $tempBase }
 }
+
+# Verify agent binary sau cai (test-safe: bo qua khi DryRun)
+if (-not $DryRun) {
+    $ac = Get-Command "agy" -ErrorAction SilentlyContinue
+    if ($ac) { Write-Host "  -> [OK] Agent binary 'agy' san sang: $($ac.Source)" -ForegroundColor Green }
+    else { Write-Warning "[Verify] Chua tim thay binary 'agy' sau cai. Hay mo terminal moi (PATH) roi chay lai." }
+} else {
+    Write-Host "  -> [WhatIf] Bo qua verify binary 'agy' (DryRun)." -ForegroundColor DarkGray
+}
+
