@@ -59,6 +59,73 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Helper: skip-if-installed — da cai + dung/moi nhat thi bo qua de cai nhanh hon.
+# NOTE: --force chi auto-confirm prompt + ghi de config, KHONG ep cai lai tool da moi nhat.
+version_ge() {
+  local _a="$1" _b="$2"
+  _a=$(echo "$_a" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+  _b=$(echo "$_b" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+  if [[ -z "$_a" || -z "$_b" ]]; then return 1; fi
+  if [[ "$_a" == "$_b" ]]; then return 0; fi
+  local a1 a2 a3 b1 b2 b3
+  IFS=. read -r a1 a2 a3 <<< "$_a"
+  IFS=. read -r b1 b2 b3 <<< "$_b"
+  if (( a1 > b1 )); then return 0; elif (( a1 < b1 )); then return 1; fi
+  if (( a2 > b2 )); then return 0; elif (( a2 < b2 )); then return 1; fi
+  if (( a3 >= b3 )); then return 0; else return 1; fi
+}
+should_skip_cmd() {
+  local _cmd="$1" _pkg="${2:-}" _want="${3:-}"
+  if [[ -n "$_want" ]]; then
+    local _list=""
+    if command -v uv &>/dev/null; then _list=$(uv tool list 2>/dev/null || true); fi
+    if echo "$_list" | grep -q "$_cmd.*$_want"; then
+      echo "  -> [Skip] $_cmd $_want da cai. Bo qua de cai nhanh hon."
+      return 0
+    fi
+    local _v=""
+    _v=$("$_cmd" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+    if [[ -n "$_v" && "$_v" == "$_want" ]]; then
+      echo "  -> [Skip] $_cmd $_want da cai. Bo qua."
+      return 0
+    fi
+    if command -v "$_cmd" &>/dev/null && [[ -z "$_list" ]]; then
+      echo "  -> [Skip] $_cmd da cai ($(command -v $_cmd)). Bo qua (offline, giu ban hien tai)."
+      return 0
+    fi
+    return 1
+  fi
+  if [[ -n "$_pkg" ]]; then
+    local _inst="" _latest=""
+    _inst=$(npm list -g "$_pkg" --depth=0 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+    if [[ -z "$_inst" ]] && command -v "$_cmd" &>/dev/null; then
+      _inst=$("$_cmd" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+    fi
+    if [[ -z "$_inst" ]]; then
+      if command -v "$_cmd" &>/dev/null; then
+        echo "  -> [Skip] $_cmd da cai (khong doc duoc version, giu ban hien tai). Bo qua."
+        return 0
+      fi
+      return 1
+    fi
+    _latest=$(npm view "$_pkg" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+    if [[ -z "$_latest" ]]; then
+      echo "  -> [Skip] $_pkg da cai (v$_inst, offline). Bo qua."
+      return 0
+    fi
+    if version_ge "$_inst" "$_latest"; then
+      echo "  -> [Skip] $_pkg da moi nhat (v$_inst). Bo qua de cai nhanh hon."
+      return 0
+    fi
+    return 1
+  fi
+  if command -v "$_cmd" &>/dev/null; then
+    echo "  -> [Skip] $_cmd da cai ($(command -v $_cmd)). Bo qua de cai nhanh hon."
+    return 0
+  fi
+  return 1
+}
+
 TARGET=$(echo "$TARGET" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
 if [[ "$TARGET" == "antigravity" ]]; then TARGET="antigravity-cli"; fi
 
@@ -487,7 +554,10 @@ fi
 echo "==> [Giai doan 3/4] Cai dat cac MCP Server da chon..."
 
 if $INSTALL_ATLASSIAN && ! $SKIP_INSTALL && ! $DRY_RUN; then
-  echo "==> Cai dat mcp-atlassian qua uv tool..."
+  if should_skip_cmd mcp-atlassian "" "0.23.1"; then
+    echo "  -> [Skip] mcp-atlassian da cai ($(command -v mcp-atlassian)). Bo qua de cai nhanh hon."
+  else
+    echo "==> Cai dat mcp-atlassian qua uv tool..."
   if ! command -v uv &>/dev/null; then
     echo "  -> Chua tim thay uv. Dang cai dat uv..."
     curl -fsSL https://astral.sh/uv/install.sh | bash || true
@@ -497,33 +567,61 @@ if $INSTALL_ATLASSIAN && ! $SKIP_INSTALL && ! $DRY_RUN; then
     uv tool install mcp-atlassian==0.23.1 --upgrade || true
     export PATH="$HOME/.local/bin:$PATH"
   fi
+  fi
 fi
 
 if $INSTALL_GITNEXUS && ! $SKIP_INSTALL && ! $DRY_RUN; then
-  echo "==> Cai dat gitnexus globally..."
-  npm install -g gitnexus --silent || true
+  if should_skip_cmd gitnexus "gitnexus"; then
+    echo "  -> [Skip] gitnexus da cai ($(command -v gitnexus)). Bo qua de cai nhanh hon."
+  else
+    echo "==> Cai dat gitnexus globally..."
+    npm install -g gitnexus --silent || true
+  fi
 fi
 
 if $INSTALL_CONTEXT7 && ! $SKIP_INSTALL && ! $DRY_RUN; then
-  echo "==> Cai dat @upstash/context7-mcp globally..."
-  npm install -g @upstash/context7-mcp --silent || true
+  _ctx_js="$(npm root -g 2>/dev/null)/@upstash/context7-mcp/dist/index.js"
+  _ctx_inst=$(npm list -g @upstash/context7-mcp --depth=0 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+  _ctx_latest=$(npm view @upstash/context7-mcp version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n1 || true)
+  if [[ -f "$_ctx_js" && -n "$_ctx_inst" && -n "$_ctx_latest" ]] && version_ge "$_ctx_inst" "$_ctx_latest"; then
+    echo "  -> [Skip] context7 da moi nhat (v$_ctx_inst). Bo qua de cai nhanh hon."
+  elif [[ -f "$_ctx_js" && -z "$_ctx_latest" ]]; then
+    echo "  -> [Skip] context7 da cai ($_ctx_js, offline). Bo qua."
+  elif [[ -f "$_ctx_js" && -z "$_ctx_inst" ]]; then
+    echo "  -> [Skip] context7 da cai ($_ctx_js). Bo qua de cai nhanh hon."
+  else
+    echo "==> Cai dat @upstash/context7-mcp globally..."
+    npm install -g @upstash/context7-mcp --silent || true
+  fi
 fi
 
 if $INSTALL_GLAB && ! $SKIP_INSTALL && ! $DRY_RUN; then
-  echo "==> Cai dat glab CLI..."
-  if command -v brew &>/dev/null; then
-    brew install glab 2>/dev/null || true
+  if should_skip_cmd glab; then
+    echo "  -> [Skip] glab da cai ($(command -v glab)). Bo qua de cai nhanh hon."
+  else
+    echo "==> Cai dat glab CLI..."
+    if command -v brew &>/dev/null; then
+      brew install glab 2>/dev/null || true
+    fi
   fi
 fi
 
 if $INSTALL_MEMORIX && ! $SKIP_INSTALL && ! $DRY_RUN; then
-  echo "==> Cai dat memorix globally..."
-  npm install -g memorix --silent || true
+  if should_skip_cmd memorix "memorix"; then
+    echo "  -> [Skip] memorix da cai ($(command -v memorix)). Bo qua de cai nhanh hon (dung -Force de ep cap nhat)."
+  else
+    echo "==> Cai dat memorix globally..."
+    npm install -g memorix --silent || true
+  fi
 fi
 
 if $INSTALL_AGENCY && ! $SKIP_INSTALL && ! $DRY_RUN; then
-  echo "==> Cai dat agency-mcp-server globally..."
-  npm install -g agency-mcp-server --silent || true
+  if should_skip_cmd agency-mcp-server "agency-mcp-server"; then
+    echo "  -> [Skip] agency-mcp-server da cai ($(command -v agency-mcp-server)). Bo qua de cai nhanh hon (dung -Force de ep cap nhat)."
+  else
+    echo "==> Cai dat agency-mcp-server globally..."
+    npm install -g agency-mcp-server --silent || true
+  fi
 fi
 
 # ==============================================================================

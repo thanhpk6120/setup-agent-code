@@ -11,6 +11,96 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+function Get-NpmLatestVersion {
+    param([Parameter(Mandatory = $true)][string]$Package)
+    try {
+        $o = (npm view $Package version 2>$null | Out-String).Trim()
+        if ($o -match '([0-9]+\.[0-9]+\.[0-9]+)') { return $Matches[1] }
+    } catch {}
+    return ""
+}
+function Test-VersionAtLeast {
+    param([string]$Installed, [string]$Latest)
+    if (-not $Installed -or -not $Latest) { return $false }
+    try { if ([version]$Installed -ge [version]$Latest) { return $true } } catch {}
+    return $false
+}
+function Get-NpmInstalledVersion {
+    param([Parameter(Mandatory = $true)][string]$Package)
+    try {
+        $npmRoot = (npm root -g 2>$null | Out-String).Trim()
+        if ($npmRoot) {
+            $pkgJson = Join-Path (Join-Path $npmRoot $Package) "package.json"
+            if (Test-Path -LiteralPath $pkgJson) {
+                $j = Get-Content -LiteralPath $pkgJson -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json
+                if ($j -and $j.version -match '([0-9]+\.[0-9]+\.[0-9]+)') { return $Matches[1] }
+            }
+        }
+    } catch {}
+    return ""
+}
+function Test-ShouldSkipInstall {
+    param([string]$CommandName, [string]$Label = "", [string]$NpmPackage = "")
+    # NOTE: -Force/-OverwriteAll chi auto-confirm prompt + ghi de config, KHONG ep cai lai tool da moi nhat.
+    $cmd = Get-Command $CommandName -ErrorAction SilentlyContinue
+    if (-not $cmd) { $cmd = Get-Command "$CommandName.cmd" -ErrorAction SilentlyContinue }
+    if (-not $cmd) { return $false }
+    $lbl = if ($Label) { $Label } else { $CommandName }
+    if ($NpmPackage) {
+        $inst = Get-NpmInstalledVersion -Package $NpmPackage
+        if (-not $inst) {
+            try { $v = (& $CommandName --version 2>$null | Out-String); if ($v -match '([0-9]+\.[0-9]+\.[0-9]+)') { $inst = $Matches[1] } } catch {}
+        }
+        if ($inst) {
+            $latest = Get-NpmLatestVersion -Package $NpmPackage
+            if ($latest -and (Test-VersionAtLeast -Installed $inst -Latest $latest)) {
+                Write-Host "  -> [Skip] $lbl da moi nhat (v$inst). Bo qua de cai nhanh hon." -ForegroundColor Green
+                return $true
+            }
+            if (-not $latest) {
+                Write-Host "  -> [Skip] $lbl da cai (v$inst, khong kiem tra duoc ban moi - offline). Bo qua." -ForegroundColor Green
+                return $true
+            }
+            return $false
+        }
+        Write-Host "  -> [Skip] $lbl da cai (khong doc duoc version, giu ban hien tai). Bo qua." -ForegroundColor Green
+        return $true
+    }
+    $ver = ""
+    try { $ver = (& $CommandName --version 2>$null | Out-String).Trim() } catch {}
+    if (-not $ver) { try { $ver = (& $CommandName -v 2>$null | Out-String).Trim() } catch {} }
+    if ($ver) { Write-Host "  -> [Skip] $lbl da cai ($ver). Bo qua de cai nhanh hon." -ForegroundColor Green }
+    else { Write-Host "  -> [Skip] $lbl da cai tai: $($cmd.Source). Bo qua." -ForegroundColor Green }
+    return $true
+}
+function Test-Context7Installed {
+    try {
+        $npmRoot = (npm root -g 2>$null | Out-String).Trim()
+        if ($npmRoot) {
+            $candidate = Join-Path $npmRoot "@upstash/context7-mcp/dist/index.js"
+            if (Test-Path -LiteralPath $candidate) {
+                $inst = Get-NpmInstalledVersion -Package "@upstash/context7-mcp"
+                $latest = Get-NpmLatestVersion -Package "@upstash/context7-mcp"
+                if ($inst -and $latest -and (Test-VersionAtLeast -Installed $inst -Latest $latest)) {
+                    Write-Host "  -> [Skip] context7 da moi nhat (v$inst). Bo qua de cai nhanh hon." -ForegroundColor Green
+                    return $true
+                }
+                if ($inst -and -not $latest) {
+                    Write-Host "  -> [Skip] context7 da cai (v$inst). Bo qua de cai nhanh hon." -ForegroundColor Green
+                    return $true
+                }
+                if (-not $inst -or -not $latest) {
+                    Write-Host "  -> [Skip] context7 da cai ($candidate). Bo qua de cai nhanh hon." -ForegroundColor Green
+                    return $true
+                }
+                return $false
+            }
+        }
+    } catch {}
+    return $false
+}
+
 if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
@@ -94,6 +184,8 @@ if (-not $claudeCmd) {
     }
 } else {
     Write-Host "==> Đã phát hiện Claude Code CLI tại: $($claudeCmd.Source)" -ForegroundColor Green
+    try { $v = (& claude --version 2>$null | Out-String).Trim(); if ($v) { Write-Host "  -> Version: $v" -ForegroundColor DarkGray } } catch {}
+    Write-Host "  -> [Skip] Da dung version hien tai. Bo qua cai lai." -ForegroundColor DarkGray
 }
 
 # 2. Luồng hỏi tương tác cấu hình AI Provider
