@@ -170,5 +170,5 @@ CONTEXT7_API_KEY=your-context7-api-key
 
 ---
 
-**Tác giả:** Đội ngũ phát triển AI Agent Setup  
+**Tác giả:** thanhpk  
 **Giấy phép:** MIT License
