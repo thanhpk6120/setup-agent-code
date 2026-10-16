@@ -1,4 +1,5 @@
 $ErrorActionPreference = "Stop"
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
 
 $tempDir = Join-Path $env:TEMP ("claude-test-" + [System.Guid]::NewGuid().ToString("N"))
 $tempJson = Join-Path $env:TEMP ("claude-test-" + [System.Guid]::NewGuid().ToString("N") + ".json")

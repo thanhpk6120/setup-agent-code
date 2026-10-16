@@ -1,4 +1,4 @@
-# bootstrap.ps1 - Bootstrap DSH CLI environment on fresh machine
+﻿# bootstrap.ps1 - Bootstrap DSH CLI environment on fresh machine
 [CmdletBinding()]
 param(
     [switch]$DryRun,
@@ -16,6 +16,29 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
+
+# Helper: chay native command (uv) an toan khi $ErrorActionPreference='Stop'.
+# uv ghi tien trinh (Resolved N packages...) ra stderr -> PowerShell bien thanh NativeCommandError du exit code 0.
+# Helper tam tat NativeCommandError, capture output + exit code; xet loi theo exit code, tuong thich PS 5.1 va 7+.
+function Invoke-UvCapture {
+    param([Parameter(Mandatory = $true)][string[]]$UvArgs)
+    $prevEA = $ErrorActionPreference
+    $hasNativePref = (Test-Path variable:PSNativeCommandUseErrorActionPreference)
+    $prevNativePref = $null
+    if ($hasNativePref) { $prevNativePref = $PSNativeCommandUseErrorActionPreference }
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($hasNativePref) { $PSNativeCommandUseErrorActionPreference = $false }
+        $out = (& uv @UvArgs 2>&1 | Out-String)
+        $code = $LASTEXITCODE
+        return @{ Output = $out; ExitCode = $code }
+    } finally {
+        $ErrorActionPreference = $prevEA
+        if ($hasNativePref) { $PSNativeCommandUseErrorActionPreference = $prevNativePref }
+    }
+}
+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # 1. Ham xac nhan cai dat tung MCP Server (interactive choice y/N, mac dinh N)
@@ -689,7 +712,8 @@ if ($installAtlassian) {
             if (Get-Command "uv" -ErrorAction SilentlyContinue) {
                 $hasAtlassian = $false
                 try {
-                    $uvList = (uv tool list 2>&1 | Out-String)
+                    $uvListCap = Invoke-UvCapture -UvArgs @('tool', 'list')
+                    $uvList = $uvListCap.Output
                     if ($uvList -match 'mcp-atlassian\s+v?0\.23\.1' -or $uvList -match 'mcp-atlassian') {
                         $hasAtlassian = $true
                     }
@@ -707,8 +731,9 @@ if ($installAtlassian) {
         Ensure-PathPriority -Dirs @("$env:USERPROFILE\.local\bin", "$env:USERPROFILE\.cargo\bin", (Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Links"), (Join-Path $env:APPDATA "Python\Python313\Scripts"), (Join-Path $env:LOCALAPPDATA "Programs\Python\Launcher"))
         try { uv tool update-shell 2>$null } catch {}
         Write-Host "==> Cai dat mcp-atlassian==0.23.1 qua uv tool..." -ForegroundColor Cyan
-                        $installOutput = (uv tool install mcp-atlassian==0.23.1 2>&1 | Out-String)
-                        $__uvAtlExit = $LASTEXITCODE
+                        $uvInstallCap = Invoke-UvCapture -UvArgs @('tool', 'install', 'mcp-atlassian==0.23.1')
+                        $installOutput = $uvInstallCap.Output
+                        $__uvAtlExit = $uvInstallCap.ExitCode
                         Ensure-PathPriority -Dirs @("$env:USERPROFILE\.local\bin")
                         Verify-CommandInstalled -Name "mcp-atlassian" -Label "MCP company-atlassian" | Out-Null
                         if ($__uvAtlExit -ne 0) {

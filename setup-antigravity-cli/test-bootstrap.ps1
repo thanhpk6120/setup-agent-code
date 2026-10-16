@@ -1,5 +1,6 @@
 # test-bootstrap.ps1 - Assert-based test for setup-antigravity-cli bootstrap script
 $ErrorActionPreference = "Stop"
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
 Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction SilentlyContinue
 
 function Safe-Trash {

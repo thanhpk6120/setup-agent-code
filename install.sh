@@ -91,6 +91,26 @@ if command -v npm &>/dev/null; then
 fi
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 
+# Kiem tra kha nang tuong tac (ho tro ca direct chay file lan curl | bash co /dev/tty)
+CAN_PROMPT=false
+if [[ -n "${CI:-}" || "${SETUP_NON_INTERACTIVE:-}" == "1" ]]; then
+  CAN_PROMPT=false
+elif [[ -t 0 ]]; then
+  CAN_PROMPT=true
+elif ( : < /dev/tty ) 2>/dev/null && ([[ -t 1 ]] || [[ -t 2 ]]); then
+  CAN_PROMPT=true
+fi
+
+prompt_read() {
+  local prompt_msg="$1"
+  local var_name="$2"
+  if [[ -t 0 ]]; then
+    read -r -p "$prompt_msg" "$var_name" || true
+  else
+    read -r -p "$prompt_msg" "$var_name" < /dev/tty || true
+  fi
+}
+
 # Ham Safe-Trash tren macOS / Linux (tuyet doi khong xoa vinh vien)
 safe_trash() {
   local p="$1"
@@ -121,15 +141,19 @@ safe_trash() {
 # ==============================================================================
 # 2. THU MUC TEMP CO DINH & RESUME .ENV (Tuong thich Bash 3.2)
 # ==============================================================================
-TEMP_BASE="${TMPDIR:-/tmp}/setup-agent-code"
+_raw_tmp="${TMPDIR:-/tmp}"
+TEMP_BASE="${_raw_tmp%/}/setup-agent-code"
 REPO_DIR="$TEMP_BASE/repo"
 RESUME_ENV_FILE="$TEMP_BASE/.env"
 if ! $DRY_RUN; then mkdir -p "$TEMP_BASE"; fi
 
-# Tim source repo hien tai
-CURRENT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+# Tim source repo hien tai (guard khi chay qua curl | bash khong co BASH_SOURCE[0])
+CURRENT_SCRIPT_DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  CURRENT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+fi
 MONO_ROOT=""
-if [[ -f "$CURRENT_SCRIPT_DIR/setup-omp/bootstrap.ps1" || -f "$CURRENT_SCRIPT_DIR/install.ps1" ]]; then
+if [[ -n "$CURRENT_SCRIPT_DIR" ]] && [[ -f "$CURRENT_SCRIPT_DIR/setup-omp/bootstrap.ps1" || -f "$CURRENT_SCRIPT_DIR/install.ps1" ]]; then
   MONO_ROOT="$CURRENT_SCRIPT_DIR"
   echo "==> Dung ma nguon local: $MONO_ROOT"
 else
@@ -202,11 +226,11 @@ if [[ -n "$SAVED_ENV_PATH" && -f "$SAVED_ENV_PATH" ]]; then
     done < "$SAVED_ENV_PATH"
     echo "================================================================"
 
-    if [[ ! -t 0 ]] || [[ -n "${CI:-}" ]]; then
+    if ! $CAN_PROMPT; then
       echo "  -> [Non-Interactive] Tu dong su dung lai cau hinh truoc do."
       REUSE_ACCEPTED=true
     else
-      read -r -p "[?] Ban co muon su dung lai cac bien da nhap khong? (Chi hoi nhung cai chua co) [Y/n]: " ans_reuse
+      prompt_read "[?] Ban co muon su dung lai cac bien da nhap khong? (Chi hoi nhung cai chua co) [Y/n]: " ans_reuse
       if [[ -z "$ans_reuse" || "$ans_reuse" =~ ^[Yy] ]]; then
         REUSE_ACCEPTED=true
         echo "  -> [OK] Da nap cau hinh cu. Script se CHI HOI nhung bien chua co."
@@ -264,7 +288,7 @@ get_env_or_prompt() {
     return 0
   fi
 
-  if [[ ! -t 0 ]] || [[ -n "${CI:-}" ]]; then
+  if ! $CAN_PROMPT; then
     if [[ -n "$default_val" ]]; then
       export "$env_name=$default_val"
       save_resume_key "$env_name" "$default_val"
@@ -287,7 +311,7 @@ get_env_or_prompt() {
   prompt_str="$prompt_str: "
 
   while true; do
-    read -r -p "$prompt_str" user_in
+    prompt_read "$prompt_str" user_in
     if [[ -z "$user_in" ]]; then
       if [[ -n "$default_val" ]]; then
         export "$env_name=$default_val"
@@ -326,9 +350,9 @@ confirm_mcp() {
     fi
   fi
 
-  if [[ ! -t 0 ]] || [[ -n "${CI:-}" ]]; then return 1; fi
+  if ! $CAN_PROMPT; then return 1; fi
 
-  read -r -p "[?] Cai dat MCP '$name'? [y/N]: " choice
+  prompt_read "[?] Cai dat MCP '$name'? [y/N]: " choice
   if [[ "$choice" =~ ^[Yy] ]]; then
     save_resume_key "$mcp_key" "true"
     return 0
@@ -345,7 +369,7 @@ invoke_auto_fix() {
   local fix_cmd="$3"
 
   if $DRY_RUN || $SKIP_INSTALL || $FORCE; then return 1; fi
-  if [[ (! -t 0 || -n "${CI:-}") && "${SETUP_TEST_AUTOFIX:-}" != "1" ]]; then return 1; fi
+  if ! $CAN_PROMPT && [[ "${SETUP_TEST_AUTOFIX:-}" != "1" ]]; then return 1; fi
 
   echo ""
   echo "================================================================"
@@ -354,7 +378,7 @@ invoke_auto_fix() {
   echo " De xuat can thiep: $action_desc"
   echo "================================================================"
 
-  read -r -p "[?] Ban co cho phep script tu can thiep sua loi ($action_desc) khong? [Y/n]: " ans_fix
+  prompt_read "[?] Ban co cho phep script tu can thiep sua loi ($action_desc) khong? [Y/n]: " ans_fix
   if [[ -z "$ans_fix" || "$ans_fix" =~ ^[Yy] ]]; then
     echo "  -> Dang thuc hien can thiep..."
     eval "$fix_cmd" && { echo "  -> [OK] Can thiep thanh cong!"; return 0; } || { echo "  -> [!] Can thiep that bai!"; return 1; }
@@ -369,7 +393,7 @@ wait_user_intervention() {
   local recheck_cmd="${3:-}"
 
   if $DRY_RUN || $SKIP_INSTALL || $FORCE; then return 0; fi
-  if [[ (! -t 0 || -n "${CI:-}") && "${SETUP_TEST_AUTOFIX:-}" != "1" ]]; then return 1; fi
+  if ! $CAN_PROMPT && [[ "${SETUP_TEST_AUTOFIX:-}" != "1" ]]; then return 1; fi
 
   echo ""
   echo "================================================================"
@@ -381,7 +405,7 @@ wait_user_intervention() {
   echo "================================================================"
 
   while true; do
-    read -r -p "[?] Sau khi ban da xu ly xong, nhan [Enter] de tiep tuc hoac [c] de huy: " ans_wait
+    prompt_read "[?] Sau khi ban da xu ly xong, nhan [Enter] de tiep tuc hoac [c] de huy: " ans_wait
     if [[ "$ans_wait" == "c" || "$ans_wait" == "C" ]]; then
       echo "Nguoi dung da huy."
       return 1

@@ -1,4 +1,4 @@
-# bootstrap.ps1 - Setup OpenCode environment on Windows
+﻿# bootstrap.ps1 - Setup OpenCode environment on Windows
 [CmdletBinding()]
 param(
     [switch]$DryRun,
@@ -15,6 +15,29 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (Test-Path variable:PSNativeCommandUseErrorActionPreference) { $PSNativeCommandUseErrorActionPreference = $false }
+
+# Helper: chay native command (uv) an toan khi $ErrorActionPreference='Stop'.
+# uv ghi tien trinh (Resolved N packages...) ra stderr -> PowerShell bien thanh NativeCommandError du exit code 0.
+# Helper tam tat NativeCommandError, capture output + exit code; xet loi theo exit code, tuong thich PS 5.1 va 7+.
+function Invoke-UvCapture {
+    param([Parameter(Mandatory = $true)][string[]]$UvArgs)
+    $prevEA = $ErrorActionPreference
+    $hasNativePref = (Test-Path variable:PSNativeCommandUseErrorActionPreference)
+    $prevNativePref = $null
+    if ($hasNativePref) { $prevNativePref = $PSNativeCommandUseErrorActionPreference }
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($hasNativePref) { $PSNativeCommandUseErrorActionPreference = $false }
+        $out = (& uv @UvArgs 2>&1 | Out-String)
+        $code = $LASTEXITCODE
+        return @{ Output = $out; ExitCode = $code }
+    } finally {
+        $ErrorActionPreference = $prevEA
+        if ($hasNativePref) { $PSNativeCommandUseErrorActionPreference = $prevNativePref }
+    }
+}
+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # Thu vien VisualBasic ho tro chuyen file/thu muc vao Recycle Bin
@@ -686,7 +709,8 @@ if ($installAtlassian) {
         $alreadyInstalled = $false
         if (Get-Command "uv" -ErrorAction SilentlyContinue) {
             try {
-                $uvToolList = uv tool list 2>&1 | Out-String
+                $uvListCap = Invoke-UvCapture -UvArgs @('tool', 'list')
+                $uvToolList = $uvListCap.Output
                 if ($uvToolList -match "mcp-atlassian\s+v?$targetAtlassianVer") {
                     Write-Host "  -> mcp-atlassian $targetAtlassianVer da co san trong uv tools. Bo qua cai dat lai de tranh loi khoa file Windows." -ForegroundColor Green
                     $alreadyInstalled = $true
@@ -717,8 +741,9 @@ if ($installAtlassian) {
         Write-Host "==> Installing/updating mcp-atlassian globally via uv tool..." -ForegroundColor Cyan
             if (-not $DryRun) {
                 try {
-                    $uvResult = uv tool install --force "mcp-atlassian==$targetAtlassianVer" 2>&1 | Out-String
-                    $__uvAtlExit = $LASTEXITCODE
+                    $uvInstallCap = Invoke-UvCapture -UvArgs @('tool', 'install', '--force', "mcp-atlassian==$targetAtlassianVer")
+                    $uvResult = $uvInstallCap.Output
+                    $__uvAtlExit = $uvInstallCap.ExitCode
                     Ensure-PathPriority -Dirs @("$env:USERPROFILE\.local\bin")
                     Verify-CommandInstalled -Name "mcp-atlassian" -Label "MCP company-atlassian" | Out-Null
                     if ($__uvAtlExit -ne 0 -and ($uvResult -match "os error 5" -or $uvResult -match "Access is denied")) {
