@@ -1,4 +1,4 @@
-﻿# bootstrap.ps1 - Bootstrap DSH CLI environment on fresh machine
+# bootstrap.ps1 - Bootstrap DSH CLI environment on fresh machine
 [CmdletBinding()]
 param(
     [switch]$DryRun,
@@ -142,6 +142,7 @@ $script:FallbackResumeEnvFile = Join-Path ([System.IO.Path]::GetTempPath()) "set
 $script:ReusedVars = @{}
 $script:DidPromptReuse = $false
 $script:IsReuseAccepted = $false
+$script:ReuseDeclined = $false
 
 function Test-IsIsolatedTestRun {
     if ($env:SETUP_ENABLE_RESUME -eq '1') { return $false }
@@ -161,12 +162,21 @@ function Get-SavedEnvFilePath {
     if (Test-Path -LiteralPath $script:FallbackResumeEnvFile) { return $script:FallbackResumeEnvFile }
     return $null
 }
+function Get-SavedEnvFileList {
+    $list = @()
+    $localDot = Join-Path $PSScriptRoot ".env"
+    if (Test-Path -LiteralPath $localDot) { $list += $localDot }
+    if (Test-Path -LiteralPath $script:ResumeEnvFile) { $list += $script:ResumeEnvFile }
+    if (Test-Path -LiteralPath $script:FallbackResumeEnvFile) { $list += $script:FallbackResumeEnvFile }
+    return $list
+}
 
 function Save-ResumeKey {
     param(
         [Parameter(Mandatory = $true)]
         [string]$Key,
         [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
         [string]$Value
     )
     if ($DryRun) { return }
@@ -209,25 +219,28 @@ function Prompt-ReuseSavedEnv {
         return $false
     }
     
+    $savedFiles = Get-SavedEnvFileList
     $savedPath = Get-SavedEnvFilePath
-    if (-not $savedPath) {
+    if (-not $savedFiles -or $savedFiles.Count -eq 0) {
         $script:IsReuseAccepted = $false
         return $false
     }
-    
+
     $map = @{}
     try {
-        Get-Content -LiteralPath $savedPath -Encoding UTF8 -ErrorAction Stop | ForEach-Object {
-            $line = $_.Trim()
-            if ($line -and -not $line.StartsWith("#")) {
-                $idx = $line.IndexOf("=")
-                if ($idx -gt 0) {
-                    $k = $line.Substring(0, $idx).Trim()
-                    $v = $line.Substring($idx + 1).Trim()
-                    if (($v.StartsWith('"') -and $v.EndsWith('"')) -or ($v.StartsWith("'") -and $v.EndsWith("'"))) {
-                        $v = $v.Substring(1, $v.Length - 2)
+        foreach ($sf in $savedFiles) {
+            Get-Content -LiteralPath $sf -Encoding UTF8 -ErrorAction Stop | ForEach-Object {
+                $line = $_.Trim()
+                if ($line -and -not $line.StartsWith("#")) {
+                    $idx = $line.IndexOf("=")
+                    if ($idx -gt 0) {
+                        $k = $line.Substring(0, $idx).Trim()
+                        $v = $line.Substring($idx + 1).Trim()
+                        if (($v.StartsWith('"') -and $v.EndsWith('"') -and $v.Length -ge 2) -or ($v.StartsWith("'") -and $v.EndsWith("'") -and $v.Length -ge 2)) {
+                            $v = $v.Substring(1, $v.Length - 2)
+                        }
+                        if ($k -and -not $map.ContainsKey($k)) { $map[$k] = $v }
                     }
-                    if ($k -and $v) { $map[$k] = $v }
                 }
             }
         }
@@ -272,6 +285,7 @@ function Prompt-ReuseSavedEnv {
         return $true
     } else {
         $script:IsReuseAccepted = $false
+        $script:ReuseDeclined = $true
         Write-Host "  -> Nguoi dung chon nhap moi tu dau." -ForegroundColor Yellow
         return $false
     }
@@ -435,6 +449,11 @@ if (-not $PSBoundParameters.ContainsKey('EnableMemorix') -and -not $PSBoundParam
 }
 
 $shouldSetupHook = $false
+if ($script:IsReuseAccepted -and $script:ReusedVars -and $script:ReusedVars.ContainsKey("SETUP_MEMORIX_HOOK")) {
+    $shouldSetupHook = [bool]($script:ReusedVars["SETUP_MEMORIX_HOOK"] -eq 'true' -or $script:ReusedVars["SETUP_MEMORIX_HOOK"] -eq '1')
+    $ht = if ($shouldSetupHook) { "CO" } else { "KHONG" }
+    Write-Host "  -> [Reuse] Su dung lai lua chon Hook Memorix: $ht" -ForegroundColor DarkGray
+} else {
 if ($installMemorix) {
     if ($Force -or $OverwriteAll) {
         Write-Host "  -> [Force] Tu dong cai dat Hook tich hop Memorix vao DSH." -ForegroundColor Cyan
@@ -448,11 +467,14 @@ if ($installMemorix) {
         $hookChoice = Read-Host "[?] Cai dat Hook tich hop Memorix vao DSH? [y/N]"
         if (-not [string]::IsNullOrWhiteSpace($hookChoice) -and ($hookChoice.Trim().ToLower() -eq 'y' -or $hookChoice.Trim().ToLower() -eq 'yes')) {
             $shouldSetupHook = $true
+            Save-ResumeKey "SETUP_MEMORIX_HOOK" "true"
         } else {
             $shouldSetupHook = $false
+            Save-ResumeKey "SETUP_MEMORIX_HOOK" "false"
             Write-Host "Bo qua cai dat Hook tich hop Memorix theo lua chon nguoi dung." -ForegroundColor Yellow
         }
     }
+}
 }
 
 $installAgency = $false
@@ -548,7 +570,7 @@ function Load-Env {
         }
     }
 }
-Load-Env
+if (-not $script:ReuseDeclined) { Load-Env } else { Write-Host "  -> Bo qua nap .env cu theo lua chon nhap moi." -ForegroundColor Yellow }
 
 # 4. Ham nhap lieu Get-EnvOrPrompt
 
@@ -715,33 +737,59 @@ function Test-McpConnection {
     }
 }
 
+
+$envMap = @{}
 function Get-EnvOrPrompt {
     param(
         [Parameter(Mandatory = $true)]
         [string]$EnvName,
         [Parameter(Mandatory = $true)]
         [string]$Prompt,
-        [string]$Default,
+        [string]$Default = "",
+        [switch]$Required,
         [switch]$AllowEmpty
     )
-    $val = [Environment]::GetEnvironmentVariable($EnvName, "Process")
+    $val = [System.Environment]::GetEnvironmentVariable($EnvName)
     if (-not [string]::IsNullOrWhiteSpace($val)) { return $val }
+    if ($script:IsReuseAccepted -and $script:ReusedVars -and $script:ReusedVars.ContainsKey($EnvName)) {
+        $rv = $script:ReusedVars[$EnvName]
+        if (-not [string]::IsNullOrWhiteSpace($rv) -or $AllowEmpty.IsPresent) {
+            $disp = if ($EnvName -match 'KEY|TOKEN|SECRET|PASSWORD') { "***" } else { $rv }
+            Write-Host "  -> [Reuse] Su dung lai $EnvName = $disp" -ForegroundColor DarkGray
+            [Environment]::SetEnvironmentVariable($EnvName, $rv, "Process")
+            return $rv
+        }
+    }
+    if ($envMap.ContainsKey($EnvName)) {
+        if (-not $script:ReuseDeclined) {
+            $ev = $envMap[$EnvName]
+            if (-not [string]::IsNullOrWhiteSpace($ev) -or $AllowEmpty.IsPresent) {
+                return $ev
+            }
+        }
+    } elseif ($script:ReuseDeclined) {
+        # user tu choi reuse: khong hoi ReusedVars, di thang toi prompt
+    }
 
-    $hasDefault = $PSBoundParameters.ContainsKey('Default')
+    $hasDefault = $PSBoundParameters.ContainsKey('Default') -or (-not [string]::IsNullOrWhiteSpace($Default))
     while ($true) {
-        $promptStr = $Prompt
-        if ($hasDefault) { $promptStr = "$Prompt (Default: $Default)" }
+        $promptStr = if ($hasDefault) { "$Prompt (Default: $Default)" } else { $Prompt }
         $inputVal = Read-Host $promptStr
         if (-not [string]::IsNullOrWhiteSpace($inputVal)) {
-            return $inputVal.Trim()
+            $trimmed = $inputVal.Trim()
+            Save-ResumeKey $EnvName $trimmed
+            return $trimmed
         }
         if ($hasDefault) {
+            Save-ResumeKey $EnvName $Default
             return $Default
         }
         if ($AllowEmpty) {
+            Save-ResumeKey $EnvName ""
             return ""
         }
         if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
+            if ($DryRun) { return "dryrun-placeholder-$EnvName" }
             throw "Error: '$EnvName' is required but cannot prompt in non-interactive session."
         }
         Write-Host "Error: '$EnvName' is required. Please provide a value." -ForegroundColor Red
@@ -1030,6 +1078,14 @@ if ($installAgency) {
 function Get-CloakBrowserInstallDir {
     param([string]$EnvVarName = "CLOAKBROWSER_DIR")
     $envVal = [Environment]::GetEnvironmentVariable($EnvVarName, "Process")
+    if ($script:IsReuseAccepted -and $script:ReusedVars -and $script:ReusedVars.ContainsKey($EnvVarName)) {
+        $rvDir = $script:ReusedVars[$EnvVarName]
+        if (-not [string]::IsNullOrWhiteSpace($rvDir)) {
+            Write-Host "  -> [Reuse] Su dung lai thu muc CloakBrowser: $rvDir" -ForegroundColor DarkGray
+            [Environment]::SetEnvironmentVariable($EnvVarName, $rvDir, "Process")
+            return $rvDir
+        }
+    }
     if (-not [string]::IsNullOrWhiteSpace($envVal)) { return $envVal.Trim() }
 
     $drives = @()
@@ -1080,6 +1136,7 @@ function Get-CloakBrowserInstallDir {
     if (-not $drives -or $drives.Count -eq 0) {
         $fallback = "$env:USERPROFILE\mcp-servers\cloakbrowser"
         Write-Host "  -> Khong phat hien duoc o dia, su dung thu muc mac dinh: $fallback" -ForegroundColor DarkGray
+        Save-ResumeKey $EnvVarName $fallback
         return $fallback
     }
 
@@ -1092,6 +1149,7 @@ function Get-CloakBrowserInstallDir {
     if ($env:CI -or -not [Environment]::UserInteractive) {
         $autoDir = "$defaultLetter\mcp-servers\cloakbrowser"
         Write-Host "  -> [Non-Interactive] Tu dong chon o $defaultLetter cho CloakBrowser: $autoDir" -ForegroundColor DarkGray
+        Save-ResumeKey $EnvVarName $autoDir
         return $autoDir
     }
 
@@ -1126,6 +1184,7 @@ function Get-CloakBrowserInstallDir {
     } catch {}
 
     $finalDir = "$selectedLetter\mcp-servers\cloakbrowser"
+    Save-ResumeKey $EnvVarName $finalDir
     Write-Host "  -> Da chon o dia: $selectedLetter (Thu muc: $finalDir)" -ForegroundColor Green
     return $finalDir
 }

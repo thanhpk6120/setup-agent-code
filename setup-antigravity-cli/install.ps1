@@ -188,21 +188,42 @@ if ($targetEnvFile) {
     }
 }
 
+# Dung lai bien da luu tu lan chay truoc (neu co) - chi hoi bien thieu
+$script:__SavedAiVars = @{}
+$__resumeEnv = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code\.env"
+$__resumeEnv2 = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code-saved.env"
+foreach ($__ef in @($__resumeEnv, $__resumeEnv2)) {
+    if (Test-Path -LiteralPath $__ef) {
+        Get-Content -LiteralPath $__ef -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object {
+            $__l = $_.Trim()
+            if ($__l -and -not $__l.StartsWith("#")) {
+                $__idx = $__l.IndexOf("=")
+                if ($__idx -gt 0) {
+                    $__k = $__l.Substring(0, $__idx).Trim()
+                    $__v = $__l.Substring($__idx + 1).Trim()
+                    if ($__k -and -not $script:__SavedAiVars.ContainsKey($__k)) { $script:__SavedAiVars[$__k] = $__v }
+                }
+            }
+        }
+    }
+}
 # 2. Hoi tuong tac cau hinh AI Provider
 Write-Host ""
 Write-Host "==> Cau hinh ket noi AI Provider..." -ForegroundColor Cyan
 $defaultAiUrl = "http://localhost:20128/v1"
 if ($env:AI_BASE_URL) { $defaultAiUrl = $env:AI_BASE_URL }
+if ([string]::IsNullOrWhiteSpace($env:AI_BASE_URL) -and $script:__SavedAiVars.ContainsKey("AI_BASE_URL") -and -not [string]::IsNullOrWhiteSpace($script:__SavedAiVars["AI_BASE_URL"])) { $defaultAiUrl = $script:__SavedAiVars["AI_BASE_URL"] }
 $inputAiUrl = ""
 if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
     $inputAiUrl = $defaultAiUrl
 } else {
-    $inputAiUrl = Read-Host "Nhap AI Base URL [Mac dinh: $defaultAiUrl]"
+    if ($script:__SavedAiVars.ContainsKey("AI_BASE_URL") -and -not [string]::IsNullOrWhiteSpace($script:__SavedAiVars["AI_BASE_URL"]) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) { $inputAiUrl = $script:__SavedAiVars["AI_BASE_URL"]; Write-Host "  -> [Reuse] Su dung lai AI Base URL = $inputAiUrl" -ForegroundColor DarkGray } else { $inputAiUrl = Read-Host "Nhap AI Base URL [Mac dinh: $defaultAiUrl]" }
 }
 $aiBaseUrl = if ([string]::IsNullOrWhiteSpace($inputAiUrl)) { $defaultAiUrl } else { $inputAiUrl.Trim() }
 
 $aiApiKey = ""
 if (-not [string]::IsNullOrWhiteSpace($env:AI_API_KEY)) { $aiApiKey = $env:AI_API_KEY.Trim() }
+if ([string]::IsNullOrWhiteSpace($aiApiKey) -and $script:__SavedAiVars.ContainsKey("AI_API_KEY") -and -not [string]::IsNullOrWhiteSpace($script:__SavedAiVars["AI_API_KEY"])) { $aiApiKey = $script:__SavedAiVars["AI_API_KEY"].Trim(); Write-Host "  -> [Reuse] Su dung lai AI API Key = ***" -ForegroundColor DarkGray }
 while ([string]::IsNullOrWhiteSpace($aiApiKey)) {
     if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
         throw "Loi: AI_API_KEY bat buoc phai co gia tri nhung session hien tai la non-interactive."
@@ -240,11 +261,13 @@ if ($PSBoundParameters.ContainsKey('EnableMemorix')) {
     if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
         $installMemorixPrompt = "n"
     } else {
+        if ($script:__SavedAiVars.ContainsKey("SETUP_MCP_MEMORIX")) { $savedM = $script:__SavedAiVars["SETUP_MCP_MEMORIX"]; $mm = if ($savedM -eq "true" -or $savedM -eq "1") { "CO" } else { "KHONG" }; Write-Host "  -> [Reuse] Su dung lai lua chon MCP 'memorix': $mm" -ForegroundColor DarkGray; $enableMemorixVal = ($savedM -eq "true" -or $savedM -eq "1") } else {
         $installMemorixPrompt = Read-Host "Ban co muon cai dat Memorix (MCP & Session Memory) khong? [y/N]"
     }
     $enableMemorix = if (-not [string]::IsNullOrWhiteSpace($installMemorixPrompt) -and $installMemorixPrompt.Trim().ToLower() -eq 'y') { $true } else { $false }
-}
+        }
 
+}
 $env:AI_BASE_URL = $aiBaseUrl
 $env:AI_API_KEY = $aiApiKey
 $env:AGY_MODEL = $agyModel

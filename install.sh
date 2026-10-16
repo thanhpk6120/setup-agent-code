@@ -352,6 +352,7 @@ get_env_or_prompt() {
     local disp="$current_val"
     if [[ "$env_name" =~ KEY|TOKEN|SECRET|PASSWORD ]]; then disp="***"; fi
     echo "  -> [Reuse] Su dung lai $env_name = $disp"
+    save_resume_key "$env_name" "$current_val"
     return 0
   fi
 
@@ -362,6 +363,7 @@ get_env_or_prompt() {
       return 0
     elif [[ "$allow_empty" == "true" ]]; then
       export "$env_name="
+      save_resume_key "$env_name" ""
       return 0
     else
       if $DRY_RUN; then
@@ -386,6 +388,7 @@ get_env_or_prompt() {
         return 0
       elif [[ "$allow_empty" == "true" ]]; then
         export "$env_name="
+        save_resume_key "$env_name" ""
         return 0
       fi
       echo "Truong nay khong duoc de trong. Vui long nhap lai."
@@ -511,7 +514,12 @@ if confirm_mcp "gitnexus"; then INSTALL_GITNEXUS=true; fi
 if confirm_mcp "context7"; then INSTALL_CONTEXT7=true; fi
 if confirm_mcp "glab"; then INSTALL_GLAB=true; fi
 if confirm_mcp "cloakbrowser"; then INSTALL_CLOAKBROWSER=true; fi
-if confirm_mcp "memorix"; then INSTALL_MEMORIX=true; fi
+if $ENABLE_MEMORIX; then
+  INSTALL_MEMORIX=true
+elif ! $DISABLE_MEMORIX && confirm_mcp "memorix"; then
+  INSTALL_MEMORIX=true
+  ENABLE_MEMORIX=true
+fi
 if confirm_mcp "agency"; then INSTALL_AGENCY=true; fi
 
 if $INSTALL_ATLASSIAN; then
@@ -624,6 +632,29 @@ if $INSTALL_AGENCY && ! $SKIP_INSTALL && ! $DRY_RUN; then
   fi
 fi
 
+if $INSTALL_CLOAKBROWSER && ! $SKIP_INSTALL && ! $DRY_RUN; then
+  echo "==> Cau hinh CloakBrowser MCP tren macOS..."
+  cb_target_dir="$SETUP_HOME_DIR/mcp-servers/cloakbrowser"
+  cb_src_dir="$MONO_ROOT/setup-omp/mcp-servers/cloakbrowser"
+  mkdir -p "$cb_target_dir"
+  if [[ -d "$cb_src_dir" ]]; then
+    if [[ ! -f "$cb_target_dir/mcp-server-full.mjs" || $FORCE == true ]]; then
+      cp -Rf "$cb_src_dir"/* "$cb_target_dir/" 2>/dev/null || true
+      echo "  -> Da sao chep ma nguon CloakBrowser sang $cb_target_dir."
+    else
+      echo "  -> [Skip] CloakBrowser da co ma nguon. Giu nguyen."
+    fi
+    if [[ ! -d "$cb_target_dir/node_modules" || $FORCE == true ]]; then
+      echo "  -> Dang cai dat dependencies cho CloakBrowser (npm install)..."
+      (cd "$cb_target_dir" && npm install --omit=dev --silent) || true
+    else
+      echo "  -> [Skip] CloakBrowser node_modules da co san."
+    fi
+  else
+    echo "  -> [Warning] Khong tim thay thu muc nguon CloakBrowser tai $cb_src_dir"
+  fi
+fi
+
 # ==============================================================================
 # HELPER: TEMPLATE RENDERING & DOC COPY
 # ==============================================================================
@@ -632,10 +663,26 @@ render_template() {
   local dest="$2"
   if [[ ! -f "$src" ]]; then return 0; fi
 
+  # Refresh PATH de resolve chinh xac binary vua cai qua npm global / brew
+  if command -v npm &>/dev/null; then
+    local _np
+    _np="$(npm prefix -g 2>/dev/null || true)/bin"
+    if [[ -n "$_np" && -d "$_np" ]]; then export PATH="$_np:$PATH"; fi
+  fi
+  if [[ -d "/opt/homebrew/bin" ]]; then export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"; fi
+  if [[ -d "/usr/local/bin" ]]; then export PATH="/usr/local/bin:$PATH"; fi
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
   local gn_path
-  gn_path=$(command -v gitnexus 2>/dev/null || echo "gitnexus")
+  gn_path=$(command -v gitnexus 2>/dev/null || true)
+  if [[ -z "$gn_path" && -n "${_np:-}" && -x "${_np:-}/gitnexus" ]]; then gn_path="${_np}/gitnexus"; fi
+  if [[ -z "$gn_path" ]]; then gn_path="gitnexus"; fi
+
   local agency_path
-  agency_path=$(command -v agency-mcp-server 2>/dev/null || echo "agency-mcp-server")
+  agency_path=$(command -v agency-mcp-server 2>/dev/null || true)
+  if [[ -z "$agency_path" && -n "${_np:-}" && -x "${_np:-}/agency-mcp-server" ]]; then agency_path="${_np}/agency-mcp-server"; fi
+  if [[ -z "$agency_path" ]]; then agency_path="agency-mcp-server"; fi
+
   local ctx_path=""
   if command -v npm &>/dev/null; then
     local n_root
@@ -645,32 +692,122 @@ render_template() {
     fi
   fi
   if [[ -z "$ctx_path" ]]; then ctx_path="node_modules/@upstash/context7-mcp/dist/index.js"; fi
-  local cb_path="$SETUP_HOME_DIR/mcp-servers/cloakbrowser/index.js"
+  local cb_path="$SETUP_HOME_DIR/mcp-servers/cloakbrowser/mcp-server-full.mjs"
   local agy_m="${AGY_MODEL:-gemini-2.5-pro}"
 
   mkdir -p "$(dirname "$dest")"
-  sed \
-    -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
-    -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
-    -e "s|__JIRA_URL__|${JIRA_URL:-https://jira.cybertech.vn}|g" \
-    -e "s|__JIRA_PERSONAL_TOKEN__|${JIRA_PERSONAL_TOKEN:-YOUR_JIRA_PERSONAL_TOKEN}|g" \
-    -e "s|__CONFLUENCE_URL__|${CONFLUENCE_URL:-https://conf.cybertech.vn}|g" \
-    -e "s|__CONFLUENCE_PERSONAL_TOKEN__|${CONFLUENCE_PERSONAL_TOKEN:-YOUR_CONFLUENCE_PERSONAL_TOKEN}|g" \
-    -e "s|__CONTEXT7_API_KEY__|${CONTEXT7_API_KEY:-}|g" \
-    -e "s|__GITLAB_HOST__|${GITLAB_HOST:-10.30.1.17}|g" \
-    -e "s|__GITLAB_TOKEN__|${GITLAB_TOKEN:-}|g" \
-    -e "s|__GITNEXUS_PATH__|$gn_path|g" \
-    -e "s|__AGENCY_PATH__|$agency_path|g" \
-    -e "s|__CONTEXT7_PATH__|$ctx_path|g" \
-    -e "s|__CLOAKBROWSER_SCRIPT__|$cb_path|g" \
-    -e "s|__AGY_MODEL__|$agy_m|g" \
-    -e 's|"cmd", "/c", ||g' \
-    -e 's|"cmd"|"bash"|g' \
-    -e 's|"/c", ||g' \
-    -e 's|\.cmd"|"|g' \
-    -e 's|cmd = "cmd"|cmd = "bash"|g' \
-    -e 's|args = \["/c", |args = \[|g' \
-    "$src" > "$dest"
+
+  # Su dung Node.js de render template an toan tuyet doi (tranh loi newline giua BSD sed va GNU sed,
+  # chuan hoa gitnexus bo cmd /c, va loc bo MCP khong duoc chon tren macOS)
+  if command -v node &>/dev/null; then
+    local is_memorix="false"
+    if [[ "${INSTALL_MEMORIX:-}" == "true" || "${ENABLE_MEMORIX:-}" == "true" ]]; then
+      is_memorix="true"
+    fi
+    RENDER_GN_PATH="$gn_path" \
+    RENDER_AGENCY_PATH="$agency_path" \
+    RENDER_CTX_PATH="$ctx_path" \
+    RENDER_CB_PATH="$cb_path" \
+    AI_BASE_URL="${AI_BASE_URL:-}" \
+    AI_API_KEY="${AI_API_KEY:-}" \
+    JIRA_URL="${JIRA_URL:-https://jira.cybertech.vn}" \
+    JIRA_PERSONAL_TOKEN="${JIRA_PERSONAL_TOKEN:-YOUR_JIRA_PERSONAL_TOKEN}" \
+    CONFLUENCE_URL="${CONFLUENCE_URL:-https://conf.cybertech.vn}" \
+    CONFLUENCE_PERSONAL_TOKEN="${CONFLUENCE_PERSONAL_TOKEN:-YOUR_CONFLUENCE_PERSONAL_TOKEN}" \
+    CONTEXT7_API_KEY="${CONTEXT7_API_KEY:-}" \
+    GITLAB_HOST="${GITLAB_HOST:-10.30.1.17}" \
+    GITLAB_TOKEN="${GITLAB_TOKEN:-}" \
+    AGY_MODEL="${AGY_MODEL:-gemini-2.5-pro}" \
+    INSTALL_ATLASSIAN="${INSTALL_ATLASSIAN:-false}" \
+    INSTALL_GITNEXUS="${INSTALL_GITNEXUS:-false}" \
+    INSTALL_CONTEXT7="${INSTALL_CONTEXT7:-false}" \
+    INSTALL_GLAB="${INSTALL_GLAB:-false}" \
+    INSTALL_CLOAKBROWSER="${INSTALL_CLOAKBROWSER:-false}" \
+    INSTALL_AGENCY="${INSTALL_AGENCY:-false}" \
+    ENABLE_MEMORIX="$is_memorix" \
+    node -e '
+      const fs = require("fs");
+      const src = process.argv[1];
+      const dest = process.argv[2];
+      let s = fs.readFileSync(src, "utf8");
+      const env = process.env;
+
+      s = s.split("__AI_BASE_URL__").join(env.AI_BASE_URL || "http://localhost:20128/v1")
+           .split("__AI_API_KEY__").join(env.AI_API_KEY || "")
+           .split("__JIRA_URL__").join(env.JIRA_URL || "https://jira.cybertech.vn")
+           .split("__JIRA_PERSONAL_TOKEN__").join(env.JIRA_PERSONAL_TOKEN || "YOUR_JIRA_PERSONAL_TOKEN")
+           .split("__CONFLUENCE_URL__").join(env.CONFLUENCE_URL || "https://conf.cybertech.vn")
+           .split("__CONFLUENCE_PERSONAL_TOKEN__").join(env.CONFLUENCE_PERSONAL_TOKEN || "YOUR_CONFLUENCE_PERSONAL_TOKEN")
+           .split("__CONTEXT7_API_KEY__").join(env.CONTEXT7_API_KEY || "")
+           .split("__GITLAB_HOST__").join(env.GITLAB_HOST || "10.30.1.17")
+           .split("__GITLAB_TOKEN__").join(env.GITLAB_TOKEN || "")
+           .split("__GITNEXUS_PATH__").join(env.RENDER_GN_PATH || "gitnexus")
+           .split("__AGENCY_PATH__").join(env.RENDER_AGENCY_PATH || "agency-mcp-server")
+           .split("__CONTEXT7_PATH__").join(env.RENDER_CTX_PATH || "node_modules/@upstash/context7-mcp/dist/index.js")
+           .split("__CLOAKBROWSER_SCRIPT__").join(env.RENDER_CB_PATH || "")
+           .split("__AGY_MODEL__").join(env.AGY_MODEL || "gemini-2.5-pro");
+
+      const gn = env.RENDER_GN_PATH || "gitnexus";
+      s = s.replace(/"command":\s*"cmd",\s*"args":\s*\[\s*"\/c",\s*"[^"]*",\s*"mcp"\s*\]/g,
+        `"command": "${gn}",\n      "args": [\n        "mcp"\n      ]`);
+      s = s.replace(/"command":\s*"cmd",\s*"args":\s*\["\/c",\s*"[^"]*",\s*"mcp"\]/g,
+        `"command": "${gn}", "args": ["mcp"]`);
+      s = s.replace(/command\s*=\s*"cmd"\s*\nargs\s*=\s*\["\/c",\s*"[^"]*",\s*"mcp"\]/g,
+        `command = "${gn}"\nargs = ["mcp"]`);
+      s = s.replace(/"command":\s*\[\s*"cmd",\s*"\/c",\s*"[^"]*",\s*"mcp"\s*\]/g,
+        `"command": [\n        "${gn}",\n        "mcp"\n      ]`);
+
+      if (dest.endsWith(".json")) {
+        try {
+          let parsed = JSON.parse(s);
+          if (fs.existsSync(dest)) {
+            try {
+              const existing = JSON.parse(fs.readFileSync(dest, "utf8"));
+              if (parsed.mcpServers && existing.mcpServers) {
+                parsed.mcpServers = Object.assign({}, existing.mcpServers, parsed.mcpServers);
+              }
+              parsed = Object.assign({}, existing, parsed);
+            } catch (e) {}
+          }
+          const mcp = parsed.mcpServers || parsed.mcp;
+          if (mcp && typeof mcp === "object") {
+            if (env.INSTALL_ATLASSIAN !== "true") delete mcp["company-atlassian"];
+            if (env.INSTALL_GITNEXUS !== "true") delete mcp["gitnexus"];
+            if (env.INSTALL_CONTEXT7 !== "true") delete mcp["context7"];
+            if (env.INSTALL_GLAB !== "true") delete mcp["glab"];
+            if (env.INSTALL_CLOAKBROWSER !== "true") delete mcp["cloakbrowser"];
+            if (env.INSTALL_AGENCY !== "true") delete mcp["agency"];
+            if (env.ENABLE_MEMORIX !== "true") delete mcp["memorix"];
+          }
+          s = JSON.stringify(parsed, null, 2) + "\n";
+        } catch (e) {}
+      }
+      fs.writeFileSync(dest, s, "utf8");
+    ' "$src" "$dest"
+  else
+    # Fallback truyen thong bang sed
+    sed \
+      -e "s|__AI_BASE_URL__|$AI_BASE_URL|g" \
+      -e "s|__AI_API_KEY__|$AI_API_KEY|g" \
+      -e "s|__JIRA_URL__|${JIRA_URL:-https://jira.cybertech.vn}|g" \
+      -e "s|__JIRA_PERSONAL_TOKEN__|${JIRA_PERSONAL_TOKEN:-YOUR_JIRA_PERSONAL_TOKEN}|g" \
+      -e "s|__CONFLUENCE_URL__|${CONFLUENCE_URL:-https://conf.cybertech.vn}|g" \
+      -e "s|__CONFLUENCE_PERSONAL_TOKEN__|${CONFLUENCE_PERSONAL_TOKEN:-YOUR_CONFLUENCE_PERSONAL_TOKEN}|g" \
+      -e "s|__CONTEXT7_API_KEY__|${CONTEXT7_API_KEY:-}|g" \
+      -e "s|__GITLAB_HOST__|${GITLAB_HOST:-10.30.1.17}|g" \
+      -e "s|__GITLAB_TOKEN__|${GITLAB_TOKEN:-}|g" \
+      -e "s|__GITNEXUS_PATH__|$gn_path|g" \
+      -e "s|__AGENCY_PATH__|$agency_path|g" \
+      -e "s|__CONTEXT7_PATH__|$ctx_path|g" \
+      -e "s|__CLOAKBROWSER_SCRIPT__|$cb_path|g" \
+      -e "s|__AGY_MODEL__|$agy_m|g" \
+      -e 's|"command": "cmd"|"command": "gitnexus"|g' \
+      -e 's|command = "cmd"|command = "gitnexus"|g' \
+      -e 's|"cmd", "/c", ||g' \
+      -e 's|"/c", ||g' \
+      -e 's|args = \["/c", |args = \[|g' \
+      "$src" > "$dest"
+  fi
 }
 
 copy_doc() {
@@ -678,11 +815,45 @@ copy_doc() {
   local doc_name="$2"
   local dest_dir="$3"
   local dest_name="${4:-$doc_name}"
+  local target_file="$dest_dir/$dest_name"
   mkdir -p "$dest_dir"
   if [[ -f "$MONO_ROOT/$agent_dir/templates/$doc_name" ]]; then
-    cp -f "$MONO_ROOT/$agent_dir/templates/$doc_name" "$dest_dir/$dest_name"
+    cp -f "$MONO_ROOT/$agent_dir/templates/$doc_name" "$target_file"
   elif [[ -f "$MONO_ROOT/$agent_dir/$doc_name" ]]; then
-    cp -f "$MONO_ROOT/$agent_dir/$doc_name" "$dest_dir/$dest_name"
+    cp -f "$MONO_ROOT/$agent_dir/$doc_name" "$target_file"
+  fi
+
+  # Neu doc_name la AGENTS.md hoac CLAUDE.md, append cac section duoc bat neu chua co
+  if [[ -f "$target_file" ]] && [[ "$dest_name" == "AGENTS.md" || "$dest_name" == "CLAUDE.md" ]]; then
+    local is_memorix="false"
+    if [[ "${INSTALL_MEMORIX:-}" == "true" || "${ENABLE_MEMORIX:-}" == "true" ]]; then
+      is_memorix="true"
+    fi
+    local mem_sec="$MONO_ROOT/$agent_dir/templates/memorix-agents-section.md"
+    if [[ "$dest_name" == "CLAUDE.md" ]]; then
+      mem_sec="$MONO_ROOT/$agent_dir/templates/memorix-claude-section.md"
+    fi
+    if [[ ! -f "$mem_sec" ]]; then
+      mem_sec="$MONO_ROOT/setup-omp/templates/memorix-agents-section.md"
+    fi
+
+    if [[ "$is_memorix" == "true" && -f "$mem_sec" ]]; then
+      if ! grep -qE "Memorix.*(Memory Tools|Memory and Safety Gate)" "$target_file" 2>/dev/null; then
+        echo "" >> "$target_file"
+        cat "$mem_sec" >> "$target_file"
+      fi
+    fi
+
+    local agency_sec="$MONO_ROOT/$agent_dir/templates/agency-agents-section.md"
+    if [[ ! -f "$agency_sec" ]]; then
+      agency_sec="$MONO_ROOT/setup-omp/templates/agency-agents-section.md"
+    fi
+    if [[ "${INSTALL_AGENCY:-}" == "true" && -f "$agency_sec" ]]; then
+      if ! grep -q "agency-agents-section" "$target_file" 2>/dev/null && ! grep -q "Using Agency Agents MCP" "$target_file" 2>/dev/null; then
+        echo "" >> "$target_file"
+        cat "$agency_sec" >> "$target_file"
+      fi
+    fi
   fi
 }
 
@@ -724,10 +895,10 @@ install_claude_code() {
   local claude_dir="$SETUP_HOME_DIR/.claude"
   if ! $DRY_RUN; then
     mkdir -p "$claude_dir" "$claude_dir/hud" "$SETUP_HOME_DIR/.trash-guard"
-    
-    # 1. CLAUDE.md
-    copy_doc "setup-claude-code" "CLAUDE.md" "$claude_dir"
 
+    # 1. CLAUDE.md & AGENTS.md (copy_doc tu dong append Memorix/Agency neu duoc bat)
+    copy_doc "setup-claude-code" "CLAUDE.md" "$claude_dir"
+    copy_doc "setup-claude-code" "CLAUDE.md" "$claude_dir" "AGENTS.md"
     # 2. .claude.json
     local claude_json="$SETUP_HOME_DIR/.claude.json"
     render_template "$MONO_ROOT/setup-claude-code/templates/claude.json" "$claude_json"
@@ -742,7 +913,12 @@ install_claude_code() {
       chmod +x "$SETUP_HOME_DIR/.trash-guard"/*.sh 2>/dev/null || true
     fi
 
-    # 5. Skills
+    # 5. HUD scripts
+    if [[ -d "$MONO_ROOT/setup-claude-code/hud" ]]; then
+      cp -Rf "$MONO_ROOT/setup-claude-code/hud"/* "$claude_dir/hud/" 2>/dev/null || true
+    fi
+
+    # 6. Skills
     sync_skills "$claude_dir/skills"
   else
     echo "  -> [WhatIf] Cau hinh Claude Code tai $claude_dir"
@@ -851,6 +1027,7 @@ install_dsh() {
   if ! $DRY_RUN; then
     mkdir -p "$dsh_home" "$dsh_profile"
     copy_doc "setup-dsh" "AGENTS.md" "$dsh_home"
+    copy_doc "setup-dsh" "AGENTS.md" "$dsh_profile"
     
     # cordis.patch.yml
     render_template "$MONO_ROOT/setup-dsh/templates/cordis.patch.yml" "$dsh_profile/cordis.patch.yml"
@@ -902,12 +1079,21 @@ install_antigravity_cli() {
   if ! $DRY_RUN; then
     mkdir -p "$agy_dir/hooks" "$agy_user_dir"
     copy_doc "setup-antigravity-cli" "AGENTS.md" "$agy_dir"
+    copy_doc "setup-antigravity-cli" "mcp-map.md" "$agy_dir"
+    copy_doc "setup-antigravity-cli" "AGENTS.md" "$agy_dir" "GEMINI.md"
     render_template "$MONO_ROOT/setup-antigravity-cli/templates/settings.json" "$agy_dir/settings.json"
+    cp -f "$agy_dir/settings.json" "$agy_user_dir/settings.json" 2>/dev/null || true
 
     # keybindings.json
     if [[ -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" ]]; then
       cp -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" "$agy_dir/keybindings.json"
       cp -f "$MONO_ROOT/setup-antigravity-cli/templates/keybindings.json" "$agy_user_dir/keybindings.json" 2>/dev/null || true
+    fi
+
+    # hooks
+    if [[ -d "$MONO_ROOT/setup-antigravity-cli/hooks" ]]; then
+      cp -Rf "$MONO_ROOT/setup-antigravity-cli/hooks"/* "$agy_dir/hooks/" 2>/dev/null || true
+      chmod +x "$agy_dir/hooks"/*.sh 2>/dev/null || true
     fi
 
     sync_skills "$agy_dir/skills"

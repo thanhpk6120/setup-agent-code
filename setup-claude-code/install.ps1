@@ -188,11 +188,30 @@ if (-not $claudeCmd) {
     Write-Host "  -> [Skip] Da dung version hien tai. Bo qua cai lai." -ForegroundColor DarkGray
 }
 
+# Dung lai bien da luu tu lan chay truoc (neu co) - chi hoi bien thieu
+$script:__SavedAiVars = @{}
+$__resumeEnv = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code\.env"
+$__resumeEnv2 = Join-Path ([System.IO.Path]::GetTempPath()) "setup-agent-code-saved.env"
+foreach ($__ef in @($__resumeEnv, $__resumeEnv2)) {
+    if (Test-Path -LiteralPath $__ef) {
+        Get-Content -LiteralPath $__ef -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object {
+            $__l = $_.Trim()
+            if ($__l -and -not $__l.StartsWith("#")) {
+                $__idx = $__l.IndexOf("=")
+                if ($__idx -gt 0) {
+                    $__k = $__l.Substring(0, $__idx).Trim()
+                    $__v = $__l.Substring($__idx + 1).Trim()
+                    if ($__k -and -not $script:__SavedAiVars.ContainsKey($__k)) { $script:__SavedAiVars[$__k] = $__v }
+                }
+            }
+        }
+    }
+}
 # 2. Luồng hỏi tương tác cấu hình AI Provider
 Write-Host ""
 Write-Host "==> Cấu hình kết nối AI Provider..." -ForegroundColor Cyan
 $defaultAiUrl = "http://localhost:20128/v1"
-$inputAiUrl = Read-Host "Nhập AI Base URL [Mặc định: $defaultAiUrl]"
+if ($script:__SavedAiVars.ContainsKey("AI_BASE_URL") -and -not [string]::IsNullOrWhiteSpace($script:__SavedAiVars["AI_BASE_URL"]) -and [Environment]::UserInteractive -and -not [Console]::IsInputRedirected) { $inputAiUrl = $script:__SavedAiVars["AI_BASE_URL"]; Write-Host "  -> [Reuse] Su dung lai AI Base URL = $inputAiUrl" -ForegroundColor DarkGray } else { $inputAiUrl = Read-Host "Nhập AI Base URL [Mặc định: $defaultAiUrl]" }
 $aiBaseUrl = if ([string]::IsNullOrWhiteSpace($inputAiUrl)) { $defaultAiUrl } else { $inputAiUrl.Trim() }
 
 # AI_API_KEY: Mặc định không có, bắt buộc nhập
@@ -201,6 +220,7 @@ while ([string]::IsNullOrWhiteSpace($aiApiKey)) {
     if ([Console]::IsInputRedirected -or -not [Environment]::UserInteractive) {
         if (-not [string]::IsNullOrWhiteSpace($env:AI_API_KEY)) {
             $aiApiKey = $env:AI_API_KEY.Trim()
+            if ([string]::IsNullOrWhiteSpace($aiApiKey) -and $script:__SavedAiVars.ContainsKey("AI_API_KEY") -and -not [string]::IsNullOrWhiteSpace($script:__SavedAiVars["AI_API_KEY"])) { $aiApiKey = $script:__SavedAiVars["AI_API_KEY"].Trim(); Write-Host "  -> [Reuse] Su dung lai AI API Key = ***" -ForegroundColor DarkGray }
             break
         }
         throw "Lỗi: Đang chạy ở chế độ non-interactive nhưng AI API Key chưa được cung cấp qua biến môi trường `$env:AI_API_KEY`."
@@ -225,6 +245,7 @@ if ($PSBoundParameters.ContainsKey('EnableMemorix')) {
     if ($memorixCmd) {
         Write-Host "==> Đã phát hiện Memorix trên hệ thống tại: $($memorixCmd.Source)" -ForegroundColor Green
     }
+    if ($script:__SavedAiVars.ContainsKey("SETUP_MCP_MEMORIX")) { $savedM = $script:__SavedAiVars["SETUP_MCP_MEMORIX"]; $mm = if ($savedM -eq "true" -or $savedM -eq "1") { "CO" } else { "KHONG" }; Write-Host "  -> [Reuse] Su dung lai lua chon MCP 'memorix': $mm" -ForegroundColor DarkGray; $enableMemorixVal = ($savedM -eq "true" -or $savedM -eq "1") } else {
     $memorixPrompt = Read-Host "Bạn có muốn cài đặt Memorix (MCP & Session Memory) không? [y/N]"
     if (-not [string]::IsNullOrWhiteSpace($memorixPrompt) -and $memorixPrompt.Trim().ToLower() -eq 'y') {
         $enableMemorixVal = $true
@@ -233,9 +254,10 @@ if ($PSBoundParameters.ContainsKey('EnableMemorix')) {
         $enableMemorixVal = $false
         Write-Host "==> Bỏ qua cài đặt Memorix (mặc định)." -ForegroundColor Yellow
     }
-}
+    }
 
 # 4. Thiết lập biến môi trường phiên làm việc
+}
 $env:AI_BASE_URL = $aiBaseUrl
 $env:AI_API_KEY = $aiApiKey
 
@@ -317,7 +339,27 @@ try {
     # Ghi file .env tạm thời để bootstrap.ps1 đọc (chỉ khi dùng gói tải về; local dùng $env: sẵn có)
     if ($extractedRoot -ne $PSScriptRoot) {
         $tempEnvPath = Join-Path $tempBase ".env"
-        Set-Content -Path $tempEnvPath -Value $envContent -Encoding UTF8
+    # Hop nhat .env: giu lai moi key cu da luu, chi cap nhat AI_BASE_URL/AI_API_KEY
+    $__mergedEnv = @{}
+    foreach ($__ef in @($tempEnvPath, $extractedEnvPath)) {
+        if ($__ef -and (Test-Path -LiteralPath $__ef)) {
+            Get-Content -LiteralPath $__ef -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object {
+                $__l = $_.Trim()
+                if ($__l -and -not $__l.StartsWith("#")) {
+                    $__idx = $__l.IndexOf("=")
+                    if ($__idx -gt 0) {
+                        $__k = $__l.Substring(0, $__idx).Trim()
+                        $__v = $__l.Substring($__idx + 1).Trim()
+                        if ($__k -and -not $__mergedEnv.ContainsKey($__k)) { $__mergedEnv[$__k] = $__v }
+                    }
+                }
+            }
+        }
+    }
+    $__mergedEnv["AI_BASE_URL"] = $aiBaseUrl
+    $__mergedEnv["AI_API_KEY"] = $aiApiKey
+    $__mergedContent = ($__mergedEnv.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join "`r`n"
+        Set-Content -Path $tempEnvPath -Value $__mergedContent -Encoding UTF8
         $extractedEnvPath = Join-Path $extractedRoot ".env"
         Copy-Item -Path $tempEnvPath -Destination $extractedEnvPath -Force
     }
