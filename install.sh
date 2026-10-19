@@ -918,6 +918,23 @@ install_claude_code() {
       cp -Rf "$MONO_ROOT/setup-claude-code/hud"/* "$claude_dir/hud/" 2>/dev/null || true
     fi
 
+    # 5b. Dang ky HUD statusLine (macOS thieu buoc nay -> HUD khong hien)
+    if [[ -f "$claude_dir/hud/hud.mjs" ]]; then
+      _node_bin="$(command -v node 2>/dev/null || echo node)"
+      HUD_MJS="$claude_dir/hud/hud.mjs" NODE_BIN="$_node_bin" SETTINGS_JSON="$settings_json" node -e '
+        const fs = require("fs");
+        const dest = process.env.SETTINGS_JSON;
+        let obj;
+        try { obj = JSON.parse(fs.readFileSync(dest, "utf8")); } catch (e) { obj = {}; }
+        const nodeBin = process.env.NODE_BIN || "node";
+        const hud = process.env.HUD_MJS;
+        obj.statusLine = { type: "command", command: nodeBin + " " + hud };
+        if (obj.env && obj.env.CLAUDE_CODE_USE_POWERSHELL_TOOL) { delete obj.env.CLAUDE_CODE_USE_POWERSHELL_TOOL; }
+        fs.writeFileSync(dest, JSON.stringify(obj, null, 2) + "\n", "utf8");
+      ' 2>/dev/null || true
+      echo "  -> [OK] Da dang ky HUD statusLine: $settings_json"
+    fi
+
     # 6. Skills
     sync_skills "$claude_dir/skills"
   else
