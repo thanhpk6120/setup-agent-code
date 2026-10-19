@@ -115,6 +115,8 @@ Allowed only when requested or for approved parallel chunks. Use the exact task/
 - Use local search/read/terminal and external docs for third-party integrations as needed.
 - Don't assume optional tools/services exist; fall back gracefully and report limitations.
 - Prefer focused searches/ranges/summaries over entire massive logs or files.
+- **File Edit Priority (Hard Constraint):** MANDATORY: modify files with `edit` (hashline) or `write`. FORBIDDEN: `python`, `sed`, `awk`, or shell heredocs for file edits — they bypass snapshot safety. If `edit` rejects a stale tag, re-`read` the exact line range for a fresh tag; do NOT fall back to a shell editor.
+- **Shell Editor Exception:** shell string-replace tools only for transforms not expressible as line-range edits (bulk regex across many files, generated code). State the reason in one line.
 
 ---
 
