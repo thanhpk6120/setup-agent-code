@@ -8,16 +8,16 @@ theme:
 setupVersion: 2
 modelRoles:
   default: custom/claude-sonnet-5:high
-  smol: custom/claude-haiku-4-5-20251001:medium
+  smol: custom/claude-haiku-4-5-20251001
   slow: custom/claude-fable-5:xhigh
   vision: custom/claude-sonnet-5:medium
   plan: custom/claude-fable-5:high
   designer: custom/claude-sonnet-5:medium
-  commit: custom/claude-haiku-4-5-20251001:medium
-  tiny: custom/claude-haiku-4-5-20251001:medium
+  commit: custom/claude-haiku-4-5-20251001
+  tiny: custom/claude-haiku-4-5-20251001
   task: custom/claude-sonnet-5:medium
   advisor: custom/claude-opus-5:medium
-  memory: custom/claude-haiku-4-5-20251001:medium
+  memory: custom/claude-haiku-4-5-20251001
 computer:
   enabled: true
 task:
@@ -34,7 +34,7 @@ task:
     plan-reviewer: custom/claude-opus-5:medium
     reviewer: custom/claude-opus-5:medium
     security-reviewer: custom/claude-opus-5:high
-    memory: custom/claude-haiku-4-5-20251001:medium
+    memory: custom/claude-haiku-4-5-20251001
   eager: preferred
   batch: true
   maxConcurrency: 8
