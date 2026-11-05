@@ -480,6 +480,16 @@
           ]
         }
       ],
+      "localPlugins": [
+        {
+          "id": "safe-fs-replace",
+          "label": "Safe FS replace (chong treo app khi ReplaceFileW gap file lock)",
+          "template": "dsh/local-plugins/safe-fs-replace.js",
+          "dest": "<dir>/local-plugins/safe-fs-replace.js",
+          "patch": "<profile>/cordis.patch.yml",
+          "comment": "DSH fix: ReplaceFileW -> rename() async (chống treo app). Rollback: xoá 3 dòng dưới."
+        }
+      ],
       "hooks": [],
       "verify": {
         "files": [

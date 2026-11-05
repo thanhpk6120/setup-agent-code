@@ -181,14 +181,26 @@ function parseLayer(text) {
     const lines = entry.text.split('\n');
     if (/^- insert:\s*$/.test(lines[0])) {
       let item = null;
+      let itemIndent = null;
       for (const line of lines.slice(1)) {
-        const match = line.match(/^ {2,}- (?:id:\s*(.*?)\s*)?$/);
-        if (match) {
+        const dash = /^(\s*)-(?:\s|$)/.exec(line);
+        if (dash) {
+          const indent = dash[1].length;
+          if (itemIndent === null) itemIndent = indent;
+          // Deeper dashes are content of the current item (e.g. `args:` lists).
+          if (indent > itemIndent) {
+            if (item) item.lines.push(line);
+            continue;
+          }
+          if (indent < itemIndent) throw new Error('Cannot safely merge nested YAML insert');
+          const match = line.match(/^ {2,}- (?:id:\s*(.*?)\s*)?$/);
+          if (!match) throw new Error('Cannot safely merge unsupported YAML insert item');
           if (item) inserts.push(item);
           item = { id: yamlId(match[1]), lines: [line] };
           continue;
         }
         if (item) item.lines.push(line);
+        else if (line.trim()) throw new Error('Cannot safely merge YAML insert preamble');
       }
       if (item) inserts.push(item);
       continue;
@@ -208,26 +220,10 @@ function parseLayer(text) {
  * know about are preserved verbatim.
  */
 export function mergeYamlLayer(existingText, templateText, { managedMcpIds = [], managedInsertIds = [], ownIds = [] } = {}) {
-  // ponytail: Reject block scalars and nested insert sequences until a lossless YAML parser is used.
+  // ponytail: Reject block scalars until a lossless YAML parser is used; a block
+  // scalar's blank lines are indistinguishable from entry separators here.
   for (const text of [existingText, templateText]) {
-    // ponytail: A block scalar's blank lines are indistinguishable from entry separators
-    // for a line-based splitter, so sequence scalars (`- |`) are rejected too.
     if (/^\s*(?:-\s+|[^#\n]+:\s*)[|>][-+\d]*\s*(?:#.*)?$/m.test(text)) throw new Error('Cannot safely merge YAML block scalar');
-    for (const entry of splitYamlEntries(text).entries) {
-      const lines = entry.text.split('\n');
-      if (!/^- insert:\s*$/.test(lines[0])) continue;
-      let indent = null;
-      let found = false;
-      for (const line of lines.slice(1)) {
-        const match = /^(\s*)-(?:\s|$)/.exec(line);
-        if (match) {
-          if (!/^ {2,}- (?:id:\s*(.*?)\s*)?$/.test(line)) throw new Error('Cannot safely merge unsupported YAML insert item');
-          if (indent === null) indent = match[1].length;
-          if (match[1].length !== indent) throw new Error('Cannot safely merge nested YAML insert');
-          found = true;
-        } else if (!found && line.trim()) throw new Error('Cannot safely merge YAML insert preamble');
-      }
-    }
   }
   const existing = parseLayer(existingText);
   const template = parseLayer(templateText);

@@ -595,6 +595,9 @@ const PHASE_IMPL = {
     for (const plugin of c.agent.plugins || []) {
       await ensurePlugin(c, plugin);
     }
+    for (const localPlugin of c.agent.localPlugins || []) {
+      await ensureLocalPlugin(c, localPlugin);
+    }
     if (!ctx.opts['skip-install'] && ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix') && (ctx.opts.memorix || ctx.interactive)) {
       const agentFlag = { 'claude-code': 'claude', 'codex-cli': 'codex', dsh: 'dsh' }[c.agent.id];
       if (agentFlag && U.which('memorix')) {
@@ -1007,6 +1010,49 @@ async function ensurePlugin(c, plugin) {
     ctx.guidance.push({ scope: `plugin:${plugin.id}`, steps: plugin.installGuidance || [] });
   }
   c.rows.push(row);
+}
+
+/**
+ * Local DSH plugins are a single .js file plus an `- insert:` entry in the
+ * profile patch layer. They are not npm bundles, so nothing to install; we copy
+ * the file and append the entry once (idempotent by plugin id).
+ */
+async function ensureLocalPlugin(c, lp) {
+  const dest = M.resolveToken(lp.dest, c.tokens);
+  const patch = M.resolveToken(lp.patch, c.tokens);
+  const rowId = `plugin:${lp.id}`;
+  const content = R.renderTemplate(ROOT, lp.template, buildVars(c));
+  await writeConfig(c, { dest, kind: 'script', content, preserve: false }, 'overwrite');
+
+  if (!U.exists(patch)) {
+    U.log.warn(`${lp.id}: chua co ${patch} -> khong dang ky duoc`);
+    c.rows.push(V.result(rowId, 'WARN', `thieu ${patch}`));
+    return;
+  }
+  const text = U.readText(patch);
+  if (text.includes(`- id: ${lp.id}`)) {
+    U.log.skip(`${lp.id}: da dang ky trong patch`);
+    c.rows.push(V.result(rowId, 'PASS', 'da dang ky'));
+    return;
+  }
+  if (ctx.mode === 'dry-run') {
+    U.log.info(`[dry-run] se them ${lp.id} vao ${patch}`);
+    c.rows.push(V.result(rowId, 'SKIP', 'dry-run'));
+    return;
+  }
+  const url = pathToFileUrl(dest);
+  const banner = lp.comment ? `${lp.comment}\n` : '';
+  const block = `${text.endsWith('\n') ? '' : '\n'}\n${banner}- insert:\n  - id: ${lp.id}\n    name: "${url}"\n`;
+  U.backupFile(patch);
+  U.writeFileAtomic(patch, text + block);
+  U.log.ok(`${lp.id}: da them vao ${patch}`);
+  c.rows.push(V.result(rowId, 'PASS', `da them vao ${patch}`));
+}
+
+function pathToFileUrl(p) {
+  let u = p.split(path.sep).join('/');
+  if (!u.startsWith('/')) u = '/' + u;
+  return `file://${encodeURI(u).replace(/[?#]/g, (ch) => encodeURIComponent(ch))}`;
 }
 
 function finish(report, opts, manifests, mode) {

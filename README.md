@@ -165,6 +165,8 @@ Ghi chú quan trọng:
 - **DSH credentials**: file `.credentials.yaml` **không bao giờ bị ghi đè** (kể cả `--overwrite-all`) vì chứa secret + OAuth records thật. Xoá file rồi chạy lại nếu muốn tạo mới.
 - **DSH chặn xoá cứng**: DSH không có hook API kiểu PreToolUse; lớp bảo vệ là plugin bundle `cc-safety-net`. Installer kiểm tra → hỏi → cài bằng `dsh plugin --profile web add cc-safety-net` → verify `cc-safety-net status`. Cần `pnpm` (installer tự tìm trong cả PATH và `%LOCALAPPDATA%\pnpm\bin`).
 
+- **DSH chống treo khi ghi file**: installer cài local plugin `safe-fs-replace` (`~/.dsh/local-plugins/safe-fs-replace.js`) và thêm đúng một entry `- insert: id: safe-fs-replace` vào `cordis.patch.yml`. Plugin chỉ chạy trên Windows: thay `internals.replaceFile` bằng `rename()` async có retry (`EACCES`/`EBUSY`/`EPERM`, 12 lần, 20→250 ms) để tránh `ReplaceFileW` treo app khi file bị lock. Idempotent: chạy lại không thêm entry thứ hai; rollback = xoá entry + restart DSH.
+
 ---
 
 ## 6. MCP Servers

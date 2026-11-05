@@ -467,3 +467,21 @@ Người dùng chốt bỏ `glab` (máy có binary `glab` nhưng **không có** 
 Verify sau khi xoá: mọi JSON parse được, không mất top-level key nào, `9remote` + token còn nguyên, các marker custom của DSH (`192.168.1.68`, `plugin-market`, `better-sidebar`, `desktop-shell`, `windowsMaterial`, `fontSize: 13`, `computer-use`) còn nguyên. Backup: `<file>.bak.202611050724` cho từng file.
 
 **Quyết định cuối (m04491):** chỉ **ngừng cài / ngừng kiểm tra / ngừng hỏi** về `agency` và `glab`. Không thêm cơ chế tự xoá entry trên máy khác.
+
+## Bổ sung v1.1.1 — Local plugin `safe-fs-replace` cho DSH (chống treo khi ghi file)
+
+**Vấn đề (m04704):** DSH NEXT trên Windows dùng `ReplaceFileW` khi ghi file; nếu file bị lock (editor, sync, antivirus) app "đơ". Không sửa `app.asar`; chỉ chèn plugin cục bộ.
+
+| Hạng mục | Nội dung |
+|---|---|
+| `manifest/agents.json` (dsh) | Thêm `localPlugins[]`: `id`, `label`, `template`, `dest: "<dir>/local-plugins/safe-fs-replace.js"`, `patch: "<profile>/cordis.patch.yml"`, `comment` (banner rollback) |
+| `templates/dsh/local-plugins/safe-fs-replace.js` | 1005 B, ESM: `name = 'safe-fs-replace'`, `inject = ['fs']`, `renameWithRetry()` retry 12 lần (`EACCES`/`EBUSY`/`EPERM`, 20→250 ms), `patch(service)` gán `internals.replaceFile`, `apply(ctx)` chỉ chạy `win32`, nghe `internal/service` |
+| `core/engine.mjs` P10 | `ensureLocalPlugin()` sau vòng `plugins[]`: copy template → nếu patch đã chứa `- id: <id>` thì skip (idempotent) → ngược lại backup + append block `- insert: / - id: / name: "file:///..."` (URL tuyệt đối, `/`, `encodeURI`); `--dry-run` chỉ in, không ghi |
+| `core/lib/manifest.mjs` | Validator bắt buộc `localPlugins[].id/template (tồn tại)/dest/patch` |
+| `tests/engine.test.mjs` | "dsh installs the local safe-fs-replace plugin once (idempotent)": chạy 2 lần trong HOME tạm → file tồn tại, entry xuất hiện đúng 1 lần, `name:` là `file:///`, không có `\` |
+
+**Verify trên máy thật:** `~/.dsh/local-plugins/safe-fs-replace.js` (1005 B, UTF-8 không BOM); `cordis.patch.yml` 170 → 176 dòng, entry cuối `safe-fs-replace` với `file:///C:/Users/Thanh/...`; parse bằng `yaml` runtime của profile → `entries= 22`, `last.id= safe-fs-replace`; backup `.bak.20261105104901.`; chạy lại script append → `ALREADY_PRESENT`.
+
+**Vận hành:** phải restart DSH rồi kiểm log `Select-String "$env:USERPROFILE\.dsh\logs\desktop-next-*.log" -Pattern "safe-fs-replace"` (kỳ vọng `patched=true`). Rollback: khôi phục `.bak` hoặc xoá 3 dòng cuối trong patch, rồi restart.
+
+**Test:** full suite cách ly `npm test` → 110 tests, 108 pass, 0 fail, 2 skipped (launcher opt-in).

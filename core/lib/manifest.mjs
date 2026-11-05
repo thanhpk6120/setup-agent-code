@@ -81,6 +81,14 @@ export function validateManifests(m) {
     if (agent.credentialFile && !exists(path.join(m.root, 'templates', agent.credentialFile.template))) {
       errors.push(`${agent.id}: credential template khong ton tai: templates/${agent.credentialFile.template}`);
     }
+    for (const lp of agent.localPlugins || []) {
+      if (!lp.id) errors.push(`${agent.id}: localPlugin can id`);
+      if (!lp.template || !exists(path.join(m.root, 'templates', lp.template))) {
+        errors.push(`${agent.id}: localPlugin ${lp.id}: template khong ton tai: templates/${lp.template}`);
+      }
+      if (!lp.dest) errors.push(`${agent.id}: localPlugin ${lp.id}: thieu dest`);
+      if (!lp.patch) errors.push(`${agent.id}: localPlugin ${lp.id}: thieu patch`);
+    }
     if (!agent.skillsDir) errors.push(`${agent.id}: thieu skillsDir`);
   }
   const mcpIds = new Set();

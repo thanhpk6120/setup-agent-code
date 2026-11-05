@@ -40,8 +40,15 @@ test('bare dotted TOML table headers remain mergeable', () => {
   assert.equal(mergeToml(existing, '[a.c]\nother = 2\n'), '[a.b]\nvalue = 1\n\n[a.c]\nother = 2\n');
 });
 
+test('nested content inside a YAML insert item is preserved verbatim', () => {
+  const input = '- insert:\n  - id: user\n    config:\n      - id: nested\n        value: keep\n';
+  const out = mergeYamlLayer(input, '');
+  assert.ok(out.includes('- id: nested'), 'deeper sequence line survives');
+  assert.ok(out.includes('value: keep'), 'deeper scalar survives');
+  assert.equal(out.split('- id: user').length - 1, 1, 'sibling item is emitted once');
+});
+
 test('unsafe YAML structures fail before merging', () => {
-  assert.throws(() => mergeYamlLayer('- insert:\n  - id: user\n    config:\n      - id: nested\n        value: keep\n', '', { managedInsertIds: ['nested'] }), /Cannot safely merge/);
   assert.throws(() => mergeYamlLayer('- insert:\n  # comment\n  - id: user\n', ''), /Cannot safely merge/);
   assert.throws(() => mergeYamlLayer('- id: user\n  value: |\n    a\n\n\n    b\n', ''), /Cannot safely merge/);
 });

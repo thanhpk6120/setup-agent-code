@@ -569,6 +569,26 @@ test('dsh re-run keeps user profile entries and existing skills', () => {
   assert.ok(fs.existsSync(path.join(skills, 'create-plan', 'SKILL.md')), 'canonical skills are installed');
 });
 
+test('dsh installs the local safe-fs-replace plugin once (idempotent)', () => {
+  const home = tempHome();
+  const args = ['--target', 'dsh', '--yes', '--skip-install', '--mcp', 'none'];
+  const first = runEngine(args, home);
+  assert.equal(first.status, 0, first.stderr);
+  const second = runEngine(args, home);
+  assert.equal(second.status, 0, second.stderr);
+
+  const plugin = path.join(home, '.dsh', 'local-plugins', 'safe-fs-replace.js');
+  assert.ok(fs.existsSync(plugin), 'plugin file is copied');
+  const source = fs.readFileSync(plugin, 'utf8');
+  assert.ok(source.includes("export const name = 'safe-fs-replace'"), 'plugin exports its name');
+
+  const patch = fs.readFileSync(path.join(home, '.dsh', 'profiles', 'web', 'cordis.patch.yml'), 'utf8');
+  const occurrences = patch.split('- id: safe-fs-replace').length - 1;
+  assert.equal(occurrences, 1, 'plugin entry must be registered exactly once after two runs');
+  assert.ok(patch.includes('name: "file:///'), 'plugin name is an absolute file URL');
+  assert.ok(!patch.includes('\\\\'), 'file URL uses forward slashes');
+});
+
 test('dsh install never overwrites existing credentials', () => {
   const home = tempHome();
   const credDir = path.join(home, 'AppData', 'Roaming', 'dsh-desktop', 'harness');
