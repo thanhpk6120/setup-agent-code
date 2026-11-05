@@ -153,28 +153,29 @@ test('isolated install (mcp none) writes instruction files only and no memorix s
   assert.ok(skills.length > 0);
 });
 
-test('isolated install (mcp all, memorix) writes all 7 servers on every adapter', () => {
+test('isolated install (mcp all, memorix) writes every manifest MCP on every adapter', () => {
   const home = tempHome();
+  const expectedMcp = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest', 'mcp.json'), 'utf8')).servers.length;
   const res = runEngine(['--target', 'all', '--yes', '--skip-install', '--force', '--mcp', 'all', '--memorix', '--quiet'], home);
   assert.equal(res.status, 0, res.stderr);
 
   const ompMcp = JSON.parse(fs.readFileSync(path.join(home, '.omp', 'agent', 'mcp.json'), 'utf8'));
-  assert.equal(Object.keys(ompMcp.mcpServers).length, 7);
+  assert.equal(Object.keys(ompMcp.mcpServers).length, expectedMcp);
 
   const claudeJson = JSON.parse(fs.readFileSync(path.join(home, '.claude.json'), 'utf8'));
-  assert.equal(Object.keys(claudeJson.mcpServers).length, 7);
+  assert.equal(Object.keys(claudeJson.mcpServers).length, expectedMcp);
 
   const codex = fs.readFileSync(path.join(home, '.codex', 'config.toml'), 'utf8');
-  assert.equal((codex.match(/^\[mcp_servers\.[a-z0-9-]+\]$/gm) || []).length, 7);
+  assert.equal((codex.match(/^\[mcp_servers\.[a-z0-9-]+\]$/gm) || []).length, expectedMcp);
   assert.ok(!codex.includes('CODEX.md'));
 
   const cordis = fs.readFileSync(path.join(home, '.dsh', 'profiles', 'web', 'cordis.patch.yml'), 'utf8');
-  assert.equal((cordis.match(/^- id: mcp-/gm) || []).length, 7);
+  assert.equal((cordis.match(/^- id: mcp-/gm) || []).length, expectedMcp);
   assert.ok(cordis.includes('serverName: memorix'));
   assert.ok(!cordis.includes('maxActiveSubagents: 32\n    command:'), 'memorix must not leak into subagent config');
 
   const agySettings = JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8'));
-  assert.equal(Object.keys(agySettings.mcpServers).length, 7);
+  assert.equal(Object.keys(agySettings.mcpServers).length, expectedMcp);
   assert.ok(agySettings.hooks.PreToolUse.length >= 1);
 
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'AGENTS.md')));
