@@ -1,0 +1,16 @@
+{
+  "name": "setup-agent-code",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-command installer for 6 AI coding agents with a single shared engine (Windows + macOS + Linux)",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules --test tests/*.test.mjs",
+    "validate": "node scripts/validate.mjs",
+    "dry-run": "node core/engine.mjs --target all --dry-run --json",
+    "doctor": "node core/engine.mjs --target all --doctor"
+  },
+  "license": "MIT"
+}

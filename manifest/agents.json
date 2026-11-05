@@ -1,0 +1,609 @@
+{
+  "$schema": "./schema/agents.schema.json",
+  "version": 1,
+  "agents": [
+    {
+      "id": "omp",
+      "name": "OMP Agent",
+      "vendor": "oh-my-pi",
+      "binary": {
+        "command": "omp",
+        "versionArgs": [
+          "--version"
+        ],
+        "install": {
+          "win": [
+            {
+              "type": "powershell",
+              "script": "irm https://omp.sh/install.ps1 | iex"
+            }
+          ],
+          "unix": [
+            {
+              "type": "shell",
+              "script": "curl -fsSL https://omp.sh/install | sh"
+            }
+          ]
+        },
+        "installGuidance": [
+          "Windows: irm https://omp.sh/install.ps1 | iex",
+          "macOS/Linux: curl -fsSL https://omp.sh/install | sh"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.omp\\agent",
+        "unix": "~/.omp/agent"
+      },
+      "extraDirs": {
+        "ompExt": {
+          "win": "%USERPROFILE%\\.omp\\extensions",
+          "unix": "~/.omp/extensions"
+        }
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/AGENTS.md",
+          "content": [
+            "common/instructions.md",
+            "omp/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        },
+        {
+          "dest": "<dir>/RULES.md",
+          "content": [
+            "common/global-rules.md"
+          ],
+          "optionalSections": {}
+        }
+      ],
+      "forbiddenFiles": [
+        {
+          "dest": "<dir>/SYSTEM.md",
+          "code": "omp-system-md"
+        }
+      ],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "omp-json",
+        "file": "<dir>/mcp.json"
+      },
+      "configs": [
+        {
+          "template": "omp/config.yml",
+          "dest": "<dir>/config.yml",
+          "kind": "yaml-plain",
+          "preserve": true
+        },
+        {
+          "template": "omp/models.yml",
+          "dest": "<dir>/models.yml",
+          "kind": "yaml-plain",
+          "preserve": true
+        }
+      ],
+      "hooks": [
+        {
+          "template": "hooks/omp/no-hard-delete.ts",
+          "dest": "<ompExt>/no-hard-delete.ts",
+          "register": null
+        }
+      ],
+      "verify": {
+        "files": [
+          "<dir>/AGENTS.md",
+          "<dir>/RULES.md",
+          "<dir>/mcp.json",
+          "<dir>/config.yml"
+        ],
+        "forbiddenAbsent": [
+          "<dir>/SYSTEM.md"
+        ]
+      }
+    },
+    {
+      "id": "claude-code",
+      "name": "Claude Code",
+      "vendor": "Anthropic",
+      "binary": {
+        "command": "claude",
+        "versionArgs": [
+          "--version"
+        ],
+        "install": {
+          "win": [
+            {
+              "type": "npm",
+              "package": "@anthropic-ai/claude-code"
+            }
+          ],
+          "unix": [
+            {
+              "type": "shell",
+              "script": "curl -fsSL https://claude.ai/install.sh | bash"
+            }
+          ]
+        },
+        "installGuidance": [
+          "npm install -g @anthropic-ai/claude-code",
+          "hoac: curl -fsSL https://claude.ai/install.sh | bash"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.claude",
+        "unix": "~/.claude"
+      },
+      "extraDirs": {
+        "claudeJson": {
+          "win": "%USERPROFILE%\\.claude.json",
+          "unix": "~/.claude.json"
+        },
+        "trashGuard": {
+          "win": "%USERPROFILE%\\.trash-guard",
+          "unix": "~/.trash-guard"
+        }
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/CLAUDE.md",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "claude/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [
+        {
+          "dest": "<dir>/AGENTS.md",
+          "code": "claude-agents-md"
+        }
+      ],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "json-mcpServers",
+        "file": "<claudeJson>"
+      },
+      "configs": [
+        {
+          "template": "claude/settings.json",
+          "dest": "<dir>/settings.json",
+          "kind": "json",
+          "placeholders": true,
+          "stripKeys": [
+            "env.CLAUDE_CODE_USE_POWERSHELL_TOOL"
+          ],
+          "hooks": true
+        }
+      ],
+      "hooks": [
+        {
+          "template": "hooks/claude/pre-tool.mjs",
+          "dest": "<trashGuard>/pre-tool.mjs",
+          "register": {
+            "file": "<dir>/settings.json",
+            "event": "PreToolUse",
+            "matcher": "Bash",
+            "shape": "claude",
+            "command": "node \"<trashGuardPath>/pre-tool.mjs\""
+          }
+        },
+        {
+          "template": "hooks/claude/hud.mjs",
+          "dest": "<dir>/hud/hud.mjs",
+          "register": null
+        }
+      ],
+      "verify": {
+        "files": [
+          "<dir>/CLAUDE.md",
+          "<claudeJson>",
+          "<dir>/settings.json"
+        ],
+        "forbiddenAbsent": [
+          "<dir>/AGENTS.md"
+        ]
+      }
+    },
+    {
+      "id": "opencode",
+      "name": "OpenCode",
+      "vendor": "Anomaly",
+      "binary": {
+        "command": "opencode",
+        "versionArgs": [
+          "--version"
+        ],
+        "install": {
+          "win": [
+            {
+              "type": "npm",
+              "package": "opencode-ai"
+            }
+          ],
+          "unix": [
+            {
+              "type": "npm",
+              "package": "opencode-ai"
+            }
+          ]
+        },
+        "installGuidance": [
+          "npm install -g opencode-ai"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.config\\opencode",
+        "unix": "~/.config/opencode"
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/AGENTS.md",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "opencode/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "opencode-json",
+        "file": "<dir>/opencode.json"
+      },
+      "configs": [
+        {
+          "template": "opencode/opencode.json",
+          "dest": "<dir>/opencode.json",
+          "kind": "json",
+          "mcpMerge": true
+        }
+      ],
+      "hooks": [
+        {
+          "template": "hooks/opencode/no-hard-delete.js",
+          "dest": "<dir>/plugins/no-hard-delete.js",
+          "register": {
+            "file": "<dir>/opencode.json",
+            "key": "plugin",
+            "value": "./plugins/no-hard-delete.js"
+          }
+        }
+      ],
+      "verify": {
+        "files": [
+          "<dir>/AGENTS.md",
+          "<dir>/opencode.json"
+        ]
+      }
+    },
+    {
+      "id": "codex-cli",
+      "name": "Codex CLI",
+      "vendor": "OpenAI",
+      "binary": {
+        "command": "codex",
+        "versionArgs": [
+          "--version"
+        ],
+        "install": {
+          "win": [
+            {
+              "type": "npm",
+              "package": "@openai/codex"
+            }
+          ],
+          "unix": [
+            {
+              "type": "npm",
+              "package": "@openai/codex"
+            }
+          ]
+        },
+        "installGuidance": [
+          "npm install -g @openai/codex"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.codex",
+        "unix": "~/.codex"
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/AGENTS.md",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "codex/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [
+        {
+          "dest": "<dir>/CODEX.md",
+          "code": "codex-md"
+        }
+      ],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "codex-toml",
+        "file": "<dir>/config.toml"
+      },
+      "configs": [
+        {
+          "template": "codex/config.toml",
+          "dest": "<dir>/config.toml",
+          "kind": "toml",
+          "mcpMerge": true
+        }
+      ],
+      "hooks": [],
+      "verify": {
+        "files": [
+          "<dir>/AGENTS.md",
+          "<dir>/config.toml"
+        ],
+        "forbiddenAbsent": [
+          "<dir>/CODEX.md"
+        ]
+      }
+    },
+    {
+      "id": "dsh",
+      "name": "DSH (DeepSeek Harness)",
+      "vendor": "DeepSeek",
+      "binary": {
+        "command": "dsh",
+        "versionArgs": [
+          "--version"
+        ],
+        "install": {
+          "win": [
+            {
+              "type": "npm",
+              "package": "@deepseek-ai/dsh"
+            }
+          ],
+          "unix": [
+            {
+              "type": "npm",
+              "package": "@deepseek-ai/dsh"
+            }
+          ]
+        },
+        "optional": true,
+        "installGuidance": [
+          "npm install -g @deepseek-ai/dsh",
+          "hoac cai DSH Desktop tu trang chu DeepSeek"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.dsh",
+        "unix": "~/.dsh"
+      },
+      "extraDirs": {
+        "profile": {
+          "win": "%USERPROFILE%\\.dsh\\profiles\\web",
+          "unix": "~/.dsh/profiles/web",
+          "fallback": {
+            "win": "%APPDATA%\\dsh-desktop\\harness\\profiles\\web"
+          }
+        },
+        "credentials": {
+          "win": "%APPDATA%\\dsh-desktop\\harness\\.credentials.yaml",
+          "unix": "~/.dsh/.credentials.yaml",
+          "fallback": {
+            "win": "%USERPROFILE%\\.dsh\\.credentials.yaml"
+          }
+        }
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/AGENTS.md",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "dsh/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "dsh-yaml",
+        "file": "<profile>/cordis.patch.yml"
+      },
+      "configs": [
+        {
+          "template": "dsh/cordis.patch.yml",
+          "dest": "<profile>/cordis.patch.yml",
+          "kind": "yaml",
+          "mcpMerge": true,
+          "layerMerge": true,
+          "ownIds": [
+            "llm-pi-ai",
+            "agent-preset-registry",
+            "agent-default-model",
+            "subagent-model-selection-settings",
+            "subagent",
+            "permission"
+          ],
+          "preserveFromExisting": {
+            "baseURL": "AI_BASE_URL"
+          }
+        },
+        {
+          "template": "dsh/home-patch.yml",
+          "dest": "<dir>/cordis.patch.yml",
+          "kind": "yaml",
+          "layerMerge": true,
+          "managedInserts": [
+            "memory-memorix"
+          ],
+          "whenMcp": "memorix"
+        }
+      ],
+      "credentialFile": {
+        "template": "dsh/.credentials.yaml",
+        "dest": "<credentials>",
+        "preserve": true
+      },
+      "plugins": [
+        {
+          "id": "cc-safety-net",
+          "label": "CC Safety Net (chan xoa cung tren DSH)",
+          "profile": "web",
+          "package": "cc-safety-net",
+          "verifyCmd": "cc-safety-net",
+          "verifyArgs": [
+            "status"
+          ],
+          "installGuidance": [
+            "Cai pnpm: corepack enable pnpm (hoac npm i -g pnpm)",
+            "dsh plugin --profile web add cc-safety-net",
+            "Kiem tra: cc-safety-net status"
+          ]
+        }
+      ],
+      "hooks": [],
+      "verify": {
+        "files": [
+          "<dir>/AGENTS.md",
+          "<profile>/cordis.patch.yml",
+          "<credentials>"
+        ]
+      }
+    },
+    {
+      "id": "antigravity-cli",
+      "name": "Antigravity CLI",
+      "vendor": "Google",
+      "binary": {
+        "command": "agy",
+        "versionArgs": [
+          "--version"
+        ],
+        "install": {
+          "win": [
+            {
+              "type": "note",
+              "message": "Cai Antigravity CLI bang installer cua Google: https://antigravity.google/download"
+            }
+          ],
+          "unix": [
+            {
+              "type": "note",
+              "message": "Cai Antigravity CLI bang installer cua Google: https://antigravity.google/download"
+            }
+          ]
+        },
+        "optional": true,
+        "installGuidance": [
+          "Tai Antigravity CLI: https://antigravity.google/download",
+          "Sau khi cai, mo terminal moi roi chay lai installer"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.gemini\\antigravity-cli",
+        "unix": "~/.gemini/antigravity-cli"
+      },
+      "extraDirs": {
+        "geminiDir": {
+          "win": "%USERPROFILE%\\.gemini",
+          "unix": "~/.gemini"
+        },
+        "geminiConfig": {
+          "win": "%USERPROFILE%\\.gemini\\config",
+          "unix": "~/.gemini/config"
+        }
+      },
+      "instructionFiles": [
+        {
+          "dest": "<geminiDir>/AGENTS.md",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "antigravity/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [
+        {
+          "dest": "<dir>/AGENTS.md",
+          "code": "antigravity-cli-agents-md"
+        },
+        {
+          "dest": "<geminiDir>/GEMINI.md",
+          "code": "antigravity-duplicate-gemini-md"
+        }
+      ],
+      "skillsDir": "<geminiConfig>/skills",
+      "extraSkillsDirs": [
+        "<dir>/skills"
+      ],
+      "mcp": {
+        "adapter": "json-mcpServers",
+        "file": "<dir>/settings.json"
+      },
+      "configs": [
+        {
+          "template": "antigravity/settings.json",
+          "dest": "<dir>/settings.json",
+          "kind": "json",
+          "placeholders": true,
+          "mcpMerge": true,
+          "hooks": true
+        },
+        {
+          "template": "antigravity/keybindings.json",
+          "dest": "<dir>/keybindings.json",
+          "kind": "json",
+          "placeholders": false,
+          "preserve": true
+        }
+      ],
+      "hooks": [
+        {
+          "template": "hooks/antigravity/pre-tool.mjs",
+          "dest": "<dir>/hooks/pre-tool.mjs",
+          "register": {
+            "file": "<dir>/settings.json",
+            "event": "PreToolUse",
+            "matcher": [
+              "Bash",
+              "PowerShell"
+            ],
+            "command": "node \"<dirPath>/hooks/pre-tool.mjs\""
+          }
+        }
+      ],
+      "verify": {
+        "files": [
+          "<geminiDir>/AGENTS.md",
+          "<dir>/settings.json"
+        ],
+        "forbiddenAbsent": [
+          "<dir>/AGENTS.md"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "$schema": "./schema/options.schema.json",
+  "version": 1,
+  "options": [
+    {
+      "id": "target",
+      "long": "--target",
+      "short": "-t",
+      "ps": "-Target",
+      "value": "all|omp|claude-code|opencode|codex-cli|dsh|antigravity-cli",
+      "default": "all",
+      "description": "Agent can cai dat (mac dinh: all)"
+    },
+    {
+      "id": "dry-run",
+      "long": "--dry-run",
+      "ps": "-DryRun",
+      "type": "boolean",
+      "description": "Mo phong: khong ghi file, khong cai dat"
+    },
+    {
+      "id": "skip-install",
+      "long": "--skip-install",
+      "ps": "-SkipInstall",
+      "type": "boolean",
+      "description": "Chi ghi cau hinh: khong cai binary/MCP/dependency, khong sua PATH"
+    },
+    {
+      "id": "force",
+      "long": "--force",
+      "ps": "-Force",
+      "type": "boolean",
+      "description": "Tu dong dong y moi prompt (khong ep cai lai tool da moi nhat)"
+    },
+    {
+      "id": "overwrite-all",
+      "long": "--overwrite-all",
+      "ps": "-OverwriteAll",
+      "type": "boolean",
+      "description": "Ghi de toan bo cau hinh (luon tao .bak truoc khi ghi)"
+    },
+    {
+      "id": "memorix",
+      "long": "--memorix",
+      "ps": "-EnableMemorix",
+      "type": "boolean",
+      "description": "Bat Memorix (MCP + hooks + skills memorix-*)"
+    },
+    {
+      "id": "no-memorix",
+      "long": "--no-memorix",
+      "ps": "-DisableMemorix",
+      "type": "boolean",
+      "description": "Tat Memorix va don skills memorix-* (chuyen vao Thung rac)"
+    },
+    {
+      "id": "mcp",
+      "long": "--mcp",
+      "value": "all|none|<id,id,...>",
+      "description": "Chon MCP server (ghi de prompt tung MCP)"
+    },
+    {
+      "id": "preset",
+      "long": "--preset",
+      "value": "minimal|standard|full",
+      "description": "Preset MCP: minimal (khong MCP), standard (3 MCP mac dinh), full (tat ca)"
+    },
+    {
+      "id": "yes",
+      "long": "--yes",
+      "short": "-y",
+      "ps": "-Yes",
+      "type": "boolean",
+      "description": "Non-interactive: dung default cho moi prompt, dong y cai prerequisite"
+    },
+    {
+      "id": "doctor",
+      "long": "--doctor",
+      "ps": "-Doctor",
+      "type": "boolean",
+      "description": "Chi kiem tra (khong sua): file, cau hinh, binary, MCP"
+    },
+    {
+      "id": "json",
+      "long": "--json",
+      "type": "boolean",
+      "description": "Xuat ket qua duoi dang JSON (dung voi --dry-run/--doctor/--report)"
+    },
+    {
+      "id": "report",
+      "long": "--report",
+      "value": "<path>",
+      "ps": "-Report",
+      "description": "Ghi bao cao JSON ra file"
+    },
+    {
+      "id": "strict",
+      "long": "--strict",
+      "type": "boolean",
+      "description": "Coi moi canh bao verify la loi (exit != 0)"
+    },
+    {
+      "id": "quiet",
+      "long": "--quiet",
+      "short": "-q",
+      "type": "boolean",
+      "description": "Chi in canh bao va loi"
+    },
+    {
+      "id": "verbose",
+      "long": "--verbose",
+      "type": "boolean",
+      "description": "In chi tiet tung buoc"
+    },
+    {
+      "id": "env-file",
+      "long": "--env-file",
+      "value": "<path>",
+      "description": "Nap bien moi truong tu file .env chi dinh"
+    },
+    {
+      "id": "help",
+      "long": "--help",
+      "short": "-h",
+      "ps": "-Help",
+      "type": "boolean",
+      "description": "In tro giup"
+    },
+    {
+      "id": "version",
+      "long": "--version",
+      "type": "boolean",
+      "description": "In phien ban installer"
+    }
+  ]
+}

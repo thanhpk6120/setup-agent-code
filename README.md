@@ -1,174 +1,235 @@
 # Setup Agent Code — Bộ Cài Đặt AI Coding Agents
 
-> **Một lệnh duy nhất** để tự động cài đặt, cấu hình và thiết lập hoàn chỉnh **6 AI Coding Agent** hàng đầu trên cả **Windows** và **macOS / Linux**: **OMP**, **Claude Code**, **OpenCode**, **Codex CLI**, **DSH (DeepSeek Harness)**, và **Antigravity CLI (Google agy)**.
+> **Cảnh báo:** Installer đang được sửa sau sự cố ghi đè cấu hình. Không chạy trên cấu hình thật cho đến khi các kiểm thử bảo toàn dữ liệu và chạy thực tế trong môi trường cách ly hoàn tất. `--doctor` và `--dry-run` hiện chưa được xác nhận là chỉ đọc.
+
+> **Một lệnh duy nhất** để cài đặt, cấu hình và **kiểm chứng** **6 AI Coding Agent** trên **Windows**, **macOS** và **Linux**: **OMP**, **Claude Code**, **OpenCode**, **Codex CLI**, **DSH (DeepSeek Harness)**, **Antigravity CLI**.
+
+Từ v1.0, cả 3 hệ điều hành chạy **cùng một engine** (`core/engine.mjs`) với **cùng thứ tự 13 phase** và **cùng bộ option**; khác biệt giữa các agent chỉ nằm trong `manifest/` và `templates/`.
 
 ---
 
-## 1. Cài Đặt Nhanh (Quickstart)
+## 1. Cài Đặt Nhanh
 
-Chỉ cần mở terminal và chạy **1 dòng lệnh duy nhất**:
+### Windows (PowerShell 5.1 / 7+)
 
-### Trên Windows (PowerShell 5.1 / 7+)
-
-**Cài đặt toàn bộ 6 Agent (Khuyên dùng):**
 ```powershell
+# Toàn bộ 6 agent
 irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
-```
 
-**Hoặc cài đặt từng Agent riêng lẻ:**
-```powershell
-# Cài đặt OMP Agent
+# Một agent
 & ([scriptblock]::Create((irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1))) -Target omp
-
-# Cài đặt Claude Code
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1))) -Target claude-code
-
-# Cài đặt OpenCode
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1))) -Target opencode
-
-# Cài đặt Codex CLI (OpenAI)
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1))) -Target codex-cli
-
-# Cài đặt DSH (DeepSeek Harness)
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1))) -Target dsh
-
-# Cài đặt Antigravity CLI (Google agy)
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1))) -Target antigravity-cli
 ```
 
----
+### macOS / Linux
 
-### Trên macOS / Linux (Bash / Zsh)
-
-**Cài đặt toàn bộ 6 Agent:**
 ```bash
+# Toàn bộ 6 agent
 curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash
-```
 
-**Hoặc cài đặt từng Agent riêng lẻ:**
-```bash
-# Cài đặt OMP Agent
+# Một agent
 curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash -s -- --target omp
+```
 
-# Cài đặt Claude Code
-curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash -s -- --target claude-code
+> Yêu cầu: **Node.js >= 22.18.0** (launcher sẽ thử cài nếu thiếu). Các MCP server dùng Node/uv nên đây cũng là yêu cầu runtime của agent.
 
-# Cài đặt OpenCode
-curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash -s -- --target opencode
+---
 
-# Cài đặt Codex CLI (OpenAI)
-curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash -s -- --target codex-cli
+## 2. Kiến Trúc
 
-# Cài đặt DSH (DeepSeek Harness)
-curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash -s -- --target dsh
+```
+manifest/            # nguồn sự thật duy nhất (agents, mcp, prompts, options)
+core/engine.mjs      # 1 engine, 13 phase cho Windows + macOS + Linux
+core/lib/            # util, manifest loader, render (JSON/TOML/YAML), verify
+templates/           # template cấu hình + instruction files (phần riêng từng agent)
+skills/              # 36 skills canonical (1 bản duy nhất)
+install.ps1/.sh      # launcher mỏng: kiểm tra Node -> gọi engine
+setup-*/             # shim tương thích ngược (deprecated)
+```
 
-# Cài đặt Antigravity CLI (Google agy)
-curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash -s -- --target antigravity-cli
+**13 phase cố định** (giống nhau trên mọi OS/agent):
+
+| Phase | Nội dung |
+|---|---|
+| P0 | Preflight: OS/arch/Node, chuẩn hoá PATH |
+| P1 | Args & policy: validate option |
+| P2 | Chọn MCP (cùng thứ tự prompt) |
+| P3 | Resume & env: `.env`, hỏi reuse 1 lần, chỉ hỏi biến cần cho MCP đã chọn |
+| P4 | Prerequisites: hỏi → cài → verify → in hướng dẫn nếu fail (chặn đúng MCP thiếu dep) |
+| P5 | Cài binary agent (skip-if-installed) |
+| P6 | Cài MCP tools đã chọn |
+| P7 | Render config + `.bak` trước khi ghi |
+| P8 | Instruction files (đúng path từng agent) |
+| P9 | Bổ sung skills còn thiếu; giữ nguyên skills đã tồn tại |
+| P10 | Hooks & guards (đăng ký thật, không chỉ copy file) |
+| P11 | **Verify**: file, config, binary, MCP handshake |
+| P12 | Cleanup (Trash) + summary/report |
+
+---
+
+## 3. Bảng Option (giống nhau trên Windows & macOS/Linux)
+
+| PowerShell | Bash | Ý nghĩa |
+|---|---|---|
+| `-Target <id>` | `--target <id>` | `all`, `omp`, `claude-code`, `opencode`, `codex-cli`, `dsh`, `antigravity-cli` |
+| `-DryRun` | `--dry-run` | Mô phỏng, không ghi file, không cài |
+| `-SkipInstall` | `--skip-install` | Chỉ ghi cấu hình: không cài binary/MCP/dependency, không sửa PATH |
+| `-Force` | `--force` | Tự đồng ý mọi prompt (không ép cài lại tool đã mới nhất) |
+| `-OverwriteAll` | `--overwrite-all` | Ghi đè cấu hình (luôn tạo `.bak.<timestamp>`) |
+| `-EnableMemorix` | `--memorix` | Bật Memorix (MCP + hooks + skills) |
+| `-DisableMemorix` | `--no-memorix` | Tắt Memorix, dọn `memorix-*` vào Thùng rác |
+| `-Mcp <all\|none\|list>` | `--mcp ...` | Chọn MCP chính xác |
+| `-Preset <minimal\|standard\|full>` | `--preset ...` | Preset MCP |
+| `-Yes` | `--yes` | Non-interactive: dùng default, **đồng ý cài prerequisite** |
+| `-Doctor` | `--doctor` | Chỉ kiểm tra, **không ghi gì** |
+| `-Json` | `--json` | Xuất kết quả JSON |
+| `-Report <path>` | `--report <path>` | Ghi báo cáo JSON |
+| `-Strict` | `--strict` | WARN ⇒ exit code ≠ 0 |
+| `-Quiet` / `-Verbose` | `--quiet` / `--verbose` | Mức log |
+| `-EnvFile <path>` | `--env-file <path>` | Nạp `.env` chỉ định |
+
+Ví dụ:
+
+```bash
+./install.sh --target omp --doctor --json
+./install.sh --mcp gitnexus,context7 --yes
+./install.sh --target all --preset full --overwrite-all
 ```
 
 ---
 
-## 2. Danh Mục 6 Agent Được Hỗ Trợ
+## 4. Prerequisites: check-first → hỏi → cài → verify → hướng dẫn
 
-| Target | Tên Agent | Nhà Phát Triển | Vị Trí Cấu Hình (Windows) | Vị Trí Cấu Hình (macOS) |
-|---|---|---|---|---|
-| `omp` | **OMP Agent** | AIEGUU / OMP | `%USERPROFILE%\.omp\agent\` | `~/.omp/agent/` |
-| `claude-code` | **Claude Code** | Anthropic | `%USERPROFILE%\.claude\` | `~/.claude/` |
-| `opencode` | **OpenCode** | OpenCode AI | `%USERPROFILE%\.config\opencode\` | `~/.config/opencode/` |
-| `codex-cli` | **Codex CLI** | OpenAI | `%USERPROFILE%\.codex\` | `~/.codex/` |
-| `dsh` | **DSH CLI** | DeepSeek | `%APPDATA%\dsh-desktop\...` | `~/.dsh/` |
-| `antigravity-cli`| **Antigravity** | Google | `%USERPROFILE%\.gemini\antigravity-cli\`| `~/.gemini/antigravity-cli/` |
+Mỗi MCP khai báo dependency trong [manifest/mcp.json](manifest/mcp.json) (`requires`), dependency được mô tả trong [manifest/prerequisites.json](manifest/prerequisites.json) (cách cài theo OS, `minVersion`, `guidance`).
 
----
+**Nguyên tắc: kiểm tra trước, chỉ hỏi khi chưa đạt.** Mỗi dependency/binary/MCP được đánh giá thành một trong các trạng thái:
 
-## 3. Các Tính Năng Thông Minh & Độc Quyền
-
-### 🔄 Khôi Phục Cấu Hình Thông Minh (Resume .env)
-- Toàn bộ biến môi trường (AI Base URL, API Key, Token Jira/Confluence...) và các lựa chọn MCP/Hook được lưu vào file cấu hình cố định.
-- **Nếu quá trình cài đặt gặp sự cố và bạn chạy lại**: Script sẽ tự động nhận diện cấu hình cũ và hỏi bạn có muốn tái sử dụng không.
-- **Chỉ hỏi những biến chưa có**: Bạn không phải gõ lại API key hay chọn lại các MCP server đã chọn trước đó!
-
-### 🛠️ Tự Động Can Thiệp Sửa Lỗi (Auto-Fix)
-- Khi gặp lỗi phổ biến (EBUSY do file bị tiến trình khác khóa, lỗi PATH session chưa nhận command mới cài, xung đột package):
-- Script sẽ **chủ động hỏi bạn trước**:
-  `[?] Phat hien su co <ten_loi>. Ban co cho phep script tu can thiep sua loi khong? [Y/n]`
-- Nếu bạn đồng ý, script sẽ tự động thực hiện xử lý (giải phóng khóa, nạp lại PATH, retry an toàn) rồi tiếp tục.
-
-### ⏸️ Tạm Dừng Chờ Người Dùng Xác Nhận (Wait-User-Intervention)
-- Đối với những lỗi cần người dùng can thiệp thủ công (ví dụ cần quyền Administrator, cần bật VPN, kiểm tra kết nối mạng):
-- Script **tuyệt đối không bị crash hay thoát đột ngột**, mà sẽ in hướng dẫn xử lý chi tiết và dừng lại chờ:
-  `[?] Sau khi ban da xu ly xong, nhan [Enter] de tiep tuc kiem tra lai hoac [c] de huy`
-- Sau khi bạn xử lý xong ở cửa sổ khác và nhấn Enter, script sẽ kiểm tra lại điều kiện và tiếp tục cài đặt bình thường.
-
-### 🛡️ Bảo Vệ Chống Xóa Cứng (Trash Guard)
-- Toàn bộ 6 agent đều được tích hợp cơ chế bảo vệ mã nguồn tối đa:
-- Chặn hoàn toàn các lệnh xóa vĩnh viễn (`rm -rf`, `del`, `Remove-Item`). Mọi thao tác xóa đều được chuyển hướng an toàn vào **Recycle Bin (Thùng rác)** của Windows hoặc `~/.Trash` của macOS.
-
-### 🔌 Tích Hợp Sẵn 7 MCP Server Hàng Đầu
-Mỗi agent khi cài đặt đều có thể kích hoạt ngay:
-1. `company-atlassian`: Tra cứu, đọc/viết Jira Issue và Confluence Page.
-2. `gitnexus`: Knowledge Graph & Code Intelligence diện rộng.
-3. `context7`: Tra cứu tài liệu thư viện, framework, SDK mới nhất theo thời gian thực.
-4. `glab`: Tích hợp GitLab CLI quản lý Issue, MR, Pipeline.
-5. `cloakbrowser`: Tự động hóa trình duyệt chống phát hiện bot.
-6. `memorix`: Bộ nhớ ngữ cảnh dài hạn qua nhiều phiên làm việc.
-7. `agency`: Điều phối đa Agent chuyên gia (Software Architect, Security Reviewer, Code Reviewer...).
-
----
-
-## 4. Bảng Tham Số Tùy Chọn
-
-Khi chạy script cài đặt, bạn có thể truyền thêm các tham số:
-
-| Tham số Windows | Tham số macOS | Ý nghĩa |
+| Trạng thái | Ý nghĩa | Hành vi |
 |---|---|---|
-| `-Target <name>` | `--target <name>` | Chỉ định agent cần cài: `all`, `omp`, `claude-code`, `opencode`, `codex-cli`, `dsh`, `antigravity-cli`. |
-| `-DryRun` | `--dry-run` | Chạy thử mô phỏng (WhatIf), không ghi file thật, không cài đặt thật. |
-| `-SkipInstall` | `--skip-install` | Bỏ qua bước cài đặt binary agent CLI và các gói npm/uv, chỉ cấu hình file config. |
-| `-Force` | `--force` | Tự động đồng ý tất cả MCP, ghi đè file cấu hình mà không hỏi xác nhận. |
-| `-OverwriteAll` | — | Tự động ghi đè tất cả các file cấu hình đã có từ trước (vẫn tự động sao lưu `.bak`). |
-| `-EnableMemorix` | `--enable-memorix` | Bật tính năng Memorix và copy toàn bộ 36 skills. |
-| `-DisableMemorix` | `--disable-memorix`| Tắt Memorix và dọn sạch các skill liên quan đến Memorix. |
+| `ok` | Có trong PATH + chạy được + version đúng | **Im lặng bỏ qua**, không hỏi |
+| `missing` | Không tìm thấy | Hỏi cài |
+| `outdated` | Version cũ hơn `minVersion` | Hỏi **cập nhật** |
+| `mismatch` | Sai version pin (vd. `mcp-atlassian` ≠ 0.23.1) | Hỏi **cài lại đúng version** |
+| `broken` | Có trong PATH nhưng `--version` lỗi | Hỏi **cài lại** |
+
+Sau khi được đồng ý:
+
+1. **Cài** theo manifest (winget/brew/apt/npm/uv/script tuỳ OS).
+2. **Verify lại ngay** — chưa đạt thì chưa đi tiếp.
+3. **Fail** → in hướng dẫn cụ thể cho OS của bạn, cho `[r]etry / [s]kip` (tối đa 3 lần).
+4. **Từ chối / non-interactive** → in hướng dẫn thủ công, **chặn đúng MCP cần dependency đó** (không ghi entry rác vào config), verify ghi `WARN`, cuối chương trình có mục “HƯỚNG XỬ LÝ”.
+5. **PATH**: thiếu thư mục (npm global bin, uv tool bin, `~/.local/bin`) → **hỏi trước khi thêm vào PATH phiên hiện tại**, kèm cách thêm vĩnh viễn.
+
+Version đang được kiểm tra:
+
+| Thành phần | Yêu cầu |
+|---|---|
+| Node.js | `>= 22.18.0` |
+| npm | `>= 10.0.0` |
+| uv | `>= 0.5.0` |
+| git | `>= 2.30.0` |
+| `mcp-atlassian` | **đúng `0.23.1`** (khớp `uv tool install mcp-atlassian==0.23.1`) |
+
+Bảng dependency hiện tại:
+
+| MCP | Cần |
+|---|---|
+| `company-atlassian` | `uv` (cài `mcp-atlassian==0.23.1`) |
+| `gitnexus`, `context7`, `memorix` | `node` + `npm` |
+| `cloakbrowser` | `node` + `npm`, và **hỏi riêng** trước khi chạy `npm install` (playwright-core/cloakbrowser); kiểm tra đủ 3 thành phần trước khi coi là đã cài |
+
+`--skip-install` = chế độ **chỉ ghi cấu hình**: không cài dependency, không chặn MCP, không sửa PATH.
+`--doctor` = chỉ **đọc và đánh giá** (kể cả version pin), không hỏi, không ghi; kiểm tra đúng bộ MCP đang có trong config hiện tại (không đoán theo default).
 
 ---
 
-## 5. Cấu Hình Biến Môi Trường (.env)
+## 5. Mỗi Agent Được Ghi File Nào
 
-Bạn có thể tạo file `.env` tại thư mục cài đặt hoặc nhập trực tiếp khi script hỏi:
+| Agent | Instruction file (đúng chuẩn) | Cấu hình | Skills |
+|---|---|---|---|
+| **OMP** | `~/.omp/agent/AGENTS.md` (context) + `~/.omp/agent/RULES.md` (sticky) | `~/.omp/agent/{mcp.json,config.yml,models.yml}` | `~/.omp/agent/skills/` |
+| **Claude Code** | `~/.claude/CLAUDE.md` | `~/.claude.json`, `~/.claude/settings.json` | `~/.claude/skills/` |
+| **OpenCode** | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json` | `~/.config/opencode/skills/` |
+| **Codex CLI** | `~/.codex/AGENTS.md` | `~/.codex/config.toml` | `~/.codex/skills/` |
+| **DSH** | `~/.dsh/AGENTS.md` | `~/.dsh/profiles/web/cordis.patch.yml`, `~/.dsh/cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml` | `~/.dsh/skills/` |
+| **Antigravity CLI** | `~/.gemini/AGENTS.md` (global rules) | `~/.gemini/antigravity-cli/settings.json`, `keybindings.json` | `~/.gemini/config/skills/` + `~/.gemini/antigravity-cli/skills/` |
+
+Ghi chú quan trọng:
+
+- **OMP**: **không** cài `SYSTEM.md` — file này thay thế toàn bộ system prompt mặc định của OMP. Nếu đã có từ bản cũ, installer sẽ cảnh báo và chuyển vào Thùng rác.
+- **Claude Code**: `AGENTS.md` chỉ được đọc ở project scope → không ghi `~/.claude/AGENTS.md`.
+- **Codex**: `CODEX.md` không phải file global instruction → installer sẽ dọn nếu tồn tại.
+- **Antigravity**: global rules nằm ở `~/.gemini/AGENTS.md`, **không phải** `~/.gemini/antigravity-cli/AGENTS.md`.
+- **DSH**: profile thật là `~/.dsh/profiles/<name>/` (fallback `%APPDATA%\dsh-desktop\harness\profiles\<name>`).
+- **DSH patch layer**: installer **merge từng entry** vào `cordis.patch.yml` — entry của bạn (`plugin-market`, `better-sidebar`, `desktop-shell`, …) được giữ nguyên. Entry template sở hữu (`llm-pi-ai`, `agent-default-model`, `subagent`, `permission`, `subagent-model-selection-settings`, `agent-preset-registry`) bị ghi đè để model/agent luôn đúng pin.
+- **DSH endpoint**: `baseURL` trong `llm-pi-ai` **giữ nguyên giá trị đang chạy** trừ khi bạn cấp `AI_BASE_URL` qua `.env` / `--env-file`.
+- **DSH credentials**: file `.credentials.yaml` **không bao giờ bị ghi đè** (kể cả `--overwrite-all`) vì chứa secret + OAuth records thật. Xoá file rồi chạy lại nếu muốn tạo mới.
+- **DSH chặn xoá cứng**: DSH không có hook API kiểu PreToolUse; lớp bảo vệ là plugin bundle `cc-safety-net`. Installer kiểm tra → hỏi → cài bằng `dsh plugin --profile web add cc-safety-net` → verify `cc-safety-net status`. Cần `pnpm` (installer tự tìm trong cả PATH và `%LOCALAPPDATA%\pnpm\bin`).
+
+---
+
+## 6. MCP Servers
+
+`company-atlassian` (Jira/Confluence), `gitnexus` (code graph), `context7` (library docs), `cloakbrowser` (stealth browser), `memorix` (memory).
+
+- `agency` và `glab` **không còn trong setup**: không cài, không kiểm tra, không hỏi. Entry `mcp-agency` / `mcp-glab` đã có sẵn trong config của máy khác sẽ **được giữ nguyên** — installer không tự xoá; muốn bỏ thì xoá tay.
+
+- Cài đặt theo `manifest/mcp.json` (pin `mcp-atlassian==0.23.1`; `gitnexus`/`context7`/`memorix` qua npm).
+- Cấu hình được **sinh theo lựa chọn** cho cả 4 định dạng: JSON (`mcpServers`/`mcp`), TOML (`[mcp_servers.*]`), YAML (`- id: mcp-*`), settings Antigravity.
+- Server do installer quản lý sẽ bị gỡ khi bạn bỏ chọn; server bạn tự thêm **được giữ nguyên**.
+- **Skills**: installer bổ sung skill chuẩn còn thiếu; skill đã tồn tại và skill riêng được giữ nguyên, kể cả khi trùng tên. Vì chưa theo dõi quyền sở hữu, skill cũ không được tự động cập nhật hoặc dọn khi tắt Memorix.
+
+---
+
+## 7. An Toàn & Kiểm Chứng
+
+- **Không xoá cứng**: mọi thao tác xoá (kể cả file tạm) đều chuyển vào Recycle Bin / `~/.Trash`.
+- **Luôn backup**: ghi đè cấu hình tạo `*.bak.<YYYYMMDD-HHmmss>` trên cả 3 OS.
+- **Merge, không ghi đè** (v1.0.6): `--overwrite-all` không còn thay cấu hình bằng template. JSON merge đệ quy, chỉ điền khoá còn thiếu; TOML/YAML chỉ thay entry/bảng do installer sở hữu, scalar đang chạy (`model_provider`, `base_url`, `api_key`) và mọi MCP server của người dùng luôn được giữ; giá trị placeholder rỗng không bao giờ xoá giá trị live.
+- **Fail-closed khi không chắc** (v1.0.7): parser cấu hình là dòng-based, nên cấu trúc nằm ngoài tập con nó xử lý an toàn (TOML `[[array-of-tables]]`, multiline string/array, key trích dẫn chứa dấu chấm; YAML block scalar `|`/`>`) sẽ **báo lỗi và bỏ qua file** thay vì ghi ra bản mất dữ liệu. Header trích dẫn dạng `[mcp_servers."9remote"]` được hỗ trợ và coi là cùng bảng với dạng trần.
+- **Verify thật** (P11): file instruction đúng path, config parse được, binary chạy được (`--version`), MCP handshake `initialize` — kết quả PASS/WARN/FAIL, exit code ≠ 0 nếu có FAIL.
+- **`--doctor`**: kiểm tra lại toàn bộ mà không sửa gì (dùng sau khi agent update).
+
+```bash
+./install.sh --target all --doctor --report report.json
+```
+
+---
+
+## 8. Cấu Hình Biến Môi Trường
+
+Tạo `.env` cạnh script (hoặc dùng `--env-file`):
 
 ```env
-# AI Provider (Gateway hoặc Router local)
 AI_BASE_URL=http://localhost:20128/v1
-AI_API_KEY=your-api-key-here
+AI_API_KEY=your-api-key
 
-# Atlassian (Jira & Confluence)
 JIRA_URL=https://jira.yourcompany.com
 JIRA_PERSONAL_TOKEN=your-jira-token
 CONFLUENCE_URL=https://conf.yourcompany.com
 CONFLUENCE_PERSONAL_TOKEN=your-confluence-token
 
-# GitLab CLI
-GITLAB_HOST=gitlab.yourcompany.com
-GITLAB_TOKEN=your-gitlab-token
-
-# Context7 (Tra cứu tài liệu trực tuyến)
 CONTEXT7_API_KEY=your-context7-api-key
+AGY_MODEL=custom/claude-sonnet-5
 ```
+
+Chạy lại sau khi gián đoạn: installer hỏi **một lần** có dùng lại cấu hình cũ không, sau đó chỉ hỏi biến còn thiếu.
 
 ---
 
-## 6. Xử Lý Sự Cố & Câu Hỏi Thường Gặp (FAQ)
+## 9. Phát Triển
 
-### Q: Tôi vừa bị mất mạng khi đang cài đặt thì làm sao?
-> **Đáp:** Bạn chỉ cần chạy lại câu lệnh cài đặt ban đầu. Script sẽ tự động nhận diện cấu hình bạn đã nhập trước đó và hỏi `[?] Ban co muon su dung lai cac bien da nhap khong? [Y/n]`. Bạn chỉ cần nhấn `Enter` là script sẽ tiếp tục cài đặt mà không bắt bạn nhập lại!
+```bash
+node scripts/validate.mjs          # kiểm tra manifest
+node --test tests/engine.test.mjs  # 20 unit + integration tests
+node core/engine.mjs --target all --dry-run --json   # xem kế hoạch chạy
+```
 
-### Q: Làm sao để đổi API Key sau khi đã cài đặt?
-> **Đáp:** Bạn có thể sửa trực tiếp trong file cấu hình của từng agent (ví dụ `~/.omp/agent/config.yml` hoặc `~/.claude/settings.json`) hoặc chạy lại installer và chọn `n` khi được hỏi có tái sử dụng cấu hình cũ không.
-
-### Q: Khi cài đặt xong một số lệnh báo `Command not found`?
-> **Đáp:** Bạn chỉ cần đóng cửa sổ terminal hiện tại và mở một cửa sổ terminal mới để nạp lại đầy đủ biến môi trường PATH hệ thống.
+CI (`.github/workflows/ci.yml`) chạy matrix **Windows / Ubuntu / macOS** × **Node 22.18 / 24**, gồm validate manifest, test, dry-run contract, `bash -n` và parse PowerShell.
 
 ---
 
 **Tác giả:** thanhpk  
 **Giấy phép:** MIT License
+
+
+

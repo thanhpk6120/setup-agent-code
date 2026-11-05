@@ -1,0 +1,259 @@
+{
+  "$schema": "./schema/mcp.schema.json",
+  "version": 1,
+  "servers": [
+    {
+      "id": "company-atlassian",
+      "label": "Jira + Confluence (mcp-atlassian)",
+      "default": true,
+      "kind": "command",
+      "install": {
+        "win": [
+          {
+            "cmd": "uv",
+            "args": [
+              "tool",
+              "install",
+              "mcp-atlassian==0.23.1"
+            ]
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "uv",
+            "args": [
+              "tool",
+              "install",
+              "mcp-atlassian==0.23.1"
+            ]
+          }
+        ]
+      },
+      "requires": [
+        "uv"
+      ],
+      "env": [
+        "JIRA_URL",
+        "JIRA_PERSONAL_TOKEN",
+        "CONFLUENCE_URL",
+        "CONFLUENCE_PERSONAL_TOKEN"
+      ],
+      "spec": {
+        "command": "mcp-atlassian",
+        "args": [],
+        "env": {
+          "JIRA_URL": "${JIRA_URL}",
+          "JIRA_PERSONAL_TOKEN": "${JIRA_PERSONAL_TOKEN}",
+          "CONFLUENCE_URL": "${CONFLUENCE_URL}",
+          "CONFLUENCE_PERSONAL_TOKEN": "${CONFLUENCE_PERSONAL_TOKEN}",
+          "TOOLSETS": "default"
+        }
+      },
+      "verify": {
+        "cmd": "mcp-atlassian",
+        "args": [
+          "--version"
+        ],
+        "version": "0.23.1"
+      },
+      "installGuidance": [
+        "uv tool install mcp-atlassian==0.23.1",
+        "Kiem tra: mcp-atlassian --version"
+      ]
+    },
+    {
+      "id": "gitnexus",
+      "label": "GitNexus (code graph)",
+      "default": true,
+      "kind": "gitnexus",
+      "install": {
+        "win": [
+          {
+            "cmd": "npm",
+            "args": [
+              "install",
+              "-g",
+              "gitnexus"
+            ]
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "npm",
+            "args": [
+              "install",
+              "-g",
+              "gitnexus"
+            ]
+          }
+        ]
+      },
+      "requires": [
+        "node",
+        "npm"
+      ],
+      "env": [],
+      "spec": {
+        "unix": {
+          "command": "gitnexus",
+          "args": [
+            "mcp"
+          ]
+        },
+        "win": {
+          "command": "cmd",
+          "args": [
+            "/c",
+            "<bin:gitnexus>",
+            "mcp"
+          ]
+        }
+      },
+      "verify": {
+        "cmd": "gitnexus",
+        "args": [
+          "--version"
+        ]
+      },
+      "installGuidance": [
+        "npm install -g gitnexus",
+        "Kiem tra: gitnexus --version"
+      ]
+    },
+    {
+      "id": "context7",
+      "label": "Context7 (library docs)",
+      "default": true,
+      "kind": "context7",
+      "install": {
+        "win": [
+          {
+            "cmd": "npm",
+            "args": [
+              "install",
+              "-g",
+              "@upstash/context7-mcp"
+            ]
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "npm",
+            "args": [
+              "install",
+              "-g",
+              "@upstash/context7-mcp"
+            ]
+          }
+        ]
+      },
+      "requires": [
+        "node",
+        "npm"
+      ],
+      "env": [
+        "CONTEXT7_API_KEY"
+      ],
+      "spec": {
+        "command": "node",
+        "args": [
+          "<npm:context7>"
+        ],
+        "env": {
+          "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+        }
+      },
+      "verify": {
+        "file": "<npm:@upstash/context7-mcp/dist/index.js>"
+      },
+      "installGuidance": [
+        "npm install -g @upstash/context7-mcp",
+        "Kiem tra: npm root -g (tim @upstash/context7-mcp/dist/index.js)"
+      ]
+    },
+    {
+      "id": "cloakbrowser",
+      "label": "CloakBrowser (stealth browser)",
+      "default": false,
+      "kind": "cloakbrowser",
+      "install": {
+        "win": [],
+        "unix": []
+      },
+      "requires": [
+        "node",
+        "npm"
+      ],
+      "postInstall": {
+        "type": "npm-install",
+        "cwd": "<home>/mcp-servers/cloakbrowser",
+        "label": "cai dependencies cho CloakBrowser (playwright-core, cloakbrowser)"
+      },
+      "env": [],
+      "spec": {
+        "command": "node",
+        "args": [
+          "<cloakbrowser>"
+        ]
+      },
+      "verify": {
+        "file": "<cloakbrowser>"
+      },
+      "installGuidance": [
+        "cd ~/mcp-servers/cloakbrowser && npm install",
+        "Sau do mo lai agent de MCP khoi dong"
+      ]
+    },
+    {
+      "id": "memorix",
+      "label": "Memorix (long-term memory)",
+      "default": false,
+      "kind": "command",
+      "install": {
+        "win": [
+          {
+            "cmd": "npm",
+            "args": [
+              "install",
+              "-g",
+              "memorix"
+            ]
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "npm",
+            "args": [
+              "install",
+              "-g",
+              "memorix"
+            ]
+          }
+        ]
+      },
+      "requires": [
+        "node",
+        "npm"
+      ],
+      "env": [],
+      "spec": {
+        "command": "memorix",
+        "args": [
+          "serve",
+          "--mode",
+          "lite"
+        ]
+      },
+      "verify": {
+        "cmd": "memorix",
+        "args": [
+          "--version"
+        ]
+      },
+      "installGuidance": [
+        "npm install -g memorix",
+        "Kiem tra: memorix --version"
+      ]
+    }
+  ]
+}

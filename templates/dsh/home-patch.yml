@@ -1,0 +1,13 @@
+# Your patch layer for every dsh profile (applied before the profile layer).
+# A top-level YAML array of loader patch entries (`!!js` expressions allowed).
+- insert:
+    - id: memory-memorix
+      name: "@deepseek-ai/dsh-mcp-client"
+      config:
+        serverName: memorix
+        transport: stdio
+        command: memorix
+        args:
+          - serve
+          - --mode
+          - lite

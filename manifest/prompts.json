@@ -1,0 +1,80 @@
+{
+  "$schema": "./schema/prompts.schema.json",
+  "version": 1,
+  "prompts": [
+    {
+      "key": "AI_BASE_URL",
+      "label": "AI Base URL (Router / Gateway)",
+      "default": "http://localhost:20128/v1",
+      "required": true,
+      "secret": false
+    },
+    {
+      "key": "AI_API_KEY",
+      "label": "AI API Key",
+      "default": "",
+      "required": true,
+      "secret": true
+    },
+    {
+      "key": "AGY_MODEL",
+      "label": "Antigravity Model",
+      "default": "custom/claude-sonnet-5",
+      "required": false,
+      "secret": false,
+      "when": {
+        "target": "antigravity-cli"
+      }
+    },
+    {
+      "key": "JIRA_URL",
+      "label": "Jira URL",
+      "default": "https://jira.cybertech.vn",
+      "required": true,
+      "secret": false,
+      "when": {
+        "mcp": "company-atlassian"
+      }
+    },
+    {
+      "key": "JIRA_PERSONAL_TOKEN",
+      "label": "Jira Personal Token",
+      "default": "",
+      "required": true,
+      "secret": true,
+      "when": {
+        "mcp": "company-atlassian"
+      }
+    },
+    {
+      "key": "CONFLUENCE_URL",
+      "label": "Confluence URL",
+      "default": "https://conf.cybertech.vn",
+      "required": true,
+      "secret": false,
+      "when": {
+        "mcp": "company-atlassian"
+      }
+    },
+    {
+      "key": "CONFLUENCE_PERSONAL_TOKEN",
+      "label": "Confluence Personal Token",
+      "default": "",
+      "required": true,
+      "secret": true,
+      "when": {
+        "mcp": "company-atlassian"
+      }
+    },
+    {
+      "key": "CONTEXT7_API_KEY",
+      "label": "Context7 API Key (optional)",
+      "default": "",
+      "required": false,
+      "secret": true,
+      "when": {
+        "mcp": "context7"
+      }
+    }
+  ]
+}

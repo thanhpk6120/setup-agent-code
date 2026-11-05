@@ -2,6 +2,10 @@
 logs/
 local_cache/
 *.bak
+*.bak.*
 *.log
 /.credentials*.yaml
 /*.patch.yml
+node_modules/
+*.tmp-*
+tests/.tmp-*

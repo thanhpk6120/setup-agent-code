@@ -1,24 +1,27 @@
-# Setup Antigravity CLI (Google agy)
+# setup-antigravity-cli
 
-Automation toolset to configure the environment for **Antigravity CLI** (Google Gemini agy).
+> **Deprecated:** thư mục này chỉ còn shim tương thích ngược. Toàn bộ logic nằm trong engine dùng chung ở [README gốc](../README.md).
 
-## Destination Directory Structure
-- `~/.gemini/antigravity-cli/settings.json` (agent configuration, MCP servers, permissions, telemetry)
-- `~/.gemini/antigravity-cli/keybindings.json` (keyboard shortcuts for artifact review and cancellation)
-- `~/.gemini/antigravity-cli/AGENTS.md` (standard agent operating instructions)
-- `~/.gemini/antigravity-cli/skills/` (standard skill repository shared with setup-omp)
-- `~/.gemini/antigravity-cli/hooks/` (hooks enforcing trash-guard safe file deletion)
-
-## Installation
-Before running, optionally initialize a `.env` file from the template:
-```powershell
-copy templates\.env.example .env
-```
+## Cài đặt
 
 ```powershell
-# Interactive install via wrapper
-.\install.ps1
-
-# Or run bootstrap directly with parameters
-.\bootstrap.ps1 -Force
+..\install.ps1 -Target antigravity-cli
 ```
+```bash
+../install.sh --target antigravity-cli
+```
+
+## File được ghi
+
+| Loại | Đường dẫn |
+|---|---|
+| Global rules | `~/.gemini/AGENTS.md` |
+| Cấu hình + MCP + hooks | `~/.gemini/antigravity-cli/settings.json` |
+| Keybindings | `~/.gemini/antigravity-cli/keybindings.json` |
+| Skills (global) | `~/.gemini/config/skills/` |
+| Skills (CLI-only) | `~/.gemini/antigravity-cli/skills/` |
+| Trash Guard hook | `~/.gemini/antigravity-cli/hooks/pre-tool.mjs` |
+
+**Không** ghi `~/.gemini/antigravity-cli/AGENTS.md` hay `~/.gemini/GEMINI.md` (không nằm trong danh sách global rules / trùng nội dung). Binary `agy` do Google phát hành — installer chỉ cấu hình, không tự cài.
+
+Chi tiết option, MCP, verify: xem [README gốc](../README.md).

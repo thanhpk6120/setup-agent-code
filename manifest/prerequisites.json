@@ -1,0 +1,202 @@
+{
+  "$schema": "./schema/prerequisites.schema.json",
+  "version": 1,
+  "deps": [
+    {
+      "id": "node",
+      "label": "Node.js >= 22.18.0",
+      "why": "Runtime cho gitnexus, context7, memorix va CloakBrowser",
+      "verify": {
+        "cmd": "node",
+        "args": [
+          "--version"
+        ],
+        "minVersion": "22.18.0"
+      },
+      "install": {
+        "win": [
+          {
+            "cmd": "winget",
+            "args": [
+              "install",
+              "--id",
+              "OpenJS.NodeJS.LTS",
+              "-e",
+              "--silent",
+              "--accept-source-agreements",
+              "--accept-package-agreements"
+            ]
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "brew",
+            "args": [
+              "install",
+              "node"
+            ],
+            "when": "brew"
+          },
+          {
+            "cmd": "bash",
+            "args": [
+              "-lc",
+              "command -v apt-get >/dev/null && sudo apt-get update -y && sudo apt-get install -y nodejs npm"
+            ],
+            "when": "!brew && apt-get"
+          },
+          {
+            "cmd": "bash",
+            "args": [
+              "-lc",
+              "command -v dnf >/dev/null && sudo dnf install -y nodejs"
+            ],
+            "when": "!brew && !apt-get && dnf"
+          }
+        ]
+      },
+      "guidance": [
+        "Cai Node.js 22.18+: https://nodejs.org/en/download",
+        "Windows: winget install --id OpenJS.NodeJS.LTS -e",
+        "macOS: brew install node",
+        "Ubuntu/Debian: sudo apt-get install -y nodejs npm",
+        "Sau khi cai xong: mo terminal moi roi chay lai installer."
+      ]
+    },
+    {
+      "id": "npm",
+      "label": "npm (di kem Node.js)",
+      "why": "npm duoc dung de cai gitnexus, context7 va memorix",
+      "verify": {
+        "cmd": "npm",
+        "args": [
+          "--version"
+        ],
+        "minVersion": "10.0.0"
+      },
+      "install": {
+        "win": [],
+        "unix": []
+      },
+      "guidance": [
+        "npm thuong di kem Node.js. Kiem tra: npm -v",
+        "Neu thieu: cai lai Node.js tu https://nodejs.org (ban LTS)."
+      ]
+    },
+    {
+      "id": "uv",
+      "label": "uv (Python package runner)",
+      "why": "mcp-atlassian duoc cai va chay qua uv",
+      "verify": {
+        "cmd": "uv",
+        "args": [
+          "--version"
+        ],
+        "minVersion": "0.5.0"
+      },
+      "install": {
+        "win": [
+          {
+            "cmd": "winget",
+            "args": [
+              "install",
+              "--id=astral-sh.uv",
+              "-e",
+              "--silent",
+              "--accept-source-agreements",
+              "--accept-package-agreements"
+            ]
+          },
+          {
+            "type": "powershell",
+            "script": "irm https://astral.sh/uv/install.ps1 | iex"
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "bash",
+            "args": [
+              "-lc",
+              "curl -fsSL https://astral.sh/uv/install.sh | sh"
+            ]
+          }
+        ]
+      },
+      "guidance": [
+        "Windows: winget install --id=astral-sh.uv -e",
+        "macOS/Linux: curl -fsSL https://astral.sh/uv/install.sh | sh",
+        "uv cai vao ~/.local/bin (hoac %USERPROFILE%\\.local\\bin) - can co thu muc nay trong PATH."
+      ]
+    },
+    {
+      "id": "git",
+      "label": "git",
+      "why": "Mot so skill va MCP can git (gitnexus index)",
+      "optional": true,
+      "verify": {
+        "cmd": "git",
+        "args": [
+          "--version"
+        ],
+        "minVersion": "2.30.0"
+      },
+      "install": {
+        "win": [
+          {
+            "cmd": "winget",
+            "args": [
+              "install",
+              "--id",
+              "Git.Git",
+              "-e",
+              "--silent",
+              "--accept-source-agreements",
+              "--accept-package-agreements"
+            ]
+          }
+        ],
+        "unix": [
+          {
+            "cmd": "brew",
+            "args": [
+              "install",
+              "git"
+            ],
+            "when": "brew"
+          },
+          {
+            "cmd": "bash",
+            "args": [
+              "-lc",
+              "command -v apt-get >/dev/null && sudo apt-get install -y git"
+            ],
+            "when": "!brew && apt-get"
+          }
+        ]
+      },
+      "guidance": [
+        "Cai git: https://git-scm.com/downloads"
+      ]
+    }
+  ],
+  "pathRequirements": [
+    {
+      "id": "npm-global-bin",
+      "label": "npm global bin",
+      "why": "De goi cac MCP cai bang npm: gitnexus, context7 va memorix",
+      "resolve": "npm-prefix-bin"
+    },
+    {
+      "id": "uv-tool-bin",
+      "label": "uv tool bin",
+      "why": "De goi mcp-atlassian (cai bang uv tool)",
+      "resolve": "uv-tool-bin"
+    },
+    {
+      "id": "local-bin",
+      "label": "~/.local/bin",
+      "why": "Noi uv/astral cai binary tren macOS/Linux",
+      "resolve": "local-bin"
+    }
+  ]
+}
