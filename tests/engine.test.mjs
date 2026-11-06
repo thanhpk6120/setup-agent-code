@@ -585,6 +585,10 @@ test('dsh installs the local safe-fs-replace plugin once (idempotent)', () => {
   const patch = fs.readFileSync(path.join(home, '.dsh', 'profiles', 'web', 'cordis.patch.yml'), 'utf8');
   const occurrences = patch.split('- id: safe-fs-replace').length - 1;
   assert.equal(occurrences, 1, 'plugin entry must be registered exactly once after two runs');
+  const retryOccurrences = patch.split('- id: llm-retry').length - 1;
+  assert.equal(retryOccurrences, 1, 'llm-retry must be registered exactly once after two runs');
+  assert.ok(patch.includes('retryPolicy:'), 'retryPolicy is registered in cordis.patch.yml');
+  assert.ok(patch.includes('maxRetries: 5'), 'maxRetries is configured');
   assert.ok(patch.includes('name: "file:///'), 'plugin name is an absolute file URL');
   assert.ok(!patch.includes('\\\\'), 'file URL uses forward slashes');
 });

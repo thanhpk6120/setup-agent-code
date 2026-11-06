@@ -443,6 +443,9 @@
             "subagent",
             "permission"
           ],
+          "managedInserts": [
+            "llm-retry"
+          ],
           "preserveFromExisting": {
             "baseURL": "AI_BASE_URL"
           }

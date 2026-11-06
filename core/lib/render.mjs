@@ -210,6 +210,20 @@ function parseLayer(text) {
   return { preamble, plain, inserts: inserts.map((item) => ({ id: item.id, text: item.lines.join('\n').replace(/\s+$/, '') })) };
 }
 
+function reindentInsertItem(text, targetIndent = 4) {
+  const lines = text.split('\n');
+  const m = /^(\s*)-/.exec(lines[0]);
+  if (!m) return text;
+  const currentIndent = m[1].length;
+  const delta = targetIndent - currentIndent;
+  if (delta === 0) return text;
+  return lines.map((line) => {
+    if (!line.trim()) return line;
+    if (delta > 0) return ' '.repeat(delta) + line;
+    return line.slice(Math.min(-delta, line.match(/^\s*/)[0].length));
+  }).join('\n');
+}
+
 /**
  * Merge a managed patch layer into an existing one without dropping user entries.
  * Entries listed in `ownIds` are template-owned: the template value replaces them.
@@ -253,9 +267,11 @@ export function mergeYamlLayer(existingText, templateText, { managedMcpIds = [],
     .map((item) => item.text)
     .filter(Boolean);
   const inserts = [...keptInserts, ...templateInserts];
+  const targetIndent = (inserts[0] && /^(\s*)-/.exec(inserts[0])?.[1]?.length) || 4;
+  const normalizedInserts = inserts.map((text) => reindentInsertItem(text, targetIndent));
 
   const body = [...keptPlain, ...templatePlain];
-  if (inserts.length) body.push(`- insert:\n${inserts.join('\n')}`);
+  if (normalizedInserts.length) body.push(`- insert:\n${normalizedInserts.join('\n')}`);
   const preambleLines = existing.preamble.join('\n').trim() ? existing.preamble : template.preamble;
   const merged = body.join('\n').replace(/^# <<MCP_SERVERS>>$/gm, '').replace(/\n{3,}/g, '\n\n');
   const text = [preambleLines.join('\n').trim(), merged.trim()].filter(Boolean).join('\n');

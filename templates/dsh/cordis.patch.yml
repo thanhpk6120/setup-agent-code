@@ -29,6 +29,14 @@
     providers:
       deepseek:
         baseURL: __AI_BASE_URL__
+        apiKeyEnv: DEEPSEEK_API_KEY
+        retryPolicy:
+          mode: normal
+          maxRetries: 5
+          backoff:
+            initialDelayMs: 1000
+            maxDelayMs: 15000
+            jitterRatio: 0.2
         models:
           - id: deepseek-flash
             name: DeepSeek V4.1 Flash
@@ -43,7 +51,6 @@
             maxTokens: 384000
             input:
               - text
-        apiKeyEnv: DEEPSEEK_API_KEY
 - id: agent-preset-registry
   name: "@deepseek-ai/dsh-agent-preset-registry"
   config:
@@ -71,4 +78,8 @@
     maxActiveSubagents: 32
 
 # <<MCP_SERVERS>>
+
+- insert:
+    - id: llm-retry
+      name: "@deepseek-ai/dsh-llm-retry"
 
