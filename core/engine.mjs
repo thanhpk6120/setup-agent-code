@@ -652,6 +652,19 @@ const PHASE_IMPL = {
     if (isDoctor) {
       for (const plugin of c.agent.plugins || []) rows.push(verifyPlugin(c, plugin));
     }
+    if (U.isWin && c.agent.id === 'dsh') {
+      const desktopProfileDir = path.join(process.env.APPDATA || '', 'dsh-desktop', 'harness', 'profiles', 'web');
+      const desktopPatch = path.join(desktopProfileDir, 'cordis.patch.yml');
+      if (U.exists(desktopPatch)) {
+        const text = U.readText(desktopPatch);
+        const hasMock = /acc-mock/i.test(text);
+        rows.push(V.result('desktop:cordis.patch.yml', hasMock ? 'FAIL' : 'PASS', hasMock ? 'chua test artifact acc-mock' : desktopPatch));
+        for (const id of activeMcp) {
+          const present = text.includes(`- id: mcp-${id}`);
+          rows.push(V.result(`desktop-mcp:${id}`, present ? 'PASS' : 'FAIL', 'desktop/cordis.patch.yml'));
+        }
+      }
+    }
     if (!isDoctor) {
       for (const id of ctx.blockedMcp) {
         rows.push(V.result(`mcp:${id}`, 'WARN', 'khong duoc cau hinh (thieu dependency) - xem huong xu ly'));
