@@ -526,7 +526,25 @@ const PHASE_IMPL = {
       writes.push({ dest, kind: 'yaml', content: ensureTrailingNewline(content), preserve: c.agent.credentialFile.preserve === false ? false : 'sealed' });
     }
 
-    for (const write of writes) await writeConfig(c, write, policy);
+    for (const write of writes) {
+      await writeConfig(c, write, policy);
+      // Windows DSH parity: sync web profile cordis.patch.yml to DSH Desktop app profile when present
+      if (U.isWin && c.agent.id === 'dsh' && write.dest.endsWith('cordis.patch.yml') && write.dest.includes('profiles')) {
+        const desktopProfileDir = path.join(process.env.APPDATA || '', 'dsh-desktop', 'harness', 'profiles', 'web');
+        const desktopPatch = path.join(desktopProfileDir, 'cordis.patch.yml');
+        if (U.exists(desktopProfileDir) && path.resolve(desktopPatch) !== path.resolve(write.dest)) {
+          let desktopText = write.content;
+          if (U.exists(desktopPatch)) {
+            desktopText = R.mergeYamlLayer(U.readText(desktopPatch), desktopText, {
+              managedMcpIds: [...knownMcpIds(c)],
+              managedInsertIds: ['llm-retry'],
+              ownIds: ['llm-pi-ai', 'agent-preset-registry', 'agent-default-model', 'subagent-model-selection-settings', 'subagent', 'permission']
+            });
+          }
+          await writeConfig(c, { dest: desktopPatch, kind: 'yaml', content: U.ensureTrailingNewline(desktopText), preserve: false }, policy);
+        }
+      }
+    }
     c.tokens.servers = servers;
   },
 

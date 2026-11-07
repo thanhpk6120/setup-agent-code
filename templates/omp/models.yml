@@ -10,10 +10,22 @@ providers:
     models:
       - id: claude-fable-5
         contextWindow: 1000000
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [minimal, low, medium, high, xhigh]
       - id: claude-opus-5
         contextWindow: 1000000
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [minimal, low, medium, high, xhigh]
       - id: claude-sonnet-5
         contextWindow: 1000000
+        reasoning: true
+        thinking:
+          mode: effort
+          efforts: [minimal, low, medium, high, xhigh]
       - id: claude-haiku-4-5-20251001
         contextPromotionTarget: claude-sonnet-5
         reasoning: true
