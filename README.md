@@ -2,7 +2,7 @@
 
 > **Cảnh báo:** Installer đang được sửa sau sự cố ghi đè cấu hình. Không chạy trên cấu hình thật cho đến khi các kiểm thử bảo toàn dữ liệu và chạy thực tế trong môi trường cách ly hoàn tất. `--doctor` và `--dry-run` hiện chưa được xác nhận là chỉ đọc.
 
-> **Một lệnh duy nhất** để cài đặt, cấu hình và **kiểm chứng** **6 AI Coding Agent** trên **Windows**, **macOS** và **Linux**: **OMP**, **Claude Code**, **OpenCode**, **Codex CLI**, **DSH (DeepSeek Harness)**, **Antigravity CLI**.
+> **Một lệnh duy nhất** để cài đặt, cấu hình và **kiểm chứng** **8 AI Coding Agent** trên **Windows**, **macOS** và **Linux**: **OMP**, **Claude Code**, **OpenCode**, **Codex CLI**, **DSH (DeepSeek Harness)**, **Antigravity CLI**, **Goose**, **Roo Code**.
 
 Từ v1.0, cả 3 hệ điều hành chạy **cùng một engine** (`core/engine.mjs`) với **cùng thứ tự 13 phase** và **cùng bộ option**; khác biệt giữa các agent chỉ nằm trong `manifest/` và `templates/`.
 
@@ -13,7 +13,7 @@ Từ v1.0, cả 3 hệ điều hành chạy **cùng một engine** (`core/engine
 ### Windows (PowerShell 5.1 / 7+)
 
 ```powershell
-# Toàn bộ 6 agent
+# Toàn bộ 8 agent
 irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.ps1 | iex
 
 # Một agent
@@ -23,7 +23,7 @@ irm https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.
 ### macOS / Linux
 
 ```bash
-# Toàn bộ 6 agent
+# Toàn bộ 8 agent
 curl -fsSL https://raw.githubusercontent.com/thanhpk6120/setup-agent-code/main/install.sh | bash
 
 # Một agent

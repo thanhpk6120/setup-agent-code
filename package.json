@@ -2,7 +2,7 @@
   "name": "setup-agent-code",
   "version": "1.0.0",
   "private": true,
-  "description": "One-command installer for 6 AI coding agents with a single shared engine (Windows + macOS + Linux)",
+  "description": "One-command installer for 8 AI coding agents with a single shared engine (Windows + macOS + Linux)",
   "engines": {
     "node": ">=22.18.0"
   },
