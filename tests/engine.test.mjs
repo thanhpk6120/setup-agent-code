@@ -653,6 +653,46 @@ test('dsh install preserves the live baseURL unless AI_BASE_URL is supplied', ()
   assert.ok(scenario(null).includes('http://keep.me:1234/v1'), 'existing endpoint survives a re-run');
   assert.ok(scenario('http://new.me:9999/v1').includes('http://new.me:9999/v1'), 'explicit AI_BASE_URL wins');
 });
+test('dsh syncs cordis.patch.yml to desktop profile when present, preserving legacy presets with block scalars', () => {
+  const home = tempHome();
+  const cliProfile = path.join(home, '.dsh', 'profiles', 'web');
+  const desktopProfile = path.join(home, 'AppData', 'Roaming', 'dsh-desktop', 'harness', 'profiles', 'web');
+  fs.mkdirSync(cliProfile, { recursive: true });
+  fs.mkdirSync(desktopProfile, { recursive: true });
+
+  const legacyBlock = [
+    '# dsh-desktop legacy presets begin',
+    '- insert:',
+    '    - id: preset-architect',
+    '      config:',
+    '        prefix: >-',
+    '          Multiline architectural guidance with special block scalars.',
+    '        section: |',
+    '          Another literal block scalar with code and newlines.',
+    '# dsh-desktop legacy presets end',
+    ''
+  ].join('\n');
+
+  const initialDesktop = [
+    '- id: ui-theme',
+    '  config:',
+    '    fontSize: 14',
+    legacyBlock
+  ].join('\n');
+
+  fs.writeFileSync(path.join(desktopProfile, 'cordis.patch.yml'), initialDesktop);
+
+  const result = runEngine(['--target', 'dsh', '--yes', '--skip-install', '--mcp', 'context7'], home);
+  assert.equal(result.status, 0, result.stderr);
+
+  const desktopContent = fs.readFileSync(path.join(desktopProfile, 'cordis.patch.yml'), 'utf8');
+  assert.ok(desktopContent.includes('- id: mcp-context7'), 'MCP server is synced to desktop profile');
+  assert.ok(desktopContent.includes('# dsh-desktop legacy presets begin'), 'legacy presets begin marker is preserved');
+  assert.ok(desktopContent.includes('prefix: >-'), 'block scalar prefix is preserved');
+  assert.ok(desktopContent.includes('section: |'), 'literal block scalar is preserved');
+  assert.ok(desktopContent.includes('# dsh-desktop legacy presets end'), 'legacy presets end marker is preserved');
+});
+
 
 // ------------------------------------------------------- regressions (v1.0.5)
 test('run resolves a bare command name through PATH', () => {

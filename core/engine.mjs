@@ -535,13 +535,23 @@ const PHASE_IMPL = {
         if (U.exists(desktopProfileDir) && path.resolve(desktopPatch) !== path.resolve(write.dest)) {
           let desktopText = write.content;
           if (U.exists(desktopPatch)) {
-            desktopText = R.mergeYamlLayer(U.readText(desktopPatch), desktopText, {
-              managedMcpIds: [...knownMcpIds(c)],
-              managedInsertIds: ['llm-retry'],
-              ownIds: ['llm-pi-ai', 'agent-preset-registry', 'agent-default-model', 'subagent-model-selection-settings', 'subagent', 'permission']
-            });
+            const rawDesktop = U.readText(desktopPatch);
+            const marker = '# dsh-desktop legacy presets begin';
+            const markerIdx = rawDesktop.indexOf(marker);
+            const baseText = markerIdx !== -1 ? rawDesktop.slice(0, markerIdx) : rawDesktop;
+            const legacyPresets = markerIdx !== -1 ? rawDesktop.slice(markerIdx) : '';
+            try {
+              const mergedBase = R.mergeYamlLayer(baseText, desktopText, {
+                managedMcpIds: [...knownMcpIds(c)],
+                managedInsertIds: ['llm-retry'],
+                ownIds: ['llm-pi-ai', 'agent-preset-registry', 'agent-default-model', 'subagent-model-selection-settings', 'subagent', 'permission']
+              });
+              desktopText = legacyPresets ? `${mergedBase.trimEnd()}\n\n${legacyPresets}` : mergedBase;
+            } catch {
+              desktopText = legacyPresets ? `${desktopText.trimEnd()}\n\n${legacyPresets}` : desktopText;
+            }
           }
-          await writeConfig(c, { dest: desktopPatch, kind: 'yaml', content: U.ensureTrailingNewline(desktopText), preserve: false }, policy);
+          await writeConfig(c, { dest: desktopPatch, kind: 'yaml', content: ensureTrailingNewline(desktopText), preserve: false }, policy);
         }
       }
     }
