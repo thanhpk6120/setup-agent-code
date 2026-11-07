@@ -687,10 +687,39 @@ test('dsh syncs cordis.patch.yml to desktop profile when present, preserving leg
 
   const desktopContent = fs.readFileSync(path.join(desktopProfile, 'cordis.patch.yml'), 'utf8');
   assert.ok(desktopContent.includes('- id: mcp-context7'), 'MCP server is synced to desktop profile');
+  assert.ok(desktopContent.includes('- id: safe-fs-replace'), 'safe-fs-replace plugin is synced to desktop profile');
+  assert.ok(desktopContent.includes('# DSH fix: ReplaceFileW'), 'comment banner has # prefix');
   assert.ok(desktopContent.includes('# dsh-desktop legacy presets begin'), 'legacy presets begin marker is preserved');
   assert.ok(desktopContent.includes('prefix: >-'), 'block scalar prefix is preserved');
   assert.ok(desktopContent.includes('section: |'), 'literal block scalar is preserved');
   assert.ok(desktopContent.includes('# dsh-desktop legacy presets end'), 'legacy presets end marker is preserved');
+});
+
+test('dsh syncs safe-fs-replace to desktop profile even when CLI profile already has it registered', () => {
+  const home = tempHome();
+  const cliProfile = path.join(home, '.dsh', 'profiles', 'web');
+  const desktopProfile = path.join(home, 'AppData', 'Roaming', 'dsh-desktop', 'harness', 'profiles', 'web');
+  fs.mkdirSync(cliProfile, { recursive: true });
+  fs.mkdirSync(desktopProfile, { recursive: true });
+
+  fs.writeFileSync(path.join(cliProfile, 'cordis.patch.yml'), [
+    '- id: ui-theme',
+    '- insert:',
+    '  - id: safe-fs-replace',
+    '    name: "file:///already/registered.js"',
+    ''
+  ].join('\n'));
+
+  fs.writeFileSync(path.join(desktopProfile, 'cordis.patch.yml'), [
+    '- id: ui-theme',
+    ''
+  ].join('\n'));
+
+  const result = runEngine(['--target', 'dsh', '--yes', '--skip-install', '--mcp', 'none'], home);
+  assert.equal(result.status, 0, result.stderr);
+
+  const desktopContent = fs.readFileSync(path.join(desktopProfile, 'cordis.patch.yml'), 'utf8');
+  assert.ok(desktopContent.includes('- id: safe-fs-replace'), 'safe-fs-replace is synced to desktop profile even if CLI was already registered');
 });
 
 

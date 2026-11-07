@@ -1067,30 +1067,11 @@ async function ensureLocalPlugin(c, lp) {
   const content = R.renderTemplate(ROOT, lp.template, buildVars(c));
   await writeConfig(c, { dest, kind: 'script', content, preserve: false }, 'overwrite');
 
-  if (!U.exists(patch)) {
-    U.log.warn(`${lp.id}: chua co ${patch} -> khong dang ky duoc`);
-    c.rows.push(V.result(rowId, 'WARN', `thieu ${patch}`));
-    return;
-  }
-  const text = U.readText(patch);
-  if (text.includes(`- id: ${lp.id}`)) {
-    U.log.skip(`${lp.id}: da dang ky trong patch`);
-    c.rows.push(V.result(rowId, 'PASS', 'da dang ky'));
-    return;
-  }
-  if (ctx.mode === 'dry-run') {
-    U.log.info(`[dry-run] se them ${lp.id} vao ${patch}`);
-    c.rows.push(V.result(rowId, 'SKIP', 'dry-run'));
-    return;
-  }
   const url = pathToFileUrl(dest);
-  const banner = lp.comment ? `${lp.comment}\n` : '';
-  const block = `${text.endsWith('\n') ? '' : '\n'}\n${banner}- insert:\n  - id: ${lp.id}\n    name: "${url}"\n`;
-  U.backupFile(patch);
-  U.writeFileAtomic(patch, text + block);
-  U.log.ok(`${lp.id}: da them vao ${patch}`);
-  c.rows.push(V.result(rowId, 'PASS', `da them vao ${patch}`));
-  if (U.isWin && c.agent.id === 'dsh') {
+  const banner = lp.comment ? `# ${lp.comment.replace(/^#\s*/, '')}\n` : '';
+
+  // Synchronize to DSH Desktop app profile when present on Windows (independent of CLI registration state)
+  if (U.isWin && c.agent.id === 'dsh' && ctx.mode !== 'dry-run') {
     const desktopProfileDir = path.join(process.env.APPDATA || '', 'dsh-desktop', 'harness', 'profiles', 'web');
     const desktopPatch = path.join(desktopProfileDir, 'cordis.patch.yml');
     if (U.exists(desktopPatch) && path.resolve(desktopPatch).toLowerCase() !== path.resolve(patch).toLowerCase()) {
@@ -1108,6 +1089,28 @@ async function ensureLocalPlugin(c, lp) {
       }
     }
   }
+
+  if (!U.exists(patch)) {
+    U.log.warn(`${lp.id}: chua co ${patch} -> khong dang ky duoc`);
+    c.rows.push(V.result(rowId, 'WARN', `thieu ${patch}`));
+    return;
+  }
+  const text = U.readText(patch);
+  if (text.includes(`- id: ${lp.id}`)) {
+    U.log.skip(`${lp.id}: da dang ky trong patch`);
+    c.rows.push(V.result(rowId, 'PASS', 'da dang ky'));
+    return;
+  }
+  if (ctx.mode === 'dry-run') {
+    U.log.info(`[dry-run] se them ${lp.id} vao ${patch}`);
+    c.rows.push(V.result(rowId, 'SKIP', 'dry-run'));
+    return;
+  }
+  const block = `${text.endsWith('\n') ? '' : '\n'}\n${banner}- insert:\n  - id: ${lp.id}\n    name: "${url}"\n`;
+  U.backupFile(patch);
+  U.writeFileAtomic(patch, text + block);
+  U.log.ok(`${lp.id}: da them vao ${patch}`);
+  c.rows.push(V.result(rowId, 'PASS', `da them vao ${patch}`));
 }
 
 function pathToFileUrl(p) {
