@@ -251,6 +251,78 @@ test('doctor verifies an installed home without writing', () => {
   assert.equal(payload.mode, 'doctor');
   assert.ok(payload.counts.PASS > 0);
 });
+test('goose re-run with mcp none and mcp all preserves non-managed extensions and avoids duplicate keys', () => {
+  const home = tempHome();
+  const gooseDir = U.isWin ? path.join(home, 'AppData', 'Roaming', 'Block', 'goose', 'config') : path.join(home, '.config', 'goose');
+  const cfgPath = path.join(gooseDir, 'config.yaml');
+
+  runEngine(['--target', 'goose', '--yes', '--skip-install', '--force', '--mcp', 'all', '--quiet'], home);
+  const withAll = fs.readFileSync(cfgPath, 'utf8');
+  assert.ok(withAll.includes('extensions:'));
+  assert.ok(withAll.includes('  gitnexus:'));
+
+  const withCustom = withAll.replace('extensions:\n', 'extensions:\n  custom-dev:\n    type: builtin\n');
+  fs.writeFileSync(cfgPath, withCustom, 'utf8');
+
+  runEngine(['--target', 'goose', '--yes', '--skip-install', '--force', '--mcp', 'none', '--quiet'], home);
+  const afterNone = fs.readFileSync(cfgPath, 'utf8');
+  assert.ok(afterNone.includes('custom-dev:'));
+  assert.ok(!afterNone.includes('gitnexus:'));
+
+  runEngine(['--target', 'goose', '--yes', '--skip-install', '--force', '--mcp', 'all', '--quiet'], home);
+  const afterReAll = fs.readFileSync(cfgPath, 'utf8');
+  const extMatches = afterReAll.match(/^extensions:/gm) || [];
+  assert.equal(extMatches.length, 1, 'must have exactly one extensions: key');
+  assert.ok(afterReAll.includes('custom-dev:'));
+  assert.ok(afterReAll.includes('gitnexus:'));
+});
+
+test('roo-code re-run with mcp none and mcp all removes only installer-managed servers', () => {
+  const home = tempHome();
+  const rooSettingsDir = U.isWin
+    ? path.join(home, 'AppData', 'Roaming', 'Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings')
+    : path.join(home, '.config', 'Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings');
+  const mcpPath = path.join(rooSettingsDir, 'mcp_settings.json');
+
+  runEngine(['--target', 'roo-code', '--yes', '--skip-install', '--force', '--mcp', 'all', '--quiet'], home);
+  const withAll = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
+  withAll.mcpServers['user-server'] = { command: 'user-tool', args: [] };
+  fs.writeFileSync(mcpPath, JSON.stringify(withAll, null, 2));
+
+  runEngine(['--target', 'roo-code', '--yes', '--skip-install', '--force', '--mcp', 'none', '--quiet'], home);
+  const afterNone = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
+  assert.deepEqual(Object.keys(afterNone.mcpServers), ['user-server']);
+
+  runEngine(['--target', 'roo-code', '--yes', '--skip-install', '--force', '--mcp', 'all', '--quiet'], home);
+  const afterReAll = JSON.parse(fs.readFileSync(mcpPath, 'utf8'));
+  assert.ok(afterReAll.mcpServers['user-server']);
+  assert.ok(afterReAll.mcpServers['gitnexus']);
+});
+
+test('doctor verifies goose and roo-code without writing', () => {
+  const home = tempHome();
+  runEngine(['--target', 'goose', '--yes', '--skip-install', '--force', '--mcp', 'all', '--quiet'], home);
+  runEngine(['--target', 'roo-code', '--yes', '--skip-install', '--force', '--mcp', 'all', '--quiet'], home);
+
+  const gooseDir = U.isWin ? path.join(home, 'AppData', 'Roaming', 'Block', 'goose', 'config') : path.join(home, '.config', 'goose');
+  const cfgPath = path.join(gooseDir, 'config.yaml');
+  const currentGoose = fs.readFileSync(cfgPath, 'utf8');
+  fs.writeFileSync(cfgPath, currentGoose.replace('extensions:\n', 'extensions:\n  developer:\n    type: builtin\n'), 'utf8');
+
+  const gooseDoc = runEngine(['--target', 'goose', '--doctor', '--json'], home);
+  assert.equal(gooseDoc.status, 0, gooseDoc.stderr);
+  const goosePayload = JSON.parse(gooseDoc.stdout);
+  assert.equal(goosePayload.mode, 'doctor');
+  assert.equal(goosePayload.counts.FAIL, 0);
+  assert.ok(goosePayload.counts.PASS >= 5);
+
+  const rooDoc = runEngine(['--target', 'roo-code', '--doctor', '--json'], home);
+  assert.equal(rooDoc.status, 0, rooDoc.stderr);
+  const rooPayload = JSON.parse(rooDoc.stdout);
+  assert.equal(rooPayload.mode, 'doctor');
+  assert.equal(rooPayload.counts.FAIL, 0);
+  assert.ok(rooPayload.counts.PASS >= 5);
+});
 
 test('unknown option exits with code 2', () => {
   const home = tempHome();

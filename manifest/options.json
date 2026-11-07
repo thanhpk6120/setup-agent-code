@@ -7,7 +7,7 @@
       "long": "--target",
       "short": "-t",
       "ps": "-Target",
-      "value": "all|omp|claude-code|opencode|codex-cli|dsh|antigravity-cli",
+      "value": "all|omp|claude-code|opencode|codex-cli|dsh|antigravity-cli|goose|roo-code",
       "default": "all",
       "description": "Agent can cai dat (mac dinh: all)"
     },

@@ -750,9 +750,18 @@ function inferConfiguredMcp(c) {
     return [...text.matchAll(/^- id: mcp-([A-Za-z0-9-]+)$/gm)].map((match) => match[1]);
   }
   if (adapter === 'goose-yaml') {
-    const extMatch = text.match(/^extensions:\s*([\s\S]*?)(?:^[^\s#]|\Z)/m);
+    const extMatch = text.match(/^extensions:\s*(?:\{\})?\s*(?:#.*)?$/m);
     if (!extMatch) return [];
-    return [...extMatch[1].matchAll(/^  ([A-Za-z0-9_-]+):\s*$/gm)].map((match) => match[1]);
+    const after = text.slice(extMatch.index + extMatch[0].length);
+    const lines = after.split(/\r?\n/);
+    const names = [];
+    const known = knownMcpIds(c);
+    for (const line of lines) {
+      if (/^[^\s#]/.test(line)) break;
+      const m = line.match(/^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$/);
+      if (m && known.has(m[1])) names.push(m[1]);
+    }
+    return names;
   }
   try {
     const obj = JSON.parse(text);

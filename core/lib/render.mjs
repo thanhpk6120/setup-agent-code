@@ -160,7 +160,7 @@ export function mergeGooseConfig(existingText, servers, managedIds = new Set()) 
     const extBlock = servers.length ? `extensions:\n${yamlGooseExtensions(servers)}` : 'extensions: {}';
     return existingText.replace('# <<GOOSE_EXTENSIONS>>', extBlock);
   }
-  const extMatch = existingText.match(/^extensions:\s*$/m);
+  const extMatch = existingText.match(/^extensions:\s*(?:\{\})?\s*(?:#.*)?$/m);
   if (!extMatch) {
     const extBlock = servers.length ? `extensions:\n${yamlGooseExtensions(servers)}` : 'extensions: {}';
     return `${existingText.trimEnd()}\n\n${extBlock}\n`;
@@ -184,7 +184,7 @@ export function mergeGooseConfig(existingText, servers, managedIds = new Set()) 
   let currentId = null;
   let currentLines = [];
   for (const line of extLines) {
-    const m = line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+    const m = line.match(/^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$/);
     if (m) {
       if (currentId && !managedIds.has(currentId)) {
         preservedEntries.push(currentLines.join('\n'));
