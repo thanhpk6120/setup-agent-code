@@ -663,6 +663,8 @@ const PHASE_IMPL = {
           const present = text.includes(`- id: mcp-${id}`);
           rows.push(V.result(`desktop-mcp:${id}`, present ? 'PASS' : 'FAIL', 'desktop/cordis.patch.yml'));
         }
+        const hasSafeFs = text.includes('- id: safe-fs-replace');
+        rows.push(V.result('desktop:plugin:safe-fs-replace', hasSafeFs ? 'PASS' : 'WARN', hasSafeFs ? 'da cai trong desktop patch' : 'chua cai trong desktop patch'));
       }
     }
     if (!isDoctor) {
@@ -1088,6 +1090,24 @@ async function ensureLocalPlugin(c, lp) {
   U.writeFileAtomic(patch, text + block);
   U.log.ok(`${lp.id}: da them vao ${patch}`);
   c.rows.push(V.result(rowId, 'PASS', `da them vao ${patch}`));
+  if (U.isWin && c.agent.id === 'dsh') {
+    const desktopProfileDir = path.join(process.env.APPDATA || '', 'dsh-desktop', 'harness', 'profiles', 'web');
+    const desktopPatch = path.join(desktopProfileDir, 'cordis.patch.yml');
+    if (U.exists(desktopPatch) && path.resolve(desktopPatch).toLowerCase() !== path.resolve(patch).toLowerCase()) {
+      const dText = U.readText(desktopPatch);
+      if (!dText.includes(`- id: ${lp.id}`)) {
+        const marker = '# dsh-desktop legacy presets begin';
+        const mIdx = dText.indexOf(marker);
+        const insertBlock = `\n${banner}- insert:\n  - id: ${lp.id}\n    name: "${url}"\n`;
+        const updated = mIdx !== -1
+          ? `${dText.slice(0, mIdx).trimEnd()}\n${insertBlock}\n${dText.slice(mIdx)}`
+          : `${dText.trimEnd()}\n${insertBlock}`;
+        U.backupFile(desktopPatch);
+        U.writeFileAtomic(desktopPatch, updated);
+        U.log.ok(`${lp.id}: da them vao desktop ${desktopPatch}`);
+      }
+    }
+  }
 }
 
 function pathToFileUrl(p) {
