@@ -2,7 +2,7 @@
 # All ordering/option logic lives in core/engine.mjs (shared with macOS/Linux).
 # NOTE: no [CmdletBinding()] here - it would reserve -Verbose and clash with our -Verbose switch.
 param(
-    [ValidateSet('all', 'omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity', 'antigravity-cli')]
+    [ValidateSet('all', 'omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity', 'antigravity-cli', 'goose', 'roo', 'roo-code')]
     [string]$Target = 'all',
     [switch]$DryRun,
     [switch]$SkipInstall,

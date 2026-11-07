@@ -26,6 +26,8 @@ Nguồn: tài liệu chính thức (link ở cột "Nguồn") + kiểm tra máy 
 | **Antigravity CLI** | Global rules: `~/.gemini/AGENTS.md`, `~/.gemini/GEMINI.md`, `~/.gemini/config/AGENTS.md`, `~/.gemini/config/GEMINI.md`, `~/.gemini/config/rules/*.md` | `~/.gemini/antigravity-cli/AGENTS.md` + `GEMINI.md` ([install.sh#L1098-L1100](install.sh#L1098-L1100), [setup-antigravity-cli/bootstrap.ps1#L1462-L1468](setup-antigravity-cli/bootstrap.ps1#L1462-L1468)) | ❌ **SAI ĐƯỜNG DẪN** (không nằm trong danh sách rules) |
 | **Antigravity CLI** | Skills: `~/.gemini/config/skills/` (global, dùng chung App+CLI) + `~/.gemini/antigravity-cli/skills/` (CLI-only) | chỉ `~/.gemini/antigravity-cli/skills/` | ⚠️ App không thấy skills; nên ghi cả `~/.gemini/config/skills` |
 | **Antigravity** | `settings.json` (`~/.gemini/antigravity-cli/settings.json`) + `hooks.PreToolUse` | ✅ đúng path/key; nhưng hook trỏ `.cmd` | ⚠️ hook Windows-only |
+| **Goose** | `~/.config/goose/.goosehints` (Windows: `%APPDATA%\Block\goose\config\.goosehints`) | `~/.config/goose/.goosehints` | ✅ đúng chuẩn |
+| **Roo Code** | Global rules: `~/.roo/rules/AGENTS.md` (Windows: `%USERPROFILE%\.roo\rules\AGENTS.md`) | `~/.roo/rules/AGENTS.md` | ✅ đúng chuẩn |
 
 Nguồn:
 - Claude Code memory: https://code.claude.com/docs/en/memory.md
@@ -484,4 +486,19 @@ Verify sau khi xoá: mọi JSON parse được, không mất top-level key nào,
 
 **Vận hành:** phải restart DSH rồi kiểm log `Select-String "$env:USERPROFILE\.dsh\logs\desktop-next-*.log" -Pattern "safe-fs-replace"` (kỳ vọng `patched=true`). Rollback: khôi phục `.bak` hoặc xoá 3 dòng cuối trong patch, rồi restart.
 
-**Test:** full suite cách ly `npm test` → 110 tests, 108 pass, 0 fail, 2 skipped (launcher opt-in).
+## Bổ sung v1.2.0 — Hỗ trợ Goose (Block) & Roo Code (VS Code Extension)
+
+**Mục tiêu:** Mở rộng bộ cài hỗ trợ thêm 2 coding harness hàng đầu: Goose (Rust standalone harness của Block, MCP-native) và Roo Code (AI coding assistant chạy trực tiếp trong VS Code).
+
+| Hạng mục | Goose | Roo Code |
+|---|---|---|
+| **ID Target** | `goose` | `roo-code` (alias `roo`) |
+| **Vendor** | Block | Roo Code Inc |
+| **Binary** | `goose` (`winget install Block.Goose` / shell script) | `code` (VS Code extension: `rooveterinaryinc.roo-cline`) |
+| **Thư mục cấu hình** | Windows: `%APPDATA%\Block\goose\config`<br>macOS/Linux: `~/.config/goose` | Windows: `%USERPROFILE%\.roo`<br>macOS/Linux: `~/.roo` |
+| **Instruction File** | `<dir>/.goosehints` | `<dir>/rules/AGENTS.md` |
+| **MCP Config** | `<dir>/config.yaml` (`extensions:` block, adapter `goose-yaml`, stdio) | `%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings\mcp_settings.json` (adapter `json-mcpServers`) |
+| **Skills** | `<dir>/skills/` | `<dir>/skills/` |
+| **Cơ chế merge MCP** | `mergeGooseConfig()` bảo toàn extension builtin/tự thêm, chỉ quản lý 5 MCP installer sở hữu | `attachMcp()` gộp trực tiếp vào `mcpServers` |
+
+**Test:** full suite sandbox `npm test` → 114 tests, 114 pass, 0 fail. Parity shim `pwsh tests/install-shim-parity.test.ps1` → 40/40 pass.

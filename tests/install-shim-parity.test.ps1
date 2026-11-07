@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
-$targets = @('antigravity-cli', 'claude-code', 'codex-cli', 'dsh', 'omp', 'opencode')
+$targets = @('antigravity-cli', 'claude-code', 'codex-cli', 'dsh', 'goose', 'omp', 'opencode', 'roo-code')
 
 function node {
     $global:capturedNodeArgs = @($args)
@@ -30,4 +30,4 @@ foreach ($target in $targets) {
         }
     }
 }
-Write-Host 'PASS: 30 mocked shim cases'
+Write-Host "PASS: $(@($targets).Count * 5) mocked shim cases"

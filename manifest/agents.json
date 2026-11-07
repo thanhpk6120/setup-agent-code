@@ -617,6 +617,147 @@
           "<dir>/AGENTS.md"
         ]
       }
+    },
+    {
+      "id": "goose",
+      "name": "Goose",
+      "vendor": "Block",
+      "binary": {
+        "command": "goose",
+        "versionArgs": [
+          "--version"
+        ],
+        "optional": true,
+        "install": {
+          "win": [
+            {
+              "type": "powershell",
+              "script": "winget install Block.Goose --accept-source-agreements --accept-package-agreements"
+            }
+          ],
+          "unix": [
+            {
+              "type": "shell",
+              "script": "curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash"
+            }
+          ]
+        },
+        "installGuidance": [
+          "Windows: winget install Block.Goose",
+          "macOS/Linux: curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash",
+          "hoac tai release tu: https://github.com/block/goose/releases"
+        ]
+      },
+      "dir": {
+        "win": "%APPDATA%\\Block\\goose\\config",
+        "unix": "~/.config/goose"
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/.goosehints",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "goose/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "goose-yaml",
+        "file": "<dir>/config.yaml"
+      },
+      "configs": [
+        {
+          "template": "goose/config.yaml",
+          "dest": "<dir>/config.yaml",
+          "kind": "yaml",
+          "mcpMerge": true,
+          "preserve": true
+        }
+      ],
+      "hooks": [],
+      "verify": {
+        "files": [
+          "<dir>/.goosehints",
+          "<dir>/config.yaml"
+        ]
+      }
+    },
+    {
+      "id": "roo-code",
+      "name": "Roo Code",
+      "vendor": "Roo Code Inc",
+      "binary": {
+        "command": "code",
+        "versionArgs": [
+          "--version"
+        ],
+        "optional": true,
+        "install": {
+          "win": [
+            {
+              "type": "note",
+              "message": "Cai extension Roo Code trong VS Code (rooveterinaryinc.roo-cline) hoac: code --install-extension rooveterinaryinc.roo-cline"
+            }
+          ],
+          "unix": [
+            {
+              "type": "note",
+              "message": "Cai extension Roo Code trong VS Code (rooveterinaryinc.roo-cline) hoac: code --install-extension rooveterinaryinc.roo-cline"
+            }
+          ]
+        },
+        "installGuidance": [
+          "Cai extension trong VS Code: rooveterinaryinc.roo-cline",
+          "hoac tu terminal: code --install-extension rooveterinaryinc.roo-cline"
+        ]
+      },
+      "dir": {
+        "win": "%USERPROFILE%\\.roo",
+        "unix": "~/.roo"
+      },
+      "extraDirs": {
+        "rooSettings": {
+          "win": "%APPDATA%\\Code\\User\\globalStorage\\rooveterinaryinc.roo-cline\\settings",
+          "unix": "~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings",
+          "fallback": {
+            "win": "%USERPROFILE%\\.roo\\settings",
+            "unix": "~/.roo/settings"
+          }
+        }
+      },
+      "instructionFiles": [
+        {
+          "dest": "<dir>/rules/AGENTS.md",
+          "content": [
+            "common/global-rules.md",
+            "common/instructions.md",
+            "roo/extra.md"
+          ],
+          "optionalSections": {
+            "memorix": "sections/memorix.md"
+          }
+        }
+      ],
+      "forbiddenFiles": [],
+      "skillsDir": "<dir>/skills",
+      "mcp": {
+        "adapter": "json-mcpServers",
+        "file": "<rooSettings>/mcp_settings.json"
+      },
+      "configs": [],
+      "hooks": [],
+      "verify": {
+        "files": [
+          "<dir>/rules/AGENTS.md",
+          "<rooSettings>/mcp_settings.json"
+        ]
+      }
     }
   ]
 }

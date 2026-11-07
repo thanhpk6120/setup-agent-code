@@ -70,7 +70,7 @@ setup-*/             # shim tương thích ngược (deprecated)
 
 | PowerShell | Bash | Ý nghĩa |
 |---|---|---|
-| `-Target <id>` | `--target <id>` | `all`, `omp`, `claude-code`, `opencode`, `codex-cli`, `dsh`, `antigravity-cli` |
+| `-Target <id>` | `--target <id>` | `all`, `omp`, `claude-code`, `opencode`, `codex-cli`, `dsh`, `antigravity-cli`, `goose`, `roo-code` |
 | `-DryRun` | `--dry-run` | Mô phỏng, không ghi file, không cài |
 | `-SkipInstall` | `--skip-install` | Chỉ ghi cấu hình: không cài binary/MCP/dependency, không sửa PATH |
 | `-Force` | `--force` | Tự đồng ý mọi prompt (không ép cài lại tool đã mới nhất) |
@@ -152,6 +152,8 @@ Bảng dependency hiện tại:
 | **Codex CLI** | `~/.codex/AGENTS.md` | `~/.codex/config.toml` | `~/.codex/skills/` |
 | **DSH** | `~/.dsh/AGENTS.md` | `~/.dsh/profiles/web/cordis.patch.yml`, `~/.dsh/cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml` | `~/.dsh/skills/` |
 | **Antigravity CLI** | `~/.gemini/AGENTS.md` (global rules) | `~/.gemini/antigravity-cli/settings.json`, `keybindings.json` | `~/.gemini/config/skills/` + `~/.gemini/antigravity-cli/skills/` |
+| **Goose** | `~/.config/goose/.goosehints` (Win: `%APPDATA%\Block\goose\config\.goosehints`) | `~/.config/goose/config.yaml` (Win: `%APPDATA%\Block\goose\config\config.yaml`) | `~/.config/goose/skills/` |
+| **Roo Code** | `~/.roo/rules/AGENTS.md` (Win: `%USERPROFILE%\.roo\rules\AGENTS.md`) | `~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` (Win: `%APPDATA%\Code\User\...`) | `~/.roo/skills/` |
 
 Ghi chú quan trọng:
 
@@ -167,6 +169,8 @@ Ghi chú quan trọng:
 
 - **DSH chống treo khi ghi file**: installer cài local plugin `safe-fs-replace` (`~/.dsh/local-plugins/safe-fs-replace.js`) và thêm đúng một entry `- insert: id: safe-fs-replace` vào `cordis.patch.yml`. Plugin chỉ chạy trên Windows: thay `internals.replaceFile` bằng `rename()` async có retry (`EACCES`/`EBUSY`/`EPERM`, 12 lần, 20→250 ms) để tránh `ReplaceFileW` treo app khi file bị lock. Idempotent: chạy lại không thêm entry thứ hai; rollback = xoá entry + restart DSH.
 
+- **Goose**: MCP extensions được cấu hình trực tiếp dưới khoá `extensions:` trong `config.yaml` (dùng transport `stdio`). Installer merge tự động bảo toàn các extension người dùng tự thêm hoặc builtin.
+- **Roo Code**: Cung cấp custom instructions toàn cục qua `%USERPROFILE%\.roo\rules\AGENTS.md` và đồng bộ 5 MCP servers vào `mcp_settings.json` của VS Code extension.
 ---
 
 ## 6. MCP Servers

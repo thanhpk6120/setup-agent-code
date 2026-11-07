@@ -47,7 +47,7 @@ test('manifests validate and cover every required agent', () => {
   const errors = M.validateManifests(manifests);
   assert.deepEqual(errors, []);
   const ids = manifests.agents.agents.map((a) => a.id);
-  for (const required of ['omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity-cli']) {
+  for (const required of ['omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity-cli', 'goose', 'roo-code']) {
     assert.ok(ids.includes(required), `missing agent ${required}`);
   }
 });
@@ -108,6 +108,23 @@ test('YAML MCP blocks are valid list items with stdio transport', () => {
   assert.match(blocks, /serverName: memorix/);
   assert.match(blocks, /transport: stdio/);
   assert.match(blocks, /command: "memorix"/);
+});
+test('yamlGooseExtensions and mergeGooseConfig manage Goose extensions correctly', () => {
+  const servers = [{ id: 'gitnexus', spec: { command: 'gitnexus', args: ['mcp'], env: { FOO: 'bar' } } }];
+  const rendered = R.yamlGooseExtensions(servers);
+  assert.match(rendered, /gitnexus:/);
+  assert.match(rendered, /type: stdio/);
+  assert.match(rendered, /cmd: "gitnexus"/);
+  assert.match(rendered, /FOO: "bar"/);
+
+  const template = 'active_provider: anthropic\n# <<GOOSE_EXTENSIONS>>\n';
+  const merged = R.mergeGooseConfig(template, servers);
+  assert.match(merged, /extensions:\n  gitnexus:/);
+
+  const existingWithCustom = 'active_provider: anthropic\nextensions:\n  builtin-dev:\n    type: builtin\n  gitnexus:\n    type: stdio\n';
+  const updated = R.mergeGooseConfig(existingWithCustom, [], new Set(['gitnexus']));
+  assert.match(updated, /builtin-dev:/);
+  assert.ok(!updated.includes('gitnexus:'));
 });
 
 test('composeInstruction keeps global rules before instructions', () => {
@@ -180,6 +197,17 @@ test('isolated install (mcp all, memorix) writes every manifest MCP on every ada
 
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'AGENTS.md')));
   assert.ok(!fs.existsSync(path.join(home, '.gemini', 'antigravity-cli', 'AGENTS.md')));
+  const gooseDir = U.isWin ? path.join(home, 'AppData', 'Roaming', 'Block', 'goose', 'config') : path.join(home, '.config', 'goose');
+  assert.ok(fs.existsSync(path.join(gooseDir, '.goosehints')));
+  const gooseConfig = fs.readFileSync(path.join(gooseDir, 'config.yaml'), 'utf8');
+  assert.equal((gooseConfig.match(/^  [a-z0-9-]+:\s*$/gm) || []).length, expectedMcp);
+
+  assert.ok(fs.existsSync(path.join(home, '.roo', 'rules', 'AGENTS.md')));
+  const rooSettingsDir = U.isWin
+    ? path.join(home, 'AppData', 'Roaming', 'Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings')
+    : path.join(home, '.config', 'Code', 'User', 'globalStorage', 'rooveterinaryinc.roo-cline', 'settings');
+  const rooMcp = JSON.parse(fs.readFileSync(path.join(rooSettingsDir, 'mcp_settings.json'), 'utf8'));
+  assert.equal(Object.keys(rooMcp.mcpServers).length, expectedMcp);
 });
 
 test('re-running with mcp none removes only installer-managed servers', () => {

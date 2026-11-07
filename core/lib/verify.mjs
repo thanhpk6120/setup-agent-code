@@ -79,7 +79,7 @@ export function verifyConfigEntries(agent, tokens, selectedIds) {
       const present = cfg.kind === 'toml'
         ? text.includes(`[mcp_servers.${id}]`)
         : cfg.kind === 'yaml'
-          ? text.includes(`- id: mcp-${id}`)
+          ? (agent.mcp?.adapter === 'goose-yaml' ? new RegExp(`^  ${id}:`, 'm').test(text) : text.includes(`- id: mcp-${id}`))
           : Object.hasOwn(servers, id) && servers[id] !== null && typeof servers[id] === 'object' && !Array.isArray(servers[id]);
       rows.push(result(`mcp:${id}`, present ? 'PASS' : 'FAIL', path.basename(file)));
     }

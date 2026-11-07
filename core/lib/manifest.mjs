@@ -144,7 +144,7 @@ export function validateManifests(m) {
     optionIds.add(option.id);
     if (!option.long && !option.ps) errors.push(`option ${option.id}: thieu long/ps`);
   }
-  for (const agentId of ['omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity-cli']) {
+  for (const agentId of ['omp', 'claude-code', 'opencode', 'codex-cli', 'dsh', 'antigravity-cli', 'goose', 'roo-code']) {
     if (!ids.has(agentId)) errors.push(`thieu agent bat buoc: ${agentId}`);
   }
   return errors;

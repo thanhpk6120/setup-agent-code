@@ -126,6 +126,85 @@ export function yamlMcpBlocks(servers) {
   }
   return blocks.join('\n');
 }
+export function yamlGooseExtensions(servers) {
+  const blocks = [];
+  for (const { id, spec } of servers) {
+    const lines = [
+      `  ${id}:`,
+      `    name: ${yamlScalar(id)}`,
+      '    type: stdio',
+      `    cmd: ${yamlScalar(spec.command)}`
+    ];
+    if (spec.args && spec.args.length) {
+      lines.push('    args:');
+      for (const arg of spec.args) lines.push(`      - ${yamlScalar(arg)}`);
+    } else {
+      lines.push('    args: []');
+    }
+    const envKeys = Object.keys(spec.env || {});
+    if (envKeys.length) {
+      lines.push('    envs:');
+      for (const key of envKeys) lines.push(`      ${key}: ${yamlScalar(spec.env[key])}`);
+    } else {
+      lines.push('    envs: {}');
+    }
+    lines.push('    timeout: 300');
+    lines.push('    enabled: true');
+    blocks.push(lines.join('\n'));
+  }
+  return blocks.join('\n');
+}
+
+export function mergeGooseConfig(existingText, servers, managedIds = new Set()) {
+  if (existingText.includes('# <<GOOSE_EXTENSIONS>>')) {
+    const extBlock = servers.length ? `extensions:\n${yamlGooseExtensions(servers)}` : 'extensions: {}';
+    return existingText.replace('# <<GOOSE_EXTENSIONS>>', extBlock);
+  }
+  const extMatch = existingText.match(/^extensions:\s*$/m);
+  if (!extMatch) {
+    const extBlock = servers.length ? `extensions:\n${yamlGooseExtensions(servers)}` : 'extensions: {}';
+    return `${existingText.trimEnd()}\n\n${extBlock}\n`;
+  }
+  const extIndex = extMatch.index;
+  const before = existingText.slice(0, extIndex);
+  const afterExt = existingText.slice(extIndex + extMatch[0].length);
+  const lines = afterExt.split(/\r?\n/);
+  const extLines = [];
+  const restLines = [];
+  let inExt = true;
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (inExt && i > 0 && /^[^\s#]/.test(line)) {
+      inExt = false;
+    }
+    if (inExt) extLines.push(line);
+    else restLines.push(line);
+  }
+  const preservedEntries = [];
+  let currentId = null;
+  let currentLines = [];
+  for (const line of extLines) {
+    const m = line.match(/^  ([A-Za-z0-9_-]+):\s*$/);
+    if (m) {
+      if (currentId && !managedIds.has(currentId)) {
+        preservedEntries.push(currentLines.join('\n'));
+      }
+      currentId = m[1];
+      currentLines = [line];
+    } else if (currentId) {
+      currentLines.push(line);
+    }
+  }
+  if (currentId && !managedIds.has(currentId)) {
+    preservedEntries.push(currentLines.join('\n'));
+  }
+  const newExtBlock = yamlGooseExtensions(servers);
+  const allExtParts = [...preservedEntries];
+  if (newExtBlock.trim()) allExtParts.push(newExtBlock);
+  const finalExtText = allExtParts.length ? `extensions:\n${allExtParts.join('\n')}` : 'extensions: {}';
+  const restText = restLines.length ? `\n${restLines.join('\n')}` : '';
+  return `${before.trimEnd()}\n\n${finalExtText}${restText}\n`;
+}
 
 function yamlId(value) {
   if (!value) return null;

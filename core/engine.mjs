@@ -95,6 +95,7 @@ function parseArgs(argv, optionsManifest) {
   }
   out.target = (out.target || 'all').toLowerCase().replace(/_/g, '-');
   if (out.target === 'antigravity') out.target = 'antigravity-cli';
+  if (out.target === 'roo') out.target = 'roo-code';
   if (out.memorix && out['no-memorix']) fail('Khong dung dong thoi --memorix va --no-memorix.');
   return out;
 }
@@ -488,7 +489,13 @@ const PHASE_IMPL = {
         writes.push({ dest, kind: 'toml', content: ensureTrailingNewline(text), preserve: false });
       } else if (cfg.kind === 'yaml') {
         let text = rendered;
-        if (cfg.mcpMerge) text = text.replace('# <<MCP_SERVERS>>', R.yamlMcpBlocks(servers));
+        if (cfg.mcpMerge) {
+          if (c.agent.mcp?.adapter === 'goose-yaml') {
+            text = R.mergeGooseConfig(U.exists(dest) ? U.readText(dest) : text, servers, knownMcpIds(c));
+          } else {
+            text = text.replace('# <<MCP_SERVERS>>', R.yamlMcpBlocks(servers));
+          }
+        }
         // A patch layer is merged entry-by-entry so user entries survive every write.
         if (cfg.layerMerge && U.exists(dest)) {
           const previous = U.readText(dest);
@@ -513,7 +520,7 @@ const PHASE_IMPL = {
     // MCP-only JSON files (omp mcp.json, claude.json)
     const mcpFile = M.resolveToken(c.agent.mcp.file, c.tokens);
     const coveredByConfig = (c.agent.configs || []).some((cfg) => M.resolveToken(cfg.dest, c.tokens) === mcpFile);
-    if (!coveredByConfig && c.agent.mcp.adapter !== 'codex-toml' && c.agent.mcp.adapter !== 'dsh-yaml') {
+    if (!coveredByConfig && c.agent.mcp.adapter !== 'codex-toml' && c.agent.mcp.adapter !== 'dsh-yaml' && c.agent.mcp.adapter !== 'goose-yaml') {
       const existing = R.readJsonIfExists(mcpFile) || {};
       attachMcp(existing, c.agent.mcp.adapter, servers, knownMcpIds(c));
       writes.push({ dest: mcpFile, kind: 'json', content: `${JSON.stringify(existing, null, 2)}\n`, preserve: false });
@@ -741,6 +748,11 @@ function inferConfiguredMcp(c) {
   }
   if (adapter === 'dsh-yaml') {
     return [...text.matchAll(/^- id: mcp-([A-Za-z0-9-]+)$/gm)].map((match) => match[1]);
+  }
+  if (adapter === 'goose-yaml') {
+    const extMatch = text.match(/^extensions:\s*([\s\S]*?)(?:^[^\s#]|\Z)/m);
+    if (!extMatch) return [];
+    return [...extMatch[1].matchAll(/^  ([A-Za-z0-9_-]+):\s*$/gm)].map((match) => match[1]);
   }
   try {
     const obj = JSON.parse(text);

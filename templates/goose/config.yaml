@@ -1,0 +1,4 @@
+# Goose Configuration
+active_provider: anthropic
+GOOSE_MODE: "auto"
+# <<GOOSE_EXTENSIONS>>

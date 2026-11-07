@@ -12,7 +12,7 @@ NODE_INSTALL_CONSENT=0
 
 usage() {
   echo "setup-agent-code - cai dat & cau hinh AI coding agents"
-  echo "Usage: install.sh [--target all|omp|claude-code|opencode|codex-cli|dsh|antigravity-cli] [options]"
+  echo "Usage: install.sh [--target all|omp|claude-code|opencode|codex-cli|dsh|antigravity-cli|goose|roo-code] [options]"
   echo "       install.sh --help   (danh sach option day du)"
 }
 
@@ -44,7 +44,7 @@ while [[ $# -gt 0 ]]; do
     --env-file)       need_value "$@"; ENGINE_ARGS+=("--env-file" "$2"); shift 2 ;;
     --help|-h)        NODE_INSTALL_DISABLED=1; ENGINE_ARGS+=("--help"); shift ;;
     --version)        NODE_INSTALL_DISABLED=1; ENGINE_ARGS+=("--version"); shift ;;
-    all|omp|claude-code|opencode|codex-cli|dsh|antigravity|antigravity-cli)
+    all|omp|claude-code|opencode|codex-cli|dsh|antigravity|antigravity-cli|goose|roo|roo-code)
                       ENGINE_ARGS+=("--target" "$1"); TARGET_SPECIFIED=1; shift ;;
     *)
       echo "Option khong hop le: $1" >&2
