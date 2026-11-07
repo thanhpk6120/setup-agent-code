@@ -20,6 +20,6 @@
 | Credentials | `%APPDATA%\dsh-desktop\harness\.credentials.yaml` (fallback `~/.dsh/.credentials.yaml`) |
 | Skills | `~/.dsh/skills/` |
 
-Schema credentials: `version`, `refs`, `apiKey`, `records` — engine render từ `templates/dsh/.credentials.yaml`.
+Schema credentials: `version`, `refs`, `records` — engine render từ `templates/dsh/.credentials.yaml`.
 
 Chi tiết option, MCP, verify: xem [README gốc](../README.md).
