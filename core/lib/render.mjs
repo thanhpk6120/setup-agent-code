@@ -402,18 +402,53 @@ export function registerJsonHook(settings, hook) {
 export function tomlHeaderKey(headerText) {
   const m = String(headerText).trim().match(/^\[([^\]]*)\]$/);
   if (!m || !m[1].trim()) return null;
-  const parts = [];
-  for (const raw of m[1].split('.')) {
-    const seg = raw.trim();
-    if (/^[A-Za-z0-9_-]+$/.test(seg)) parts.push(seg);
-    else {
-      const q = seg.match(/^"(.*)"$/) || seg.match(/^'(.*)'$/);
-      if (!q || !/^[A-Za-z0-9_@/-]+$/.test(q[1]) || /\\/.test(q[1])) return null;
-      parts.push(q[1]);
+  // Split on unquoted dots only: quoted ids such as 'C:\\Users\\me\\.codex\\x.json:stop'
+  // contain dots that belong to the key, not to the table path.
+  const segs = [];
+  let current = '';
+  let quote = null;
+  let escaped = false;
+  for (const ch of m[1]) {
+    if (quote) {
+      current += ch;
+      if (escaped) escaped = false;
+      else if (quote === '"' && ch === '\\') escaped = true;
+      else if (ch === quote) quote = null;
+      continue;
     }
+    if (ch === '"' || ch === "'") { quote = ch; current += ch; continue; }
+    if (ch === '.') { segs.push(current); current = ''; continue; }
+    current += ch;
+  }
+  if (quote) return null;
+  segs.push(current);
+
+  const parts = [];
+  for (const raw of segs) {
+    const seg = raw.trim();
+    if (/^[A-Za-z0-9_-]+$/.test(seg)) { parts.push(seg); continue; }
+    const basic = seg.match(/^"(.*)"$/);
+    const literal = seg.match(/^'(.*)'$/);
+    if (basic) {
+      let out = '';
+      for (let i = 0; i < basic[1].length; i += 1) {
+        const ch = basic[1][i];
+        if (ch !== '\\') { out += ch; continue; }
+        const next = basic[1][i + 1];
+        if (next === '\\' || next === '"') { out += next; i += 1; continue; }
+        return null;
+      }
+      if (!out) return null;
+      parts.push(out);
+    } else if (literal) {
+      if (!literal[1]) return null;
+      parts.push(literal[1]);
+    } else return null;
   }
   return parts.join('.');
 }
+
+
 
 /**
  * Merge a managed TOML config into a live one without losing user content.
@@ -441,7 +476,7 @@ export function mergeToml(existingText, templateText, { ownedHeaders = [] } = {}
         const key = tomlHeaderKey(trimmed);
         if (!key || seen.has(key)) throw new Error('Cannot safely merge unsupported TOML table');
         seen.add(key);
-      } else if (!/^[A-Za-z_][\w-]*\s*=/.test(trimmed) || /(?:"""|''')/.test(trimmed)) {
+      } else if (!/^(?:[A-Za-z_][\w-]*|"(?:[^"\\]|\\.)*"|'[^']*')\s*=/.test(trimmed) || /(?:"""|''')/.test(trimmed)) {
         throw new Error('Cannot safely merge unsupported TOML value');
       }
     }

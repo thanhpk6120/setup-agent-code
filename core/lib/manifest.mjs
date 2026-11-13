@@ -229,7 +229,23 @@ export function buildServerSpec(server, resolvers) {
   } else {
     args = args.map(substitute);
   }
-  return { command, args, env };
+  const wrapped = wrapWindowsShim(command, args);
+  return { command: wrapped.command, args: wrapped.args, env };
+}
+
+/**
+ * Windows exposes npm CLIs as .cmd/.bat shims, and MCP hosts spawn argv without a
+ * shell, so "memorix" is unrunnable there ("Error" in the host). Wrap once here so
+ * every adapter receives a command the host can actually start.
+ */
+export function wrapWindowsShim(command, args, { windows = isWin, resolve = which } = {}) {
+  if (!windows) return { command, args };
+  const text = String(command);
+  // A bare name is resolved the way the shell would, so `memorix` becomes the
+  // real memorix.cmd path that cmd.exe can start.
+  const resolved = /[\\/]/.test(text) ? text : (resolve(text) || text);
+  if (/\.(cmd|bat)$/i.test(resolved)) return { command: 'cmd', args: ['/c', resolved, ...args] };
+  return { command, args };
 }
 
 export function agentById(manifests, id) {

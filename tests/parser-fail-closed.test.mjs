@@ -5,7 +5,6 @@ import { mergeToml, mergeYamlLayer } from '../core/lib/render.mjs';
 test('unsafe TOML structures fail before merging', () => {
   const template = '[owned]\na = 2\n';
   for (const input of [
-    '[owned]\n"user.key" = "keep"\n',
     '[owned]\na = 1\n[[user]]\nname = "keep"\n',
     '[owned]\na = 1\n[user] # comment\nx = 1\n',
     '[owned]\nvalue = """first\nsecond\nthird"""\n',
@@ -24,10 +23,19 @@ test('quoted TOML table headers merge as the same table as bare ones', () => {
   }
 });
 
+test('quoted TOML keys keep their literal dots and escapes', () => {
+  // Codex writes [hooks.state.'C:\\Users\\me\\hooks.json:stop:0:0'], where the dots
+  // belong to the key, so splitting on every dot would mis-own the table.
+  const live = "[hooks.state.'C:\\Users\\me\\hooks.json:stop:0:0']\ntrusted = true\n";
+  const out = mergeToml(live, 'model = "x"\n');
+  assert.ok(out.includes('trusted = true'), 'table with dotted quoted key survives');
+  assert.ok(mergeToml('[projects."i:\\\\a\\\\b"]\nx = 1\n', '').includes('x = 1'), 'escaped quoted id survives');
+});
+
 test('ambiguous quoted TOML table headers still fail closed', () => {
   const bare = '[a.b]\nvalue = 1\n';
-  // A dot or an escape inside the quotes cannot be resolved by a line splitter.
-  for (const header of ['[a."b.c"]', '[a."b\\"c"]', '[a.""]', '["a"."b"]\n[a.b]']) {
+  // An empty segment, or two spellings that collapse to one table, stay refused.
+  for (const header of ['[a.""]', '["a"."b"]\n[a.b]']) {
     const quoted = `${header}\nvalue = 2\n`;
     assert.throws(() => mergeToml(quoted, bare), /Cannot safely merge unsupported TOML table/);
     assert.throws(() => mergeToml(bare, quoted), /Cannot safely merge unsupported TOML table/);
