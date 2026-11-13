@@ -1,0 +1,7 @@
+{
+  "type": "module",
+  "private": true,
+  "dependencies": {
+    "@opencode/plugin": "^2.2.7"
+  }
+}

@@ -19,7 +19,7 @@ function harness({ skipInstall = false, explicit = true, interactive = false, ag
     run: (command, args, options) => { calls.push({ kind: 'run', command, args, options }); return { ok: true }; },
     log: { ok: () => {}, warn: () => {} }
   };
-  const sandbox = { ctx, U, ensurePlugin: async () => { calls.push({ kind: 'plugin' }); } };
+  const sandbox = { ctx, U, ensurePlugin: async () => { calls.push({ kind: 'plugin' }); }, ensureAgentNpmDeps: async () => {} };
   const phases = vm.runInNewContext(`({\n${source.slice(start, end)}\n})`, sandbox);
   return { phases, calls, c: { agent: { id: agent, plugins: [{}] } } };
 }

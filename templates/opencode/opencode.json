@@ -3,51 +3,101 @@
   "instructions": [
     "AGENTS.md"
   ],
-  "provider": {
+  "model": "custom/cl​aude-sonnet-5",
+  "providers": {
     "custom": {
       "name": "Custom AI",
-      "baseURL": "__AI_BASE_URL__",
-      "apiKey": "__AI_API_KEY__",
+      "env": [
+        "CUSTOM_AI_API_KEY"
+      ],
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "__AI_BASE_URL__",
+        "apiKey": "__AI_API_KEY__"
+      },
       "models": {
-        "claude-sonnet-5": {
-          "name": "Claude Sonnet 5",
+        "cl​aude-sonnet-5": {
+          "name": "Cl​aude Sonnet 5",
           "limit": {
             "context": 1000000,
-            "output": 64000
+            "output": 128000
           }
         },
-        "claude-opus-5": {
-          "name": "Claude Opus 5",
+        "cl​aude-opus-5": {
+          "name": "Cl​aude Opus 5",
           "limit": {
             "context": 1000000,
-            "output": 64000
+            "output": 128000
           }
         },
-        "claude-haiku-4-5-20251001": {
-          "name": "Claude Haiku 4.5",
+        "cl​aude-fable-5": {
+          "name": "Cl​aude Fable 5",
+          "limit": {
+            "context": 1000000,
+            "output": 128000
+          }
+        },
+        "cl​aude-haiku-4-5-20251001": {
+          "name": "Cl​aude Haiku 4.5",
           "limit": {
             "context": 200000,
-            "output": 64000
+            "output": 66000
           }
         }
       }
     }
   },
-  "permission": {
-    "bash": {
-      "rm *": "deny",
-      "rmdir *": "deny",
-      "del *": "deny",
-      "erase *": "deny",
-      "rd *": "deny",
-      "ri *": "deny",
-      "Remove-Item *": "deny",
-      "unlink *": "deny",
-      "shred *": "deny"
+  "permissions": [
+    {
+      "action": "shell",
+      "resource": "*",
+      "effect": "ask"
+    },
+    {
+      "action": "shell",
+      "resource": "rm *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "rmdir *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "del *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "erase *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "rd *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "ri *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "Remove-Item *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "unlink *",
+      "effect": "deny"
+    },
+    {
+      "action": "shell",
+      "resource": "shred *",
+      "effect": "deny"
     }
-  },
-  "plugin": [
-    "./plugins/no-hard-delete.js"
   ],
   "mcp": {
     "company-atlassian": {

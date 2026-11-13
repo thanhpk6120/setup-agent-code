@@ -148,7 +148,7 @@ Bảng dependency hiện tại:
 |---|---|---|---|
 | **OMP** | `~/.omp/agent/AGENTS.md` (context) + `~/.omp/agent/RULES.md` (sticky) | `~/.omp/agent/{mcp.json,config.yml,models.yml}` | `~/.omp/agent/skills/` |
 | **Claude Code** | `~/.claude/CLAUDE.md` | `~/.claude.json`, `~/.claude/settings.json` | `~/.claude/skills/` |
-| **OpenCode** | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json` | `~/.config/opencode/skills/` |
+| **OpenCode** | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json`, `~/.config/opencode/package.json` | `~/.config/opencode/skills/` |
 | **Codex CLI** | `~/.codex/AGENTS.md` | `~/.codex/config.toml` | `~/.codex/skills/` |
 | **DSH** | `~/.dsh/AGENTS.md` | `~/.dsh/profiles/web/cordis.patch.yml`, `~/.dsh/cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml` | `~/.dsh/skills/` |
 | **Antigravity CLI** | `~/.gemini/AGENTS.md` (global rules) | `~/.gemini/antigravity-cli/settings.json`, `keybindings.json` | `~/.gemini/config/skills/` + `~/.gemini/antigravity-cli/skills/` |
@@ -161,6 +161,7 @@ Ghi chú quan trọng:
 - **Claude Code**: `AGENTS.md` chỉ được đọc ở project scope → không ghi `~/.claude/AGENTS.md`.
 - **Codex**: `CODEX.md` không phải file global instruction → installer sẽ dọn nếu tồn tại.
 - **Antigravity**: global rules nằm ở `~/.gemini/AGENTS.md`, **không phải** `~/.gemini/antigravity-cli/AGENTS.md`.
+- **OpenCode v2**: cấu hình dùng `providers` / `permissions` (mảng `{action, resource, effect}`) — key v1 `provider` / `permission` bị bỏ qua; installer còn xoá key `plugin` cũ vì v2 tự nạp `plugins/*.js` (trỏ tới file sẽ lỗi "configured plugin path must be a directory"). Plugin cần `~/.config/opencode/package.json` có `"type": "module"` + dependency `@opencode/plugin` (installer hỏi rồi `npm install`). Binary cài từ `@opencode/cli` (không phải `opencode-ai`) và phải có trong `allow-scripts` của npm 12, nếu không `opencode.exe` chỉ là stub 229 byte.
 - **DSH**: profile thật là `~/.dsh/profiles/<name>/` (fallback `%APPDATA%\dsh-desktop\harness\profiles\<name>`).
 - **DSH patch layer**: installer **merge từng entry** vào `cordis.patch.yml` — entry của bạn (`plugin-market`, `better-sidebar`, `desktop-shell`, …) được giữ nguyên. Entry template sở hữu (`llm-pi-ai`, `agent-default-model`, `subagent`, `permission`, `subagent-model-selection-settings`, `agent-preset-registry`) bị ghi đè để model/agent luôn đúng pin.
 - **DSH endpoint**: `baseURL` trong `llm-pi-ai` **giữ nguyên giá trị đang chạy** trừ khi bạn cấp `AI_BASE_URL` qua `.env` / `--env-file`.

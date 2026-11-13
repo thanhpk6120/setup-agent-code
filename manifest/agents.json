@@ -175,7 +175,7 @@
           "dest": "<dir>/settings.json",
           "kind": "json",
           "placeholders": true,
-          "stripKeys": [
+          "stripKeysUnix": [
             "env.CLAUDE_CODE_USE_POWERSHELL_TOOL"
           ],
           "hooks": true
@@ -222,19 +222,33 @@
         "install": {
           "win": [
             {
+              "type": "powershell",
+              "script": "npm config set allow-scripts \"opencode-ai,@opencode/cli\" --location=user"
+            },
+            {
               "type": "npm",
-              "package": "opencode-ai"
+              "package": "@opencode/cli"
+            },
+            {
+              "type": "powershell",
+              "script": "$base = Join-Path (npm root -g) '@opencode\\cli'; $exe = Join-Path $base 'bin\\opencode.exe'; if ((Test-Path $exe) -and ((Get-Item $exe).Length -lt 1048576)) { $dep = Join-Path $base 'node_modules\\@opencode\\cli-windows-x64\\bin\\opencode.exe'; if (Test-Path $dep) { Copy-Item $dep $exe -Force } }"
             }
           ],
           "unix": [
             {
+              "type": "shell",
+              "script": "npm config set allow-scripts \"opencode-ai,@opencode/cli\" --location=user"
+            },
+            {
               "type": "npm",
-              "package": "opencode-ai"
+              "package": "@opencode/cli"
             }
           ]
         },
         "installGuidance": [
-          "npm install -g opencode-ai"
+          "npm config set allow-scripts \"opencode-ai,@opencode/cli\" --location=user  (npm 12 chan postinstall neu thieu allow-list)",
+          "npm install -g @opencode/cli --foreground-scripts",
+          "Neu opencode.exe chi ~229 byte (stub): copy tu node_modules/@opencode/cli-windows-x64/bin/opencode.exe, hoac chay `node postinstall.mjs` trong node_modules/@opencode/cli"
         ]
       },
       "dir": {
@@ -265,26 +279,39 @@
           "template": "opencode/opencode.json",
           "dest": "<dir>/opencode.json",
           "kind": "json",
-          "mcpMerge": true
+          "mcpMerge": true,
+          "stripKeys": [
+            "plugin",
+            "permission"
+          ]
+        },
+        {
+          "template": "opencode/package.json",
+          "dest": "<dir>/package.json",
+          "kind": "json"
         }
       ],
       "hooks": [
         {
           "template": "hooks/opencode/no-hard-delete.js",
-          "dest": "<dir>/plugins/no-hard-delete.js",
-          "register": {
-            "file": "<dir>/opencode.json",
-            "key": "plugin",
-            "value": "./plugins/no-hard-delete.js"
-          }
+          "dest": "<dir>/plugins/no-hard-delete.js"
         }
       ],
       "verify": {
         "files": [
           "<dir>/AGENTS.md",
-          "<dir>/opencode.json"
+          "<dir>/opencode.json",
+          "<dir>/package.json",
+          "<dir>/plugins/no-hard-delete.js"
         ]
-      }
+      },
+      "npmDeps": [
+        {
+          "cwd": "<dir>",
+          "package": "@opencode/plugin@^2.2.7",
+          "check": "node_modules/@opencode/plugin/package.json"
+        }
+      ]
     },
     {
       "id": "codex-cli",

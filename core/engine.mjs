@@ -470,7 +470,10 @@ const PHASE_IMPL = {
         // Merge whenever a live file exists: `--overwrite-all` must not delete
         // user data (hooks, MCP servers) the template does not know about.
         if (existing) obj = R.mergeKeepExisting(existing, obj);
-        for (const dotted of (!isWindows() ? cfg.stripKeys || [] : [])) R.deleteByPath(obj, dotted);
+        // `stripKeys` always applies (keys a new config version retired);
+        // `stripKeysUnix` only drops settings that make no sense off Windows.
+        for (const dotted of cfg.stripKeys || []) R.deleteByPath(obj, dotted);
+        for (const dotted of (!isWindows() ? cfg.stripKeysUnix || [] : [])) R.deleteByPath(obj, dotted);
         if (cfg.hooks) applyHookRegistrations(obj, c);
         if (cfg.mcpMerge) attachMcp(obj, c.agent.mcp.adapter, servers, knownMcpIds(c));
         writes.push({ dest, kind: 'json', content: `${JSON.stringify(obj, null, 2)}\n`, preserve: cfg.preserve });
@@ -633,6 +636,7 @@ const PHASE_IMPL = {
     for (const localPlugin of c.agent.localPlugins || []) {
       await ensureLocalPlugin(c, localPlugin);
     }
+    await ensureAgentNpmDeps(c);
     if (!ctx.opts['skip-install'] && ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix') && (ctx.opts.memorix || ctx.interactive)) {
       const agentFlag = { 'claude-code': 'claude', 'codex-cli': 'codex', dsh: 'dsh' }[c.agent.id];
       if (agentFlag && U.which('memorix')) {
@@ -1014,6 +1018,45 @@ function verifyPlugin(c, plugin) {
   if (!pluginInstalled(dir, plugin.package)) return V.result(`plugin:${plugin.id}`, 'WARN', 'chua cai hoac chua cau hinh bundle');
   const status = pluginStatus(dir, plugin);
   return V.result(`plugin:${plugin.id}`, status.ok ? 'PASS' : 'FAIL', status.detail);
+}
+
+/**
+ * Agent-level npm dependencies that live inside the agent config dir (e.g. the
+ * OpenCode v2 plugin SDK). A marker file decides "installed", so a partial
+ * install is retried instead of trusted.
+ */
+async function ensureAgentNpmDeps(c) {
+  for (const dep of c.agent.npmDeps || []) {
+    const cwd = M.resolveToken(dep.cwd, c.tokens);
+    const marker = path.join(cwd, dep.check);
+    const rowId = `npm:${dep.package}`;
+    if (U.exists(marker)) {
+      U.log.skip(`${dep.package}: da cai (${cwd})`);
+      c.rows.push(V.result(rowId, 'PASS', 'da cai'));
+      continue;
+    }
+    if (ctx.mode !== 'install' || ctx.opts['skip-install']) {
+      U.log.warn(`${dep.package}: chua cai (${cwd})`);
+      c.rows.push(V.result(rowId, 'WARN', 'chua cai'));
+      ctx.guidance.push({ scope: `npm:${dep.package}`, steps: [`cd "${cwd}" && npm install`] });
+      continue;
+    }
+    const consent = await D.askConsent(ctx, `[?] ${c.agent.name} can ${dep.package} cho plugin cua no. Cai ngay? [Y/n]: `, true);
+    if (!consent) {
+      U.log.warn(`${dep.package}: nguoi dung tu choi -> plugin cua ${c.agent.id} se khong load.`);
+      c.rows.push(V.result(rowId, 'WARN', 'nguoi dung tu choi'));
+      ctx.guidance.push({ scope: `npm:${dep.package}`, steps: [`cd "${cwd}" && npm install`] });
+      continue;
+    }
+    U.log.info(`  npm install ${dep.package} (${cwd}) ...`);
+    U.ensureDir(cwd);
+    const r = U.run('npm', ['install', dep.package, '--no-fund', '--no-audit'], { cwd, allowFail: true });
+    const ok = r.ok && U.exists(marker);
+    if (ok) U.log.ok(`${dep.package} -> ${cwd}`);
+    else U.log.error(`${dep.package}: npm install that bai: ${(r.stderr || '').slice(0, 200)}`);
+    c.rows.push(V.result(rowId, ok ? 'PASS' : 'FAIL', ok ? 'da cai' : 'npm install that bai'));
+    if (!ok) ctx.guidance.push({ scope: `npm:${dep.package}`, steps: [`cd "${cwd}" && npm install`] });
+  }
 }
 
 /**
