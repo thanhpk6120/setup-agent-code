@@ -119,8 +119,8 @@ export function which(cmd) {
 export function versionOf(cmd, args = ['--version'], timeout = 15000) {
   try {
     const bin = which(cmd) || cmd;
-    const { file, argv } = spawnAdapter(bin, args);
-    const r = spawnSync(file, argv, { encoding: 'utf8', timeout, windowsHide: true });
+    const { file, argv, windowsVerbatimArguments } = spawnAdapter(bin, args);
+    const r = spawnSync(file, argv, { encoding: 'utf8', timeout, windowsHide: true, windowsVerbatimArguments });
     if (r.error || r.status !== 0) return '';
     const out = `${r.stdout || ''} ${r.stderr || ''}`.trim();
     const m = out.match(/\d+\.\d+\.\d+/);
@@ -129,13 +129,27 @@ export function versionOf(cmd, args = ['--version'], timeout = 15000) {
 }
 
 /** Windows cannot execute .cmd/.bat without cmd.exe; wrap explicitly instead of shell:true. */
-function spawnAdapter(cmd, args) {
+export function spawnAdapter(cmd, args, cwd) {
   if (isWin && /\.(cmd|bat)$/i.test(cmd)) {
-    const quoted = [cmd, ...args].map((item) => {
+    // cmd.exe reads a forward slash as a switch, and a relative path is
+    // resolved against its own cwd: hand it one absolute backslash path.
+    const exe = /[\\/]/.test(cmd)
+      ? path.resolve(cwd || process.cwd(), cmd).split('/').join('\\')
+      : cmd;
+    const quoted = [exe, ...args].map((item) => {
       const text = String(item);
-      return /[\s"]/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+      // Quotes must reach cmd.exe literally; backslash-escaping them makes the
+      // backslash part of the path (C:\Program Files\nodejs\npm.cmd fails).
+      return /[\s"]/.test(text) ? '"' + text + '"' : text;
     });
-    return { file: process.env.ComSpec || 'cmd.exe', argv: ['/d', '/s', '/c', quoted.join(' ')] };
+    // cmd.exe reads one command string, so node must not re-quote it: verbatim.
+    // `/s /c` strips the first and last quote, so the whole command is wrapped
+    // once more; without that, "C:\Program Files\..." is read as "C:\Program".
+    return {
+      file: process.env.ComSpec || 'cmd.exe',
+      argv: ['/d', '/s', '/c', '"' + quoted.join(' ') + '"'],
+      windowsVerbatimArguments: true
+    };
   }
   return { file: cmd, argv: args };
 }
@@ -146,13 +160,14 @@ export function run(cmd, args = [], opts = {}) {
   // (they are .cmd shims), and it fails with ENOENT instead of finding them on PATH.
   const resolved = /[\\/]/.test(cmd) ? cmd : (which(cmd) || cmd);
   log.debug(`run: ${resolved} ${args.join(' ')}`);
-  const { file, argv } = spawnAdapter(resolved, args);
+  const { file, argv, windowsVerbatimArguments } = spawnAdapter(resolved, args, cwd);
   const r = spawnSync(file, argv, {
     encoding: 'utf8',
     timeout,
     cwd,
     env,
     windowsHide: true,
+    windowsVerbatimArguments,
     stdio: capture ? 'pipe' : 'inherit'
   });
   if (r.error) {

@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { exists, isWin, readText, versionGte, versionOf, which } from './util.mjs';
+import { exists, isWin, readText, spawnAdapter, versionGte, versionOf, which } from './util.mjs';
 
 const READY = new Set(['PASS', 'WARN', 'SKIP']);
 
@@ -101,14 +101,13 @@ export function handshake(spec, timeoutMs = 8000) {
     try {
       // Resolve bare names first: npm/npx/memorix are .cmd shims on Windows.
       const resolved = /[\\/]/.test(spec.command) ? spec.command : (which(spec.command) || spec.command);
-      const needsShell = isWin && /\.(cmd|bat)$/i.test(resolved);
-      const file = needsShell ? (process.env.ComSpec || 'cmd.exe') : resolved;
-      const argv = needsShell
-        ? ['/d', '/s', '/c', [resolved, ...spec.args].map((a) => (/[\s"]/.test(a) ? `"${a}"` : a)).join(' ')]
-        : spec.args;
+      // Reuse the installer's single Windows wrapper: shell paths, npm/npx
+      // shims and space-containing paths all go through cmd.exe the same way.
+      const { file, argv, windowsVerbatimArguments } = spawnAdapter(resolved, spec.args);
       child = spawn(file, argv, {
         env: { ...process.env, ...spec.env },
         windowsHide: true,
+        windowsVerbatimArguments,
         stdio: ['pipe', 'pipe', 'pipe']
       });
     } catch (e) {

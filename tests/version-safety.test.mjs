@@ -7,7 +7,8 @@ const source = fs.readFileSync(new URL('../core/lib/util.mjs', import.meta.url),
 const start = source.indexOf('export function versionOf(');
 const end = source.indexOf('\nexport function run(', start);
 assert.ok(start >= 0 && end > start);
-const code = source.slice(start, end).replace('export function versionOf(', 'function versionOf(');
+// The slice also carries helper declarations; strip their module syntax for vm.
+const code = source.slice(start, end).replace(/^export /gm, '');
 
 function versionWith(result, { finderThrows = false } = {}) {
   const calls = [];

@@ -147,6 +147,15 @@ export async function ensureDependency(dep, ctx, { requiredBy = [] } = {}) {
     return { status: 'declined', detail: `nguoi dung tu choi (${stateLabel})`, state: before.state, guidance: dep.guidance || [] };
   }
 
+  // Nothing this installer can run on the current OS (e.g. npm ships with
+  // Node.js): retrying would only repeat an empty action list.
+  if (!(dep.install?.[osKey] || []).some((action) => evalWhen(action.when))) {
+    log.error(`${dep.id}: khong co cach cai tu dong tren he dieu hanh nay.`);
+    log.info('    Huong xu ly:');
+    log.info(guidanceOf(dep));
+    return { status: 'failed', detail: 'khong co lenh cai cho he dieu hanh nay', state: before.state, guidance: dep.guidance || [] };
+  }
+
   const maxAttempts = ctx.interactive ? 3 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     log.info(`  -> Cai ${dep.id} (lan ${attempt}/${maxAttempts})...`);
