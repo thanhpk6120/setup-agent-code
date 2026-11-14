@@ -5,3 +5,4 @@
 - **Skills:** `~/.gemini/config/skills/<name>/SKILL.md` (shared by App + CLI) and `~/.gemini/antigravity-cli/skills/` (CLI only). Frontmatter requires `description`; the skill name becomes a slash command.
 - **MCP and hooks:** `~/.gemini/antigravity-cli/settings.json` (`mcpServers`, `hooks.PreToolUse`).
 - **Limits:** 24 KB per rule file; 20,000-token aggregate budget for always-on rules. Keep rule files small and split by topic.
+- **Subagents & parallelism:** Batch independent read/search or subagent tasks concurrently when supported; keep total instruction files well below the 24 KB / 20k-token limit.

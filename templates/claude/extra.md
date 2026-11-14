@@ -6,3 +6,4 @@
 - **MCP:** `~/.claude.json` (`mcpServers`). Settings, permissions, model aliases and env live in `~/.claude/settings.json`.
 - **Hooks:** `PreToolUse` in `settings.json`; the trash-guard handler runs through `node`.
 - **Size:** keep `CLAUDE.md` under ~200 lines; move task-specific procedures into skills or rules to preserve adherence.
+- **Subagents & parallelism:** Spawn multiple `Agent`/`Task` calls in one turn for independent exploration or non-overlapping edits/tests; subagents use `CLAUDE_CODE_SUBAGENT_MODEL` (`sonnet[1m]`).

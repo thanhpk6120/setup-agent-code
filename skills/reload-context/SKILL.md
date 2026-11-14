@@ -33,8 +33,8 @@ description: Use when the user says compaction completed, lost context, reload i
 
 When reloading context, the agent must adhere to the document precedence order:
 
-1. **`RULES.md`**: Global hard rules, Precedence rule, Pre-flight prefix requirement, MCP routing, data preservation rules (Recycle Bin / Trash).
-2. **`AGENTS.md`**: Project overview, Service registry, Layer read order, Tech stack, Task classification tier (1/2/3), Delegation logic, Quick rules.
+1. **`RULES.md`**: Global invariants (Vietnamese default response, Recycle Bin / Trash soft-delete, workspace scope, verification honesty, MCP priority with native search/read allowed).
+2. **`AGENTS.md`**: Project overview, Service registry, Layer read order, Tech stack, Execution & Subagent Delegation rules, Quick rules.
 3. **`SYSTEM.md`** (if present): Project guide template or root specification when `AGENTS.md` has not been finalized.
 4. **`docs/ARCHITECTURE.md` & `docs/specs/*.md`** (if docs repo exists): Service architecture map and detailed business specifications.
 5. **`skills/*/SKILL.md`**: Index of registered specialized skills in the workspace.
@@ -51,17 +51,16 @@ Execute sequentially through 6 mandatory steps:
 - Read `AGENTS.md` at workspace root.
 - Determine:
   - Project overview & project objectives.
-  - Pre-flight assessment & Task tiering conventions (Tier 1 Direct, Tier 2 Single Subagent, Tier 3 Parallel Subagents).
+  - Execution & Subagent Delegation conventions (direct for small/sequential work, parallel batch fan-out for independent streams).
   - Service registry table and layer read order (`{{LAYER_READ_ORDER}}`).
   - Verification command catalog (`{{VERIFY_COMMANDS}}`).
 
 ### Step 2: Load Global Rules (`RULES.md`)
 - Read `RULES.md` at workspace root.
 - Note mandatory invariants:
-  - Prefix `[Pre-flight] Tier: ... | Skills: ... | Plugins/MCP: ... | Rationale: ... | Action: ...` before every tool call.
-  - Precedence: Delegation & MCP override Simplicity and Think Before Coding.
+  - Prefer specialized MCP tools when fitting; use native `read`/`grep`/`glob` directly for routine file/text lookups.
   - Never permanently delete files (must use Recycle Bin / Trash).
-  - Language rules (default English unless requested otherwise, code/commands verbatim).
+  - Language rules (always respond in Vietnamese unless requested otherwise; keep code/commands verbatim).
   - Do not autonomously commit/push/merge unless explicitly requested.
 
 ### Step 3: Inspect `SYSTEM.md` (if present)
@@ -70,7 +69,7 @@ Execute sequentially through 6 mandatory steps:
 
 ### Step 4: Load Skills Index
 - Quick-scan `skills/` directory (or `docs/skills/` under docs repo structure).
-- Inventory available skills (e.g. `reload-context`, `init-docs`, `implement-task`, `create-plan`, `security-review`, `delivery`, `poka-yoke`...) to activate correctly when matching tasks arise.
+- Inventory available skills (e.g. `reload-context`, `init-docs`, `implement-task`, `create-plan`, `security-review`, `poka-yoke`...) to activate correctly when matching tasks arise.
 
 ### Step 5: Load Runtime Config & MCP
 - Check bootstrap config and MCP files:
@@ -90,10 +89,10 @@ Execute sequentially through 6 mandatory steps:
 
 Depending on the active runtime environment, apply the matching adapter:
 
-| Criterion | OMP (Oh My Prompt) | DSH (Dev Shell / Cordis) |
+| Criterion | OMP (oh-my-pi) | DSH (DeepSeek Harness) |
 |---|---|---|
 | **Config Directory** | `~/.omp/agent/` (`$env:USERPROFILE\.omp\agent` on Windows) | `~/.dsh/` |
-| **Config Files** | `config.json`, `mcp.json`, `models.json` | `cordis.patch.yml`, internal DSH config |
+| **Config Files** | `config.yml`, `models.yml`, `mcp.json` | `cordis.patch.yml`, internal DSH config |
 | **Snapcompact Hook** | `snapcompact.systemPrompt: agents-md,rules-md` automatically injects `AGENTS.md` and `RULES.md` into system prompt post-compaction | Managed via context buffer or dedicated cordis file override |
 | **Plugin / Extensions** | `~/.omp/agent/extensions/` | Injected via container layers or sandbox volume mounts |
 | **MCP Definition** | Declared in `~/.omp/agent/mcp.json` per Desktop MCP JSON standard | Declared via `cordis.patch.yml` or DSH server profiles |
@@ -106,8 +105,8 @@ After completing the procedure, output a concise status confirmation:
 
 ```markdown
 ### [Context Reloaded]
-- [x] AGENTS.md: Loaded (Tiering, Service Registry, Read Order)
-- [x] RULES.md: Loaded (Pre-flight Prefix, Invariants, Trash rule)
+- [x] AGENTS.md: Loaded (Delegation, Service Registry, Read Order)
+- [x] RULES.md: Loaded (Global Invariants, MCP Routing, Trash rule)
 - [x] SYSTEM.md: Checked (Loaded / Absent / Template form)
 - [x] Skills Catalog: Indexed (Number of skills ready)
 - [x] Runtime & MCP: Confirmed OMP / DSH adapter + active MCP tools

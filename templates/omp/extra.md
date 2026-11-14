@@ -5,3 +5,4 @@
 - **Skills:** `~/.omp/agent/skills/<name>/SKILL.md`; OMP injects the skill catalog automatically but respects `disabledProviders` / `disabledExtensions` in `config.yml`.
 - **MCP:** `~/.omp/agent/mcp.json` (`mcpServers`), managed together with `config.yml` and `models.yml`.
 - **Imports:** `@path` tokens inside context files are expanded at load time; prefer many small files over one huge `AGENTS.md`.
+- **Subagents & parallelism:** Config enables `batch: true` (`maxConcurrency: 8`, `maxRecursionDepth: 1`). Because subagents cannot spawn further subagents, fan out all independent streams in one `tasks[]` batch from the Main Agent: `scout` (parallel exploration), `sonic` (mechanical/bulk edits), `task` (independent implementation), and `architect` / `reviewer` / `security-reviewer` / `docs-*` (design/audit).

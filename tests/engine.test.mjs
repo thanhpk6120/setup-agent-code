@@ -341,25 +341,39 @@ test('conflicting memorix flags exit with code 2', () => {
 
 test('every instruction file ends up with Global Rules except OMP AGENTS.md', () => {
   const home = tempHome();
-  runEngine(['--target', 'all', '--yes', '--skip-install', '--force', '--mcp', 'none', '--quiet'], home);
+  runEngine(['--target', 'all', '--yes', '--skip-install', '--force', '--mcp', 'none', '--no-memorix', '--quiet'], home);
+  const gooseDir = U.isWin ? path.join(home, 'AppData', 'Roaming', 'Block', 'goose', 'config') : path.join(home, '.config', 'goose');
   const files = {
     claude: path.join(home, '.claude', 'CLAUDE.md'),
     opencode: path.join(home, '.config', 'opencode', 'AGENTS.md'),
     codex: path.join(home, '.codex', 'AGENTS.md'),
     dsh: path.join(home, '.dsh', 'AGENTS.md'),
-    antigravity: path.join(home, '.gemini', 'AGENTS.md')
+    antigravity: path.join(home, '.gemini', 'AGENTS.md'),
+    goose: path.join(gooseDir, '.goosehints'),
+    roo: path.join(home, '.roo', 'rules', 'AGENTS.md')
   };
   for (const [name, file] of Object.entries(files)) {
     const text = fs.readFileSync(file, 'utf8');
     assert.ok(text.includes('# Global Rules'), `${name} missing Global Rules`);
-    assert.ok(text.includes('[Pre-flight] Tier:'), `${name} missing pre-flight prefix rule`);
+    assert.ok(text.includes('## Execution & Subagent Delegation'), `${name} missing delegation guide`);
     assert.ok(text.includes('Always respond in Vietnamese'), `${name} missing language rule`);
+    assert.ok(!text.includes('[Pre-flight] Tier:'), `${name} must not enforce Pre-flight Tier prefix`);
   }
+  const claudeLines = fs.readFileSync(files.claude, 'utf8').split(/\r?\n/).length;
+  assert.ok(claudeLines < 200, `CLAUDE.md core should stay under 200 lines (got ${claudeLines})`);
+
   const ompAgents = fs.readFileSync(path.join(home, '.omp', 'agent', 'AGENTS.md'), 'utf8');
   const ompRules = fs.readFileSync(path.join(home, '.omp', 'agent', 'RULES.md'), 'utf8');
   assert.ok(ompRules.includes('# Global Rules'));
+  assert.ok(!ompRules.includes('Execution & Subagent Delegation'), 'OMP RULES.md must not constrain subagent delegation');
   assert.ok(ompAgents.includes('# Agent Instructions'));
+  assert.ok(ompAgents.includes('## Execution & Subagent Delegation'));
   assert.ok(!ompAgents.includes('# Global Rules'), 'OMP AGENTS.md must stay context-only');
+
+  const homeMemo = tempHome();
+  runEngine(['--target', 'antigravity-cli', '--yes', '--skip-install', '--force', '--mcp', 'memorix', '--memorix', '--quiet'], homeMemo);
+  const agySize = fs.statSync(path.join(homeMemo, '.gemini', 'AGENTS.md')).size;
+  assert.ok(agySize < 24 * 1024, `Antigravity AGENTS.md with memorix must stay under 24 KB (got ${agySize} bytes)`);
 });
 
 function resolveShell(name, winCandidates = []) {
