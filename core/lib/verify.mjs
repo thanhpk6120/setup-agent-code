@@ -75,7 +75,8 @@ export function verifyConfigEntries(agent, tokens, selectedIds) {
         continue;
       }
     }
-    for (const id of selectedIds) {
+    const excluded = new Set(cfg.mcpExclude || []);
+    for (const id of selectedIds.filter((one) => !excluded.has(one))) {
       const present = cfg.kind === 'toml'
         ? text.includes(`[mcp_servers.${id}]`)
         : cfg.kind === 'yaml'

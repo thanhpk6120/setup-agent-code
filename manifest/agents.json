@@ -473,6 +473,9 @@
           "managedInserts": [
             "llm-retry"
           ],
+          "mcpExclude": [
+            "memorix"
+          ],
           "preserveFromExisting": {
             "baseURL": "AI_BASE_URL"
           }

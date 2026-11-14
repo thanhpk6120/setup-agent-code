@@ -496,7 +496,12 @@ const PHASE_IMPL = {
           if (c.agent.mcp?.adapter === 'goose-yaml') {
             text = R.mergeGooseConfig(U.exists(dest) ? U.readText(dest) : text, servers, knownMcpIds(c));
           } else {
-            text = text.replace('# <<MCP_SERVERS>>', R.yamlMcpBlocks(servers));
+            text = text.replace(/^[ \t]*# <<MCP_SERVERS>>[ \t]*$/m, (match) => {
+              const pad = (match.match(/^[ \t]*/) || [''])[0];
+              // A server the home layer owns (memorix) must not be duplicated here.
+              const exclude = new Set(cfg.mcpExclude || []);
+              return R.yamlMcpBlocks(servers.filter((server) => !exclude.has(server.id)), pad.length);
+            });
           }
         }
         // A patch layer is merged entry-by-entry so user entries survive every write.
@@ -751,7 +756,7 @@ function inferConfiguredMcp(c) {
     return [...text.matchAll(/^\[mcp_servers\.([A-Za-z0-9-]+)\]$/gm)].map((match) => match[1]);
   }
   if (adapter === 'dsh-yaml') {
-    return [...text.matchAll(/^- id: mcp-([A-Za-z0-9-]+)$/gm)].map((match) => match[1]);
+    return [...text.matchAll(/^\s*- id: mcp-([A-Za-z0-9-]+)$/gm)].map((match) => match[1]);
   }
   if (adapter === 'goose-yaml') {
     const extMatch = text.match(/^extensions:\s*(?:\{\})?\s*(?:#.*)?$/m);
@@ -1170,9 +1175,11 @@ async function ensureLocalPlugin(c, lp) {
     c.rows.push(V.result(rowId, 'SKIP', 'dry-run'));
     return;
   }
-  const block = `${text.endsWith('\n') ? '' : '\n'}\n${banner}- insert:\n  - id: ${lp.id}\n    name: "${url}"\n`;
+  // Merge instead of appending a second `- insert:` block, so the layer keeps one
+  // insert list and the item lands next to the MCP clients.
+  const itemText = `- insert:\n    - id: ${lp.id}\n      name: "${url}"\n`;
   U.backupFile(patch);
-  U.writeFileAtomic(patch, text + block);
+  U.writeFileAtomic(patch, R.mergeYamlLayer(text, itemText));
   U.log.ok(`${lp.id}: da them vao ${patch}`);
   c.rows.push(V.result(rowId, 'PASS', `da them vao ${patch}`));
 }

@@ -100,7 +100,13 @@ const yamlScalar = (value) => {
   return JSON.stringify(String(value));
 };
 
-export function yamlMcpBlocks(servers) {
+/**
+ * Render MCP servers as items of a loader `- insert:` block. The loader only
+ * creates a plugin for insert items; a top-level `- id: mcp-*` entry targets an
+ * id that does not exist in the bundle, so the loader warns and skips it.
+ */
+export function yamlMcpBlocks(servers, indent = 4) {
+  const pad = ' '.repeat(indent);
   const blocks = [];
   for (const { id, spec } of servers) {
     const lines = [
@@ -122,7 +128,7 @@ export function yamlMcpBlocks(servers) {
       lines.push('    env:');
       for (const key of envKeys) lines.push(`      ${key}: ${yamlScalar(spec.env[key])}`);
     }
-    blocks.push(lines.join('\n'));
+    blocks.push(lines.map((line) => (line ? pad + line : line)).join('\n'));
   }
   return blocks.join('\n');
 }
@@ -324,7 +330,8 @@ export function mergeYamlLayer(existingText, templateText, { managedMcpIds = [],
   const dropMcp = new Set(managedMcpIds.map((id) => `mcp-${id}`));
   // MCP entries are installer-managed, so a stale one must not block the regenerated entry.
   const existingIds = new Set(existing.plain.map((entry) => entry.id).filter((id) => id && !dropMcp.has(id)));
-  const dropInserts = new Set(managedInsertIds);
+  // MCP entries live inside `- insert:` too, so a stale one is dropped the same way.
+  const dropInserts = new Set([...managedInsertIds, ...dropMcp]);
   const existingInsertIds = new Set(existing.inserts.map((item) => item.id).filter((id) => id && !dropInserts.has(id)));
 
   const keptPlain = existing.plain

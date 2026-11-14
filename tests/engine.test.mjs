@@ -104,7 +104,7 @@ test('TOML MCP blocks contain command/args/env for every server', () => {
 
 test('YAML MCP blocks are valid list items with stdio transport', () => {
   const blocks = R.yamlMcpBlocks([{ id: 'memorix', spec: { command: 'memorix', args: ['serve'], env: {} } }]);
-  assert.match(blocks, /^- id: mcp-memorix/m);
+  assert.match(blocks, /^ {4}- id: mcp-memorix/m, 'insert item, not a top-level override');
   assert.match(blocks, /serverName: memorix/);
   assert.match(blocks, /transport: stdio/);
   assert.match(blocks, /command: "memorix"/);
@@ -187,8 +187,11 @@ test('isolated install (mcp all, memorix) writes every manifest MCP on every ada
   assert.ok(!codex.includes('CODEX.md'));
 
   const cordis = fs.readFileSync(path.join(home, '.dsh', 'profiles', 'web', 'cordis.patch.yml'), 'utf8');
-  assert.equal((cordis.match(/^- id: mcp-/gm) || []).length, expectedMcp);
-  assert.ok(cordis.includes('serverName: memorix'));
+  assert.equal((cordis.match(/^\s*- id: mcp-/gm) || []).length, expectedMcp - 1, 'memorix is owned by the home layer');
+  assert.equal((cordis.match(/^- insert:/gm) || []).length, 1, 'one insert block');
+  assert.ok(!/^- id: mcp-/m.test(cordis), 'mcp entries are insert items, not top-level overrides');
+  assert.ok(!cordis.includes('mcp-memorix'), 'memorix is not duplicated in the profile layer');
+  assert.ok(fs.readFileSync(path.join(home, '.dsh', 'cordis.patch.yml'), 'utf8').includes('memory-memorix'), 'memorix lives in the home layer');
   assert.ok(!cordis.includes('maxActiveSubagents: 32\n    command:'), 'memorix must not leak into subagent config');
 
   const agySettings = JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8'));

@@ -77,9 +77,8 @@
     maxDepth: 6
     maxActiveSubagents: 32
 
-# <<MCP_SERVERS>>
-
 - insert:
+    # <<MCP_SERVERS>>
     - id: llm-retry
       name: "@deepseek-ai/dsh-llm-retry"
 
