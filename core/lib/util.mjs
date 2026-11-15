@@ -17,13 +17,13 @@ const COLORS = {
 export const log = {
   quiet: false,
   verbose: false,
-  info(msg) { if (!this.quiet) console.log(msg); },
-  phase(id, title) { if (!this.quiet) console.log(`\n${COLORS.cyan}== [${id}] ${title}${COLORS.reset}`); },
-  ok(msg) { if (!this.quiet) console.log(`  ${COLORS.green}-> ${msg}${COLORS.reset}`); },
-  skip(msg) { if (!this.quiet) console.log(`  ${COLORS.gray}-> [Skip] ${msg}${COLORS.reset}`); },
-  warn(msg) { (this.quiet ? console.error : console.log)(`  ${COLORS.yellow}[!] ${msg}${COLORS.reset}`); },
+  info(msg) { if (!log.quiet) console.log(msg); },
+  phase(id, title) { if (!log.quiet) console.log(`\n${COLORS.cyan}== [${id}] ${title}${COLORS.reset}`); },
+  ok(msg) { if (!log.quiet) console.log(`  ${COLORS.green}-> ${msg}${COLORS.reset}`); },
+  skip(msg) { if (!log.quiet) console.log(`  ${COLORS.gray}-> [Skip] ${msg}${COLORS.reset}`); },
+  warn(msg) { (log.quiet ? console.error : console.log)(`  ${COLORS.yellow}[!] ${msg}${COLORS.reset}`); },
   error(msg) { console.error(`  ${COLORS.red}[X] ${msg}${COLORS.reset}`); },
-  debug(msg) { if (this.verbose && !this.quiet) console.log(`  ${COLORS.gray}... ${msg}${COLORS.reset}`); }
+  debug(msg) { if (log.verbose && !log.quiet) console.log(`  ${COLORS.gray}... ${msg}${COLORS.reset}`); }
 };
 
 /** Expand %VAR% (Windows), ~ and environment variables in a manifest path. */

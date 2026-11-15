@@ -1024,6 +1024,40 @@ test('empty placeholder never erases a live config value', () => {
   assert.ok(text.includes('api_key = "live-secret"'), `live api_key must survive, got:\n${text}`);
 });
 
+test('missing optional agent binary (agy) completes P5 with WARN instead of crashing on log.warn', () => {
+  const home = tempHome();
+  const preload = path.join(home, 'missing-agy.cjs');
+  fs.writeFileSync(preload, `
+    const childProcess = require('node:child_process');
+    const { syncBuiltinESMExports } = require('node:module');
+    childProcess.spawnSync = (command, args = []) => {
+      if ((command === 'which' || command === 'where') && args[0] === 'agy') {
+        return { status: 1, stdout: '', stderr: 'not found' };
+      }
+      return { status: 1, stdout: '', stderr: 'blocked' };
+    };
+    childProcess.spawn = () => { throw new Error('Unexpected spawn'); };
+    childProcess.exec = childProcess.execFile = childProcess.execSync = childProcess.execFileSync = childProcess.spawn;
+    syncBuiltinESMExports();
+  `);
+  const env = {
+    ...process.env,
+    USERPROFILE: home,
+    HOME: home,
+    APPDATA: path.join(home, 'AppData', 'Roaming'),
+    LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+    SETUP_RESUME_ENV_PATH: path.join(home, 'resume.env')
+  };
+  const result = spawnSync(
+    process.execPath,
+    ['--require', preload, ENGINE, '--target', 'antigravity-cli', '--yes', '--mcp', 'none', '--no-memorix'],
+    { env, encoding: 'utf8', timeout: 120000 }
+  );
+  assert.equal(result.status, 0, `expected exit 0, got ${result.status}:\n${result.stdout}\n${result.stderr}`);
+  assert.ok(!result.stdout.includes('P5 that bai'), `P5 must not fail:\n${result.stdout}`);
+  assert.ok(result.stdout.includes('agy van khong dung'), 'should warn that agy is still missing');
+});
+
 test('resolveBareHookCommands rewrites bare memorix shims without touching explicit paths', () => {
   const hooks = {
     memorix: {

@@ -379,7 +379,8 @@ const PHASE_IMPL = {
       c.rows.push(V.result(`binary:${binary.command}`, 'PASS', assess.detail));
     } else {
       const status = binary.optional ? 'WARN' : 'FAIL';
-      (status === 'FAIL' ? U.log.error : U.log.warn)(`${binary.command} van khong dung: ${assess.detail}`);
+      if (status === 'FAIL') U.log.error(`${binary.command} van khong dung: ${assess.detail}`);
+      else U.log.warn(`${binary.command} van khong dung: ${assess.detail}`);
       c.rows.push(V.result(`binary:${binary.command}`, status, assess.detail));
       guidance();
     }
