@@ -650,6 +650,21 @@ const PHASE_IMPL = {
         else U.log.warn(`memorix hooks (${agentFlag}) that bai: ${(r.stderr || r.stdout).slice(0, 160)}`);
       }
     }
+    if (U.isWin && !ctx.opts['skip-install'] && ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix')) {
+      const memorixBin = U.which('memorix');
+      if (memorixBin) {
+        const hookFiles = new Set((c.agent.hooks || []).filter((h) => h.register?.file).map((h) => M.resolveToken(h.register.file, c.tokens)));
+        if (c.agent.id === 'claude-code') hookFiles.add(path.join(c.paths.dir, 'settings.json'));
+        if (c.agent.id === 'codex-cli') hookFiles.add(path.join(c.paths.dir, 'hooks.json'));
+        for (const file of hookFiles) {
+          const obj = R.readJsonIfExists(file);
+          if (obj && R.resolveBareHookCommands(obj, 'memorix', memorixBin)) {
+            R.writeJson(file, obj, ctx.mode !== 'install');
+            U.log.ok(`memorix hook path -> ${file}`);
+          }
+        }
+      }
+    }
   },
 
   P11: async (c) => {

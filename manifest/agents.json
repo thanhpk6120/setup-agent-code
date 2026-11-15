@@ -596,6 +596,14 @@
         {
           "dest": "<geminiDir>/GEMINI.md",
           "code": "antigravity-duplicate-gemini-md"
+        },
+        {
+          "dest": "<geminiConfig>/GEMINI.md",
+          "code": "antigravity-config-gemini-md"
+        },
+        {
+          "dest": "<geminiConfig>/AGENTS.md",
+          "code": "antigravity-config-agents-md"
         }
       ],
       "skillsDir": "<geminiConfig>/skills",
@@ -653,7 +661,9 @@
         ],
         "forbiddenAbsent": [
           "<dir>/AGENTS.md",
-          "<geminiDir>/GEMINI.md"
+          "<geminiDir>/GEMINI.md",
+          "<geminiConfig>/GEMINI.md",
+          "<geminiConfig>/AGENTS.md"
         ]
       }
     },

@@ -1,8 +1,8 @@
 ## Antigravity CLI-specific notes
 
-- **Global rules:** `~/.gemini/AGENTS.md` (or `~/.gemini/GEMINI.md`, `~/.gemini/config/AGENTS.md`). Rules are cumulative; do not write the same content into several of these files.
+- **Global rules:** `~/.gemini/AGENTS.md` (also discovered: `~/.gemini/GEMINI.md`, `~/.gemini/config/AGENTS.md`, `~/.gemini/config/GEMINI.md`). Rules are cumulative; keep global instructions in `~/.gemini/AGENTS.md` only and do not duplicate content across these files.
 - **Workspace rules:** `AGENTS.md`, `GEMINI.md`, or `.agents/rules/*.md` in the workspace or any parent folder up to the repository root.
-- **Skills:** `~/.gemini/config/skills/<name>/SKILL.md` (shared by App + CLI) and `~/.gemini/antigravity-cli/skills/` (CLI only). Frontmatter requires `description`; the skill name becomes a slash command.
+- **Skills:** `~/.gemini/config/skills/<name>/SKILL.md` (shared by App + CLI) and `~/.gemini/antigravity-cli/skills/<name>/SKILL.md` (CLI only). YAML frontmatter requires `name` (lowercase, hyphenated) and `description`; the skill name becomes a slash command.
 - **MCP and hooks:** `~/.gemini/config/mcp_config.json` (`mcpServers`) and `~/.gemini/config/hooks.json` (`PreToolUse`); CLI settings live in `~/.gemini/antigravity-cli/settings.json`.
 - **Limits:** 24 KB per rule file; 20,000-token aggregate budget for always-on rules. Keep rule files small and split by topic.
-- **Subagents & parallelism:** Batch independent read/search or subagent tasks concurrently when supported; keep total instruction files well below the 24 KB / 20k-token limit.
+- **Subagents & parallelism:** Batch independent native tool calls (`read_file`, `edit_file`, `write_file`, `run_command`) or `invoke_subagent` calls concurrently in the same turn: use `TypeName: "research"` for read-only *Explorer*/*Advisor* work, `TypeName: "self"` for *Worker*/*Reviewer* tasks (with `Workspace: "share"` or `"branch"` to isolate concurrent edits), `image-generator` for media, and `define_subagent` / `run_workflow` / `swarm` for custom or multi-agent orchestration.

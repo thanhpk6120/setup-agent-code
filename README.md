@@ -160,7 +160,7 @@ Ghi chú quan trọng:
 - **OMP**: **không** cài `SYSTEM.md` — file này thay thế toàn bộ system prompt mặc định của OMP. Nếu đã có từ bản cũ, installer sẽ cảnh báo và chuyển vào Thùng rác.
 - **Claude Code**: `AGENTS.md` chỉ được đọc ở project scope → không ghi `~/.claude/AGENTS.md`.
 - **Codex**: `CODEX.md` không phải file global instruction → installer sẽ dọn nếu tồn tại.
-- **Antigravity**: global rules nằm ở `~/.gemini/AGENTS.md`, **không phải** `~/.gemini/antigravity-cli/AGENTS.md`.
+- **Antigravity**: global rules nằm duy nhất ở `~/.gemini/AGENTS.md` (**không phải** `~/.gemini/antigravity-cli/AGENTS.md`); các bản trùng lặp ở `~/.gemini/GEMINI.md` hoặc `~/.gemini/config/{GEMINI.md,AGENTS.md}` sẽ được chuyển vào Thùng rác để tránh nạp kép.
 - **OpenCode v2**: cấu hình dùng `providers` / `permissions` (mảng `{action, resource, effect}`) — key v1 `provider` / `permission` bị bỏ qua; installer còn xoá key `plugin` cũ vì v2 tự nạp `plugins/*.js` (trỏ tới file sẽ lỗi "configured plugin path must be a directory"). Plugin cần `~/.config/opencode/package.json` có `"type": "module"` + dependency `@opencode/plugin` (installer hỏi rồi `npm install`). Binary cài từ `@opencode/cli` (không phải `opencode-ai`) và phải có trong `allow-scripts` của npm 12, nếu không `opencode.exe` chỉ là stub 229 byte.
 - **DSH**: profile thật là `~/.dsh/profiles/<name>/` (fallback `%APPDATA%\dsh-desktop\harness\profiles\<name>`).
 - **DSH patch layer**: installer **merge từng entry** vào `cordis.patch.yml` — entry của bạn (`plugin-market`, `better-sidebar`, `desktop-shell`, …) được giữ nguyên. Entry template sở hữu (`llm-pi-ai`, `agent-default-model`, `subagent`, `permission`, `subagent-model-selection-settings`, `agent-preset-registry`) bị ghi đè để model/agent luôn đúng pin.

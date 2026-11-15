@@ -24,6 +24,6 @@
 | Trash Guard hook | `~/.gemini/antigravity-cli/hooks/pre-tool.mjs` |
 | HUD statusline | `~/.gemini/antigravity-cli/hud/hud.mjs` |
 
-**Không** ghi `~/.gemini/antigravity-cli/AGENTS.md` hay `~/.gemini/GEMINI.md` (không nằm trong danh sách global rules / trùng nội dung). Binary `agy` do Google phát hành — installer chỉ cấu hình, không tự cài.
+**Không** ghi `~/.gemini/antigravity-cli/AGENTS.md`, `~/.gemini/GEMINI.md`, hay `~/.gemini/config/{GEMINI.md,AGENTS.md}` (nếu tồn tại từ trước sẽ được chuyển vào Thùng rác để tránh nạp kép global rules). Binary `agy` do Google phát hành — installer chỉ cấu hình, không tự cài.
 
 Chi tiết option, MCP, verify: xem [README gốc](../README.md).

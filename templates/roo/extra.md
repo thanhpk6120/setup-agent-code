@@ -1,4 +1,4 @@
-# Roo Code Guidelines
+## Roo Code-specific notes
 
 - Adhere strictly to the active mode role (Architect, Code, Ask, Debug, etc.).
 - Utilize available MCP tools for specialized domain actions.

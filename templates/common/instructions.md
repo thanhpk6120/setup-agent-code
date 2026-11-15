@@ -20,8 +20,6 @@ Choose the fastest safe execution path based on task independence rather than de
   - *Advisor*: passive analysis and critique only; NEVER issue mutation tool calls (`write`, `edit`, state-changing shell commands).
   - Use the exact subagent tool and role names supported by the active runtime (see the agent-specific section below).
 
----
-
 ## Think Before Coding
 
 - State key assumptions briefly. Mention multiple interpretations; ask only if ambiguity blocks safe execution; otherwise pick the safest assumption and proceed.
@@ -29,34 +27,24 @@ Choose the fastest safe execution path based on task independence rather than de
 - Implement directly and verify fast. Avoid verbose plans when unnecessary.
 - Create/update a workspace task-tracking `.md` only for large, risky, multi-session, or multi-step tasks whose progress must survive context loss.
 
----
-
 ## Simplicity & Surgical Changes
 
 - Write the minimum code that solves the request; touch only what is required.
 - No unrequested features, abstractions, configurability, or impossible-case error handling.
 - Mention unrelated dead code without deleting it; remove only code your change made unused.
 
----
-
 ## Goal-Driven Execution & Communication
 
 - Define success criteria and verify before yielding. Do not stop mid-task unless blocked by destructive-risk confirmation, missing permissions, critical missing files, or unrecoverable failures.
 - Do not ask confirmation for obvious non-destructive steps; suggest improvements after completing the request.
 
----
-
 ## Workspace
 
-Workspace permissions: Autonomous by default for all task-scoped reads, writes, and edits. No confirmation required for standard code changes. Explicit confirmation is required ONLY for Risky Operations: destructive actions (data loss, force push, dropping tables/branches, hard resets, deleting production assets).
-
----
+Workspace permissions: Autonomous by default for all task-scoped reads, writes, and edits within the current workspace. No confirmation required for standard in-workspace code changes. Explicit confirmation is required for edits outside the current workspace and for Risky Operations: destructive actions (data loss, force push, dropping tables/branches, hard resets, deleting production assets).
 
 ## Git Worktrees
 
 Allowed when requested or when parallel workers must isolate overlapping edits on separate branches. Use the exact task/chunk name, and delete each worktree only after completion, verification, and merge.
-
----
 
 ## Tools
 
@@ -65,25 +53,17 @@ Allowed when requested or when parallel workers must isolate overlapping edits o
 - **File Edit Priority (Hard Constraint):** Modify files with native `edit`/`write` tools. FORBIDDEN: `python`, `sed`, `awk`, or shell heredocs for file edits (they bypass snapshot safety). Re-`read` on stale anchor rather than falling back to shell editors.
 - **Shell Editor Exception:** Shell string-replace tools only for transforms not expressible as line-range edits (bulk regex across many files, generated code); state the reason in one line.
 
----
-
 ## Windows Shell
 
 Prefer PowerShell 7 (`pwsh`); use other shells only when required. Run heavy tasks sequentially in small steps. Set timeouts for long commands; inspect or stop safely if exceeded.
-
----
 
 ## Java
 
 Before build/compile, detect the project JDK and set `JAVA_HOME`; don't rely on machine default unless it matches. Store the JDK/project mapping when memory is available.
 
----
-
 ## Reporting
 
 For bugs, investigations, incidents, or complex tasks: **Current Status, Root Cause, Resolution, Impact, Risks, Next Step**. For simple tasks: what changed, verification, remaining risk. Always report blockers and incomplete verification.
-
----
 
 ## Estimate, Monitor, and Verify
 

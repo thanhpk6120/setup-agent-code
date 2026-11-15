@@ -72,12 +72,17 @@ test('omp must not install SYSTEM.md (it replaces the built-in prompt)', () => {
   assert.ok(!omp.instructionFiles.some((f) => f.dest.endsWith('SYSTEM.md')));
 });
 
-test('antigravity instruction file lives in ~/.gemini, not in the CLI dir', () => {
+test('antigravity instruction file lives in ~/.gemini, not in the CLI dir or duplicate config files', () => {
   const manifests = M.loadManifests(ROOT);
   const agy = M.agentById(manifests, 'antigravity-cli');
   const dests = agy.instructionFiles.map((f) => f.dest);
   assert.ok(dests.includes('<geminiDir>/AGENTS.md'));
   assert.ok(!dests.some((d) => d.includes('antigravity-cli/AGENTS.md')));
+  const forbidden = agy.forbiddenFiles.map((f) => f.dest);
+  for (const dup of ['<dir>/AGENTS.md', '<geminiDir>/GEMINI.md', '<geminiConfig>/GEMINI.md', '<geminiConfig>/AGENTS.md']) {
+    assert.ok(forbidden.includes(dup), `antigravity forbiddenFiles must include ${dup}`);
+    assert.ok(agy.verify.forbiddenAbsent.includes(dup), `antigravity forbiddenAbsent must include ${dup}`);
+  }
 });
 
 // ---------------------------------------------------------------- rendering
@@ -386,9 +391,15 @@ test('every instruction file ends up with Global Rules except OMP AGENTS.md', ()
   assert.ok(!ompAgents.includes('# Global Rules'), 'OMP AGENTS.md must stay context-only');
 
   const homeMemo = tempHome();
-  runEngine(['--target', 'antigravity-cli', '--yes', '--skip-install', '--force', '--mcp', 'memorix', '--memorix', '--quiet'], homeMemo);
-  const agySize = fs.statSync(path.join(homeMemo, '.gemini', 'AGENTS.md')).size;
+  runEngine(['--target', 'all', '--yes', '--skip-install', '--force', '--mcp', 'memorix', '--memorix', '--quiet'], homeMemo);
+  const agyMemoPath = path.join(homeMemo, '.gemini', 'AGENTS.md');
+  const agySize = fs.statSync(agyMemoPath).size;
   assert.ok(agySize < 24 * 1024, `Antigravity AGENTS.md with memorix must stay under 24 KB (got ${agySize} bytes)`);
+  const agyMemoText = fs.readFileSync(agyMemoPath, 'utf8');
+  assert.ok(!/---\s*\n\s*---/.test(agyMemoText), 'instruction file must not contain duplicate --- separators');
+  assert.ok(!agyMemoText.includes('\r\n'), 'rendered instruction file must use normalized LF newlines');
+  const claudeMemoLines = fs.readFileSync(path.join(homeMemo, '.claude', 'CLAUDE.md'), 'utf8').split(/\r?\n/).length;
+  assert.ok(claudeMemoLines <= 200, `CLAUDE.md even with memorix should stay within ~200 lines (got ${claudeMemoLines})`);
 });
 
 function resolveShell(name, winCandidates = []) {
@@ -1011,5 +1022,31 @@ test('empty placeholder never erases a live config value', () => {
   assert.equal(result.status, 0, result.stderr);
   const text = fs.readFileSync(path.join(codex, 'config.toml'), 'utf8');
   assert.ok(text.includes('api_key = "live-secret"'), `live api_key must survive, got:\n${text}`);
+});
+
+test('resolveBareHookCommands rewrites bare memorix shims without touching explicit paths', () => {
+  const hooks = {
+    memorix: {
+      PreToolUse: [
+        { matcher: '*', hooks: [{ type: 'command', command: 'memorix.cmd hook --agent antigravity --event PreToolUse' }] },
+        { matcher: '*', hooks: [{ type: 'command', command: 'C:\\nvm4w\\nodejs\\memorix.cmd hook --agent antigravity --event PostToolUse' }] }
+      ]
+    },
+    other: {
+      PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'node "C:/app/hook.mjs"' }] }]
+    }
+  };
+  const changed = R.resolveBareHookCommands(hooks, 'memorix', 'C:\\nvm4w\\nodejs\\memorix.cmd');
+  assert.equal(changed, true);
+  assert.equal(
+    hooks.memorix.PreToolUse[0].hooks[0].command,
+    'C:\\nvm4w\\nodejs\\memorix.cmd hook --agent antigravity --event PreToolUse'
+  );
+  assert.equal(
+    hooks.memorix.PreToolUse[1].hooks[0].command,
+    'C:\\nvm4w\\nodejs\\memorix.cmd hook --agent antigravity --event PostToolUse'
+  );
+  assert.equal(hooks.other.PreToolUse[0].hooks[0].command, 'node "C:/app/hook.mjs"');
+  assert.equal(R.resolveBareHookCommands(hooks, 'memorix', 'C:\\nvm4w\\nodejs\\memorix.cmd'), false);
 });
 

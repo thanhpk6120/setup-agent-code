@@ -367,7 +367,7 @@ export function mergeYamlLayer(existingText, templateText, { managedMcpIds = [],
 export function composeInstruction(parts, optionalSections = []) {
   const chunks = [...parts];
   for (const section of optionalSections) if (section) chunks.push(section);
-  return `${chunks.map((c) => c.trim()).join('\n\n---\n\n')}\n`;
+  return `${chunks.map((c) => c.replace(/\r\n/g, '\n').trim()).join('\n\n---\n\n')}\n`;
 }
 
 /** Read a template and apply __PLACEHOLDER__ values. */
@@ -419,6 +419,35 @@ export function registerJsonHook(settings, hook) {
   }
   settings.hooks[hook.event] = list;
   return settings;
+}
+
+/**
+ * Rewrite bare `<name>` or `<name>.cmd` hook commands to an explicit shim path
+ * so GUI/ACP hosts with a minimal PATH still resolve Windows .cmd shims.
+ */
+export function resolveBareHookCommands(obj, bareName, resolvedPath) {
+  if (!obj || typeof obj !== 'object' || !resolvedPath) return false;
+  const quoted = /\s/.test(resolvedPath) ? `"${resolvedPath}"` : resolvedPath;
+  const escaped = bareName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`^${escaped}(?:\\.(?:cmd|bat))?(?=\\s|$)`, 'i');
+  let changed = false;
+  const visit = (node) => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item);
+      return;
+    }
+    if (!node || typeof node !== 'object') return;
+    if (typeof node.command === 'string' && pattern.test(node.command)) {
+      const next = node.command.replace(pattern, quoted);
+      if (next !== node.command) {
+        node.command = next;
+        changed = true;
+      }
+    }
+    for (const value of Object.values(node)) visit(value);
+  };
+  visit(obj);
+  return changed;
 }
 
 /**

@@ -1,5 +1,3 @@
----
-
 # Memorix — Memory Tools for Active Workspaces
 
 Use Memorix when the active workspace has Memorix tools available and prior context would materially help. For non-trivial coding work, Memory Autopilot is the default entry point before local progress notes or broad file exploration. Do not assume every workspace is configured for Memorix.

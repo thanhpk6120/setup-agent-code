@@ -1,4 +1,4 @@
-# Goose Agent Guidelines
+## Goose-specific notes
 
 - Operate autonomously with direct, surgical code modifications.
 - Prioritize built-in tools and configured MCP extensions before falling back to generic shell commands.
