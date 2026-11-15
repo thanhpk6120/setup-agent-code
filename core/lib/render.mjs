@@ -378,6 +378,27 @@ export function renderTemplate(root, templateRel, vars, options = {}) {
 
 /** Register a hook into a JSON settings object (idempotent). */
 export function registerJsonHook(settings, hook) {
+  if (hook.shape === 'antigravity') {
+    // agy's Go unmarshaler parses every top-level key in hooks.json as a JSONHookSpec;
+    // a numeric `version` field causes it to reject the entire file.
+    if (typeof settings.version === 'number') delete settings.version;
+    const name = hook.name || 'trash-guard';
+    const entry = (settings[name] && typeof settings[name] === 'object' && !Array.isArray(settings[name]))
+      ? settings[name]
+      : { enabled: true };
+    if (!('enabled' in entry)) entry.enabled = true;
+    const list = Array.isArray(entry[hook.event]) ? entry[hook.event] : [];
+    const matchers = Array.isArray(hook.matcher) ? hook.matcher : [hook.matcher];
+    for (const matcher of matchers) {
+      const item = { matcher, hooks: [{ type: 'command', command: hook.command, timeout: hook.timeout ?? 15 }] };
+      const existingIndex = list.findIndex((x) => x && x.matcher === matcher && Array.isArray(x.hooks) && x.hooks.some((h) => h && h.command === hook.command));
+      if (existingIndex >= 0) list[existingIndex] = item;
+      else list.push(item);
+    }
+    entry[hook.event] = list;
+    settings[name] = entry;
+    return settings;
+  }
   settings.hooks = settings.hooks || {};
   const list = Array.isArray(settings.hooks[hook.event]) ? settings.hooks[hook.event] : [];
   const matchers = Array.isArray(hook.matcher) ? hook.matcher : [hook.matcher];

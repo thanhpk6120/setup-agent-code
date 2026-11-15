@@ -1,0 +1,697 @@
+#!/usr/bin/env node
+/**
+ * AGY HUD - Statusline Script
+ * Renders a compact HUD for Antigravity CLI (agy) inspired by Claude Code OMC HUD & OMP.
+ */
+
+import { execFileSync } from "node:child_process";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  realpathSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { dirname, join, resolve, sep } from "node:path";
+
+const ANSI = {
+  dim: "\x1b[2m",
+  bold: "\x1b[1m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  orange: "\x1b[38;5;208m",
+  red: "\x1b[31m",
+  redBlink: "\x1b[5;31m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+  blue: "\x1b[34m",
+  reset: "\x1b[0m",
+};
+
+const MAX_TAIL_BYTES = 512 * 1024;
+const MAX_HEAD_BYTES = 8 * 1024;
+const MAX_AGENT_DETAIL_LINES = 5;
+const THINKING_RECENCY_MS = 30_000;
+const STALE_AGENT_MS = 15 * 60_000;
+const AGENT_TOOL_NAMES = new Set(["invoke_subagent", "run_workflow"]);
+
+function sanitizeSessionId(sessionId) {
+  if (typeof sessionId !== "string") return null;
+  const trimmed = sessionId.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function readStdin() {
+  return new Promise((resolveStdin) => {
+    if (process.stdin.isTTY) {
+      resolveStdin("");
+      return;
+    }
+
+    let input = "";
+    let settled = false;
+    let timer = null;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      process.stdin.off("data", onData);
+      process.stdin.off("end", onEnd);
+      process.stdin.off("error", onError);
+      process.stdin.pause();
+    };
+
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolveStdin(value);
+    };
+
+    const armTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => finish(input), 200);
+    };
+
+    const onData = (chunk) => {
+      input += chunk;
+      if (input.length > 1024 * 1024) {
+        finish(input.slice(0, 1024 * 1024));
+        return;
+      }
+      armTimer();
+    };
+    const onEnd = () => finish(input);
+    const onError = () => finish("");
+
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", onData);
+    process.stdin.on("end", onEnd);
+    process.stdin.on("error", onError);
+    process.stdin.resume();
+    armTimer();
+  });
+}
+
+function colorizeContext(used) {
+  if (used < 50) return ANSI.green;
+  if (used < 65) return ANSI.yellow;
+  if (used < 80) return ANSI.orange;
+  return ANSI.redBlink;
+}
+
+function formatCompactTokens(tokens) {
+  if (!Number.isFinite(tokens) || tokens <= 0) return null;
+  if (tokens >= 1_000_000) {
+    const val = tokens / 1_000_000;
+    return Number.isInteger(val) ? `${val}M` : `${val.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}k`;
+  }
+  return String(Math.round(tokens));
+}
+
+function deriveContextUsage(contextWindow) {
+  if (!contextWindow || typeof contextWindow !== "object") {
+    return { usedPct: null, currentTokens: null, windowSize: null };
+  }
+
+  const windowSize = Number(contextWindow.context_window_size);
+  const validWindowSize = Number.isFinite(windowSize) && windowSize > 0 ? windowSize : null;
+
+  let currentTokens = null;
+  const cu = contextWindow.current_usage;
+  if (cu && typeof cu === "object") {
+    const sum =
+      (Number(cu.input_tokens) || 0) +
+      (Number(cu.cache_creation_input_tokens) || 0) +
+      (Number(cu.cache_read_input_tokens) || 0);
+    if (sum > 0) currentTokens = sum;
+  }
+
+  const usedRaw = contextWindow.used_percentage;
+  if (usedRaw !== null && usedRaw !== undefined && String(usedRaw).trim() !== "") {
+    const usedNum = Number(usedRaw);
+    if (Number.isFinite(usedNum)) {
+      return {
+        usedPct: Math.max(0, Math.min(100, Math.round(usedNum))),
+        currentTokens,
+        windowSize: validWindowSize,
+      };
+    }
+  }
+
+  const remRaw = contextWindow.remaining_percentage;
+  if (remRaw !== null && remRaw !== undefined && String(remRaw).trim() !== "") {
+    const remNum = Number(remRaw);
+    if (Number.isFinite(remNum)) {
+      return {
+        usedPct: Math.max(0, Math.min(100, Math.round(100 - remNum))),
+        currentTokens,
+        windowSize: validWindowSize,
+      };
+    }
+  }
+
+  if (currentTokens != null && validWindowSize != null) {
+    return {
+      usedPct: Math.max(0, Math.min(100, Math.round((currentTokens / validWindowSize) * 100))),
+      currentTokens,
+      windowSize: validWindowSize,
+    };
+  }
+
+  return { usedPct: null, currentTokens, windowSize: validWindowSize };
+}
+
+function formatContext(contextWindow) {
+  const { usedPct, currentTokens, windowSize } = deriveContextUsage(contextWindow);
+  if (usedPct == null) return null;
+
+  const filled = Math.floor(usedPct / 10);
+  const bar = "█".repeat(filled) + "░".repeat(10 - filled);
+  const color = colorizeContext(usedPct);
+
+  const curStr = formatCompactTokens(currentTokens);
+  const maxStr = formatCompactTokens(windowSize);
+  const tokenSuffix = curStr && maxStr ? ` ${ANSI.dim}(${curStr}/${maxStr})${ANSI.reset}` : "";
+
+  return `${color}${bar} ${usedPct}%${ANSI.reset}${tokenSuffix}`;
+}
+
+function getModelTierColor(model) {
+  if (!model) return ANSI.cyan;
+  const tier = String(model).toLowerCase();
+  if (tier.includes("opus") || tier.includes("fable") || tier.includes("pro") || tier.includes("ultra")) {
+    return ANSI.magenta;
+  }
+  if (tier.includes("sonnet") || tier.includes("hydrogen") || tier.includes("medium")) {
+    return ANSI.yellow;
+  }
+  if (tier.includes("haiku") || tier.includes("flash") || tier.includes("lite")) {
+    return ANSI.green;
+  }
+  return ANSI.cyan;
+}
+
+function formatSessionDuration(startTimestamp) {
+  if (!startTimestamp) return null;
+
+  const startedAt = typeof startTimestamp === "number" ? startTimestamp : Date.parse(startTimestamp);
+  if (!Number.isFinite(startedAt)) return null;
+
+  const minutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60000));
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = Math.floor(minutes / 60);
+  const remainderMinutes = minutes % 60;
+  if (remainderMinutes === 0) return `${hours}h`;
+  return `${hours}h${remainderMinutes}m`;
+}
+
+function getOrCreateSessionStart(sessionId) {
+  const safeSessionId = sanitizeSessionId(sessionId);
+  if (!safeSessionId) return null;
+
+  const cachePath = join(tmpdir(), `agy-hud-session-${safeSessionId}.json`);
+  try {
+    if (existsSync(cachePath)) {
+      const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (Number.isFinite(parsed?.startedAt)) {
+        return parsed.startedAt;
+      }
+    }
+  } catch {
+    // Ignore cache read error.
+  }
+
+  const startedAt = Date.now();
+  try {
+    writeFileSync(cachePath, JSON.stringify({ session_id: safeSessionId, startedAt }));
+  } catch {
+    // Best effort.
+  }
+  return startedAt;
+}
+
+function findGitHead(startDir) {
+  let current = startDir;
+  for (let i = 0; i < 10; i++) {
+    const dotGit = join(current, ".git");
+    if (existsSync(dotGit)) {
+      try {
+        const stat = statSync(dotGit);
+        if (stat.isDirectory()) {
+          return { repoRoot: current, headPath: join(dotGit, "HEAD") };
+        }
+        if (stat.isFile()) {
+          const content = readFileSync(dotGit, "utf8");
+          const match = content.match(/^gitdir:\s*(.+)$/m);
+          if (match) {
+            const gitDir = resolve(current, match[1].trim());
+            return { repoRoot: current, headPath: join(gitDir, "HEAD") };
+          }
+        }
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+function getGitInfo(workspacePath) {
+  if (!workspacePath || !existsSync(workspacePath)) return null;
+  const gitLoc = findGitHead(workspacePath);
+  if (!gitLoc || !existsSync(gitLoc.headPath)) return null;
+
+  let branch = null;
+  try {
+    const head = readFileSync(gitLoc.headPath, "utf8").trim();
+    if (head.startsWith("ref:")) {
+      branch = head.replace(/^ref:\s*(?:refs\/heads\/)?/, "").trim();
+    } else if (head.length >= 7) {
+      branch = head.slice(0, 7);
+    }
+  } catch {
+    return null;
+  }
+
+  if (!branch) return null;
+
+  let dirty = false;
+  try {
+    const out = execFileSync(
+      "git",
+      ["status", "--porcelain", "--untracked-files=no"],
+      {
+        cwd: gitLoc.repoRoot,
+        timeout: 200,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      },
+    );
+    dirty = Boolean(out && out.trim().length > 0);
+  } catch {
+    dirty = false;
+  }
+
+  return { branch, dirty };
+}
+
+function normalizePathForComparison(targetPath) {
+  return process.platform === "win32" ? targetPath.toLowerCase() : targetPath;
+}
+
+function isPathInside(parentPath, childPath) {
+  const normalizedParent = normalizePathForComparison(parentPath);
+  const normalizedChild = normalizePathForComparison(childPath);
+  return normalizedChild === normalizedParent || normalizedChild.startsWith(`${normalizedParent}${sep}`);
+}
+
+function validateTranscriptPath(candidatePath) {
+  if (typeof candidatePath !== "string" || !candidatePath.trim()) return null;
+
+  try {
+    const resolvedPath = realpathSync(candidatePath);
+    const allowedRoot = realpathSync(join(homedir(), ".gemini", "antigravity-cli"));
+    const stat = statSync(resolvedPath);
+    if (!stat.isFile()) return null;
+    return isPathInside(allowedRoot, resolvedPath) ? resolvedPath : null;
+  } catch {
+    return null;
+  }
+}
+
+function deriveTranscriptPath(sessionId, data) {
+  const direct = validateTranscriptPath(data?.transcript_path);
+  if (direct) return direct;
+
+  const safeSessionId = sanitizeSessionId(sessionId);
+  if (!safeSessionId) return null;
+
+  return validateTranscriptPath(
+    join(homedir(), ".gemini", "antigravity-cli", "brain", safeSessionId, ".system_generated", "logs", "transcript.jsonl"),
+  );
+}
+
+function readHeadAndTail(filePath) {
+  try {
+    const { size } = statSync(filePath);
+    if (size <= MAX_TAIL_BYTES) {
+      return { head: "", tail: readFileSync(filePath, "utf8") };
+    }
+
+    const fd = openSync(filePath, "r");
+    try {
+      const headLen = Math.min(MAX_HEAD_BYTES, size);
+      const headBuf = Buffer.alloc(headLen);
+      readSync(fd, headBuf, 0, headLen, 0);
+
+      const tailStart = size - MAX_TAIL_BYTES;
+      const tailBuf = Buffer.alloc(MAX_TAIL_BYTES);
+      readSync(fd, tailBuf, 0, MAX_TAIL_BYTES, tailStart);
+
+      const tailText = tailBuf.toString("utf8");
+      const firstNewline = tailText.indexOf("\n");
+      return {
+        head: headBuf.toString("utf8"),
+        tail: firstNewline === -1 ? tailText : tailText.slice(firstNewline + 1),
+      };
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return { head: "", tail: null };
+  }
+}
+
+function unwrapArgString(value) {
+  if (typeof value !== "string") return "";
+  const trimmed = value.trim();
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (typeof parsed === "string") return parsed;
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  return trimmed;
+}
+
+function extractSkillFromPath(pathValue) {
+  const clean = unwrapArgString(pathValue);
+  if (!clean) return null;
+  const match = clean.match(/[/\\]skills[/\\]([^/\\]+)[/\\]SKILL\.md$/i);
+  return match ? match[1] : null;
+}
+
+function parseEventTimestamp(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value > 1e12 ? value : value * 1000;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return null;
+}
+
+function getDurationColor(durationMs) {
+  const minutes = durationMs / 60000;
+  if (minutes >= 5) return ANSI.red;
+  if (minutes >= 2) return ANSI.yellow;
+  return ANSI.green;
+}
+
+function formatDurationPadded(durationMs) {
+  const seconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  if (seconds < 10) return "    ";
+  if (seconds < 60) return `${seconds}s`.padStart(4);
+  return `${minutes}m`.padStart(4);
+}
+
+function renderAgentDetailLines(agents) {
+  const now = Date.now();
+  const running = agents
+    .filter((agent) => agent.status === "running" && now - agent.startTime < STALE_AGENT_MS)
+    .sort((a, b) => b.startTime - a.startTime);
+
+  if (running.length === 0) return [];
+
+  const detailLines = [];
+  const displayCount = Math.min(running.length, MAX_AGENT_DETAIL_LINES);
+
+  running.slice(0, MAX_AGENT_DETAIL_LINES).forEach((agent, index) => {
+    const isLast = index === displayCount - 1 && running.length <= MAX_AGENT_DETAIL_LINES;
+    const prefix = isLast ? "└─" : "├─";
+    const modelColor = getModelTierColor(agent.model);
+    const code = (agent.type || "a").charAt(0).toLowerCase();
+    const shortName = String(agent.type || "subagent").slice(0, 12).padEnd(12);
+    const durationMs = now - agent.startTime;
+    const duration = formatDurationPadded(durationMs);
+    const durationColor = getDurationColor(durationMs);
+    const description = String(agent.description || "...").replace(/[\r\n]+/g, " ").trim().slice(0, 45);
+
+    detailLines.push(
+      `${ANSI.dim}${prefix}${ANSI.reset} ${modelColor}${code}${ANSI.reset} ${ANSI.dim}${shortName}${ANSI.reset}${durationColor}${duration}${ANSI.reset}  ${description}`,
+    );
+  });
+
+  if (running.length > MAX_AGENT_DETAIL_LINES) {
+    detailLines.push(`${ANSI.dim}└─ +${running.length - MAX_AGENT_DETAIL_LINES} more agents...${ANSI.reset}`);
+  }
+
+  return detailLines;
+}
+
+function parseTranscriptSummary(transcriptPath) {
+  const summary = {
+    sessionStartTimestamp: null,
+    toolCallCount: 0,
+    agentCallCount: 0,
+    skillCallCount: 0,
+    runningAgentCount: 0,
+    lastSkill: null,
+    thinkingActive: false,
+    agents: [],
+  };
+
+  if (!transcriptPath || !existsSync(transcriptPath)) {
+    return summary;
+  }
+
+  const { head, tail } = readHeadAndTail(transcriptPath);
+  if (!tail) return summary;
+
+  if (head) {
+    const firstLine = head.split(/\r?\n/, 1)[0];
+    try {
+      const firstEntry = JSON.parse(firstLine);
+      summary.sessionStartTimestamp = firstEntry?.created_at || null;
+    } catch {
+      // Ignore malformed first line.
+    }
+  }
+
+  let lastThinkingSeen = null;
+  const activeSubagents = new Map();
+  let lastLaunchedSubagent = null;
+
+  for (const line of tail.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+
+    if (!summary.sessionStartTimestamp && entry?.created_at) {
+      summary.sessionStartTimestamp = entry.created_at;
+    }
+
+    const timestamp = parseEventTimestamp(entry?.created_at);
+
+    if (entry?.type === "PLANNER_RESPONSE" && typeof entry?.thinking === "string" && entry.thinking.trim() && timestamp != null) {
+      lastThinkingSeen = timestamp;
+    }
+
+    if (Array.isArray(entry?.tool_calls)) {
+      for (const tc of entry.tool_calls) {
+        if (!tc || typeof tc.name !== "string") continue;
+        summary.toolCallCount++;
+
+        const args = tc.args && typeof tc.args === "object" ? tc.args : {};
+
+        if (AGENT_TOOL_NAMES.has(tc.name)) {
+          summary.agentCallCount++;
+          const agentEntry = {
+            id: `pending-${summary.agentCallCount}`,
+            type: unwrapArgString(args.TypeName) || "subagent",
+            model: unwrapArgString(args.Model) || "",
+            description: unwrapArgString(args.Role) || unwrapArgString(args.Description) || unwrapArgString(args.Prompt),
+            status: "running",
+            startTime: timestamp ?? Date.now(),
+          };
+          lastLaunchedSubagent = agentEntry;
+          activeSubagents.set(agentEntry.id, agentEntry);
+        } else if (tc.name === "swarm") {
+          const action = unwrapArgString(args.action);
+          if (action === "add") {
+            summary.agentCallCount++;
+          } else if (action === "kill") {
+            const name = unwrapArgString(args.name);
+            if (name) activeSubagents.delete(name);
+          }
+        } else if (tc.name === "manage_subagents") {
+          const action = unwrapArgString(args.Action);
+          if (action === "kill_all") {
+            activeSubagents.clear();
+          } else if (action === "kill") {
+            const ids = unwrapArgString(args.ConversationIds);
+            for (const key of activeSubagents.keys()) {
+              if (ids.includes(key)) activeSubagents.delete(key);
+            }
+          }
+        } else if (tc.name === "read_file") {
+          const skillName = extractSkillFromPath(args.Path);
+          if (skillName) {
+            summary.skillCallCount++;
+            summary.lastSkill = skillName;
+          }
+        }
+      }
+    }
+
+    // Bind returned conversationId or detect subagent completion message
+    if (entry?.type === "GENERIC" && typeof entry?.content === "string") {
+      const idMatch = entry.content.match(/conversation[_\s]?id["'\s:=]+([0-9a-f-]{8,})/i);
+      if (idMatch && lastLaunchedSubagent && lastLaunchedSubagent.id.startsWith("pending-")) {
+        activeSubagents.delete(lastLaunchedSubagent.id);
+        lastLaunchedSubagent.id = idMatch[1];
+        activeSubagents.set(lastLaunchedSubagent.id, lastLaunchedSubagent);
+        lastLaunchedSubagent = null;
+      }
+    }
+
+    if (typeof entry?.content === "string" && activeSubagents.size > 0) {
+      for (const [subId, agent] of activeSubagents.entries()) {
+        if (
+          !subId.startsWith("pending-") &&
+          entry.content.includes(`sender=${subId}`) &&
+          (entry.content.includes("<SYSTEM_MESSAGE>") || entry.type === "USER_INPUT")
+        ) {
+          agent.status = "completed";
+          activeSubagents.delete(subId);
+        }
+      }
+    }
+  }
+
+  const now = Date.now();
+  const runningAgents = [...activeSubagents.values()].filter(
+    (a) => a.status === "running" && now - a.startTime < STALE_AGENT_MS,
+  );
+  summary.runningAgentCount = runningAgents.length;
+  summary.agents = runningAgents;
+
+  if (lastThinkingSeen != null) {
+    summary.thinkingActive = now - lastThinkingSeen <= THINKING_RECENCY_MS;
+  }
+
+  return summary;
+}
+
+function formatCallCounts(summary) {
+  return `🔧 ${summary.toolCallCount} 🤖 ${summary.agentCallCount} ⚡ ${summary.skillCallCount}`;
+}
+
+function formatCost(costObj) {
+  const usd = Number(costObj?.total_cost_usd);
+  if (!Number.isFinite(usd) || usd <= 0) return null;
+  if (usd < 0.01) return `$${usd.toFixed(4)}`;
+  return `$${usd.toFixed(2)}`;
+}
+
+function renderFromPayload(data) {
+  const modelName = data?.model?.display_name || data?.model?.id || "Antigravity";
+  const workspacePath = data?.workspace?.current_dir || data?.cwd || process.cwd();
+  const sessionId = data?.session_id || data?.conversation_id || null;
+
+  const transcriptSummary = parseTranscriptSummary(deriveTranscriptPath(sessionId, data));
+  const sessionStart = transcriptSummary.sessionStartTimestamp || getOrCreateSessionStart(sessionId);
+  const sessionDuration = formatSessionDuration(sessionStart);
+  const gitInfo = getGitInfo(workspacePath);
+  const contextText = formatContext(data?.context_window);
+  const costText = formatCost(data?.cost);
+  const permissionMode = data?.permission_mode;
+
+  const modelColor = getModelTierColor(modelName);
+  const gitBadge = gitInfo
+    ? ` ${ANSI.cyan}(${gitInfo.branch}${gitInfo.dirty ? `${ANSI.yellow}*${ANSI.cyan}` : ""})${ANSI.reset}`
+    : "";
+
+  const leadingParts = [
+    `${ANSI.bold}${modelColor}${modelName}${ANSI.reset}`,
+    `${ANSI.dim}${workspacePath}${ANSI.reset}${gitBadge}`,
+  ];
+
+  const trailingParts = [];
+
+  if (permissionMode && permissionMode !== "default") {
+    trailingParts.push(`${ANSI.magenta}${permissionMode}${ANSI.reset}`);
+  }
+
+  if (transcriptSummary.thinkingActive) {
+    trailingParts.push(`${ANSI.cyan}thinking${ANSI.reset}`);
+  }
+
+  if (sessionDuration) {
+    trailingParts.push(`${ANSI.cyan}session:${sessionDuration}${ANSI.reset}`);
+  }
+
+  if (transcriptSummary.lastSkill) {
+    trailingParts.push(`${ANSI.cyan}skill:${transcriptSummary.lastSkill}${ANSI.reset}`);
+  }
+
+  if (contextText) {
+    trailingParts.push(contextText);
+  }
+
+  if (costText) {
+    trailingParts.push(`${ANSI.green}${costText}${ANSI.reset}`);
+  }
+
+  trailingParts.push(`${ANSI.cyan}agents:${transcriptSummary.runningAgentCount}${ANSI.reset}`);
+  trailingParts.push(`${ANSI.dim}${formatCallCounts(transcriptSummary)}${ANSI.reset}`);
+
+  const leading = leadingParts.join(` ${ANSI.dim}│${ANSI.reset} `);
+  const header =
+    trailingParts.length === 0
+      ? leading
+      : `${leading} ${ANSI.dim}|${ANSI.reset} ${trailingParts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+
+  const detailLines = renderAgentDetailLines(transcriptSummary.agents);
+  return detailLines.length > 0 ? `${header}\n${detailLines.join("\n")}` : header;
+}
+
+async function main() {
+  const stdin = await readStdin();
+
+  if (stdin.trim()) {
+    try {
+      const data = JSON.parse(stdin);
+      const rendered = renderFromPayload(data);
+      if (rendered) {
+        process.stdout.write(rendered);
+        return;
+      }
+    } catch {
+      // Fall through to safe fallback line.
+    }
+  }
+
+  process.stdout.write(renderFromPayload({}));
+}
+
+process.stdout.on("error", (error) => {
+  if (error?.code === "EPIPE") {
+    process.exit(0);
+  }
+  throw error;
+});
+
+main();

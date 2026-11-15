@@ -151,7 +151,7 @@ Bảng dependency hiện tại:
 | **OpenCode** | `~/.config/opencode/AGENTS.md` | `~/.config/opencode/opencode.json`, `~/.config/opencode/package.json` | `~/.config/opencode/skills/` |
 | **Codex CLI** | `~/.codex/AGENTS.md` | `~/.codex/config.toml` | `~/.codex/skills/` |
 | **DSH** | `~/.dsh/AGENTS.md` | `~/.dsh/profiles/web/cordis.patch.yml`, `~/.dsh/cordis.patch.yml`, `%APPDATA%\dsh-desktop\harness\.credentials.yaml` | `~/.dsh/skills/` |
-| **Antigravity CLI** | `~/.gemini/AGENTS.md` (global rules) | `~/.gemini/antigravity-cli/settings.json`, `keybindings.json` | `~/.gemini/config/skills/` + `~/.gemini/antigravity-cli/skills/` |
+| **Antigravity CLI** | `~/.gemini/AGENTS.md` (global rules) | `~/.gemini/antigravity-cli/settings.json`, `~/.gemini/config/{mcp_config.json,hooks.json}` | `~/.gemini/config/skills/` + `~/.gemini/antigravity-cli/skills/` |
 | **Goose** | `~/.config/goose/.goosehints` (Win: `%APPDATA%\Block\goose\config\.goosehints`) | `~/.config/goose/config.yaml` (Win: `%APPDATA%\Block\goose\config\config.yaml`) | `~/.config/goose/skills/` |
 | **Roo Code** | `~/.roo/rules/AGENTS.md` (Win: `%USERPROFILE%\.roo\rules\AGENTS.md`) | `~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/mcp_settings.json` (Win: `%APPDATA%\Code\User\...`) | `~/.roo/skills/` |
 

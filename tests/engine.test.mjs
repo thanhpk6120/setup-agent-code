@@ -195,8 +195,23 @@ test('isolated install (mcp all, memorix) writes every manifest MCP on every ada
   assert.ok(!cordis.includes('maxActiveSubagents: 32\n    command:'), 'memorix must not leak into subagent config');
 
   const agySettings = JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'antigravity-cli', 'settings.json'), 'utf8'));
-  assert.equal(Object.keys(agySettings.mcpServers).length, expectedMcp);
-  assert.ok(agySettings.hooks.PreToolUse.length >= 1);
+  assert.equal(typeof agySettings.toolPermission, 'string');
+  assert.equal(typeof agySettings.artifactReviewPolicy, 'string');
+  assert.equal(agySettings.mcpServers, undefined);
+  assert.equal(agySettings.hooks, undefined);
+  assert.equal(agySettings.env, undefined);
+  assert.equal(agySettings.statusLine?.type, 'command');
+  assert.equal(agySettings.statusLine?.enabled, true);
+  assert.ok(agySettings.statusLine?.command?.startsWith('node '), 'statusLine command must invoke node');
+  assert.ok(!agySettings.statusLine?.command?.includes('"'), 'statusLine command must not wrap AGY_HUD_PATH in quotes');
+  assert.ok(agySettings.statusLine?.command?.endsWith('/.gemini/antigravity-cli/hud/hud.mjs'));
+  assert.ok(fs.existsSync(path.join(home, '.gemini', 'antigravity-cli', 'hud', 'hud.mjs')));
+  assert.ok(!fs.existsSync(path.join(home, '.gemini', 'antigravity-cli', 'keybindings.json')));
+  const agyMcp = JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'config', 'mcp_config.json'), 'utf8'));
+  assert.equal(Object.keys(agyMcp.mcpServers).length, expectedMcp);
+  const agyHooks = JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'config', 'hooks.json'), 'utf8'));
+  assert.ok(agyHooks['trash-guard']?.PreToolUse?.length >= 3);
+  assert.equal(agyHooks.version, undefined);
 
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'AGENTS.md')));
   assert.ok(!fs.existsSync(path.join(home, '.gemini', 'antigravity-cli', 'AGENTS.md')));

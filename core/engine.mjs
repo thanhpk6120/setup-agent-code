@@ -629,7 +629,7 @@ const PHASE_IMPL = {
           R.registerJsonArray(obj, hook.register.key, hook.register.value);
         } else {
           const command = M.resolveToken(hook.register.command, { ...c.tokens, dirPath: c.paths.dir.split(path.sep).join('/') });
-          R.registerJsonHook(obj, { event: hook.register.event, matcher: hook.register.matcher, command, shape: hook.register.shape });
+          R.registerJsonHook(obj, { name: hook.register.name, event: hook.register.event, matcher: hook.register.matcher, command, shape: hook.register.shape });
         }
         R.writeJson(file, obj, ctx.mode !== 'install');
         U.log.ok(`hook ${hook.register.event || hook.register.key} -> ${file}`);
@@ -833,6 +833,8 @@ function buildVars(c) {
     OMP_EXT_DIR: c.paths.extra.ompExt || '',
     CLAUDE_DIR: c.paths.dir,
     CLAUDE_HUD_PATH: path.join(c.paths.dir, 'hud', 'hud.mjs').split(path.sep).join('/'),
+    // Do not quote AGY_HUD_PATH: agy's statusline_runner splits on whitespace without unquoting.
+    AGY_HUD_PATH: path.join(c.paths.dir, 'hud', 'hud.mjs').split(path.sep).join('/'),
     HOME: ctx.home,
     USERPROFILE: ctx.home,
     OS: process.platform

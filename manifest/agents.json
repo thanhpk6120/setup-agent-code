@@ -604,7 +604,7 @@
       ],
       "mcp": {
         "adapter": "json-mcpServers",
-        "file": "<dir>/settings.json"
+        "file": "<geminiConfig>/mcp_config.json"
       },
       "configs": [
         {
@@ -612,15 +612,13 @@
           "dest": "<dir>/settings.json",
           "kind": "json",
           "placeholders": true,
-          "mcpMerge": true,
-          "hooks": true
-        },
-        {
-          "template": "antigravity/keybindings.json",
-          "dest": "<dir>/keybindings.json",
-          "kind": "json",
-          "placeholders": false,
-          "preserve": true
+          "stripKeys": [
+            "sandbox",
+            "telemetry",
+            "env",
+            "mcpServers",
+            "hooks"
+          ]
         }
       ],
       "hooks": [
@@ -628,23 +626,34 @@
           "template": "hooks/antigravity/pre-tool.mjs",
           "dest": "<dir>/hooks/pre-tool.mjs",
           "register": {
-            "file": "<dir>/settings.json",
+            "file": "<geminiConfig>/hooks.json",
+            "name": "trash-guard",
+            "shape": "antigravity",
             "event": "PreToolUse",
             "matcher": [
               "Bash",
-              "PowerShell"
+              "PowerShell",
+              "run_command"
             ],
             "command": "node \"<dirPath>/hooks/pre-tool.mjs\""
           }
+        },
+        {
+          "template": "hooks/antigravity/hud.mjs",
+          "dest": "<dir>/hud/hud.mjs",
+          "register": null
         }
       ],
       "verify": {
         "files": [
           "<geminiDir>/AGENTS.md",
-          "<dir>/settings.json"
+          "<dir>/settings.json",
+          "<geminiConfig>/mcp_config.json",
+          "<dir>/hud/hud.mjs"
         ],
         "forbiddenAbsent": [
-          "<dir>/AGENTS.md"
+          "<dir>/AGENTS.md",
+          "<geminiDir>/GEMINI.md"
         ]
       }
     },

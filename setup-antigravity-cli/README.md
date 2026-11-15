@@ -16,11 +16,13 @@
 | Loại | Đường dẫn |
 |---|---|
 | Global rules | `~/.gemini/AGENTS.md` |
-| Cấu hình + MCP + hooks | `~/.gemini/antigravity-cli/settings.json` |
-| Keybindings | `~/.gemini/antigravity-cli/keybindings.json` |
+| Cấu hình CLI + statusLine | `~/.gemini/antigravity-cli/settings.json` |
+| MCP servers | `~/.gemini/config/mcp_config.json` |
+| Hooks (`trash-guard`) | `~/.gemini/config/hooks.json` |
 | Skills (global) | `~/.gemini/config/skills/` |
 | Skills (CLI-only) | `~/.gemini/antigravity-cli/skills/` |
 | Trash Guard hook | `~/.gemini/antigravity-cli/hooks/pre-tool.mjs` |
+| HUD statusline | `~/.gemini/antigravity-cli/hud/hud.mjs` |
 
 **Không** ghi `~/.gemini/antigravity-cli/AGENTS.md` hay `~/.gemini/GEMINI.md` (không nằm trong danh sách global rules / trùng nội dung). Binary `agy` do Google phát hành — installer chỉ cấu hình, không tự cài.
 
