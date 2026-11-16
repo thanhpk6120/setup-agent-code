@@ -388,12 +388,20 @@ export function registerJsonHook(settings, hook) {
       : { enabled: true };
     if (!('enabled' in entry)) entry.enabled = true;
     const list = Array.isArray(entry[hook.event]) ? entry[hook.event] : [];
-    const matchers = Array.isArray(hook.matcher) ? hook.matcher : [hook.matcher];
-    for (const matcher of matchers) {
-      const item = { matcher, hooks: [{ type: 'command', command: hook.command, timeout: hook.timeout ?? 15 }] };
-      const existingIndex = list.findIndex((x) => x && x.matcher === matcher && Array.isArray(x.hooks) && x.hooks.some((h) => h && h.command === hook.command));
-      if (existingIndex >= 0) list[existingIndex] = item;
-      else list.push(item);
+    if (hook.matcher == null) {
+      // Flat lifecycle events (Stop, SessionStart, PreInvocation, PostInvocation) have no matcher wrapper.
+      const handler = { type: 'command', command: hook.command, timeout: hook.timeout ?? 15 };
+      const existingIndex = list.findIndex((h) => h && h.command === hook.command);
+      if (existingIndex >= 0) list[existingIndex] = handler;
+      else list.push(handler);
+    } else {
+      const matchers = Array.isArray(hook.matcher) ? hook.matcher : [hook.matcher];
+      for (const matcher of matchers) {
+        const item = { matcher, hooks: [{ type: 'command', command: hook.command, timeout: hook.timeout ?? 15 }] };
+        const existingIndex = list.findIndex((x) => x && x.matcher === matcher && Array.isArray(x.hooks) && x.hooks.some((h) => h && h.command === hook.command));
+        if (existingIndex >= 0) list[existingIndex] = item;
+        else list.push(item);
+      }
     }
     entry[hook.event] = list;
     settings[name] = entry;
@@ -401,7 +409,6 @@ export function registerJsonHook(settings, hook) {
   }
   settings.hooks = settings.hooks || {};
   const list = Array.isArray(settings.hooks[hook.event]) ? settings.hooks[hook.event] : [];
-  const matchers = Array.isArray(hook.matcher) ? hook.matcher : [hook.matcher];
   // Claude Code nests the handler list; other agents accept a flat entry.
   const shape = hook.shape === 'claude' ? 'claude' : 'flat';
   const commandsOf = (entry) => {
@@ -409,6 +416,17 @@ export function registerJsonHook(settings, hook) {
     if (Array.isArray(entry.hooks)) return entry.hooks.map((h) => h && h.command).filter(Boolean);
     return entry.command ? [entry.command] : [];
   };
+  if (hook.matcher == null) {
+    const entry = shape === 'claude'
+      ? { hooks: [{ type: 'command', command: hook.command, timeout: hook.timeout ?? 15 }] }
+      : { command: hook.command, timeout: hook.timeout ?? 15 };
+    const existingIndex = list.findIndex((item) => item && item.matcher == null && commandsOf(item).includes(hook.command));
+    if (existingIndex >= 0) list[existingIndex] = entry;
+    else list.push(entry);
+    settings.hooks[hook.event] = list;
+    return settings;
+  }
+  const matchers = Array.isArray(hook.matcher) ? hook.matcher : [hook.matcher];
   for (const matcher of matchers) {
     const entry = shape === 'claude'
       ? { matcher, hooks: [{ type: 'command', command: hook.command, timeout: hook.timeout ?? 15 }] }
@@ -671,9 +689,16 @@ export function writeText(file, content, dryRun) {
   return content;
 }
 
-export function readJsonIfExists(file) {
+export function readJsonIfExists(file, { fallbackOnInvalid = false } = {}) {
   if (!exists(file)) return null;
-  return JSON.parse(readText(file));
+  const text = readText(file).trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    if (fallbackOnInvalid) return null;
+    throw err;
+  }
 }
 
 export function fileHasMarker(file, marker) {

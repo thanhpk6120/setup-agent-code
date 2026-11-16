@@ -71,6 +71,11 @@ export function validateManifests(m) {
         errors.push(`${agent.id}: hook template khong ton tai: templates/${hook.template}`);
       }
     }
+    for (const relSkill of agent.agentSkills || []) {
+      if (!exists(path.join(m.root, 'templates', relSkill))) {
+        errors.push(`${agent.id}: agentSkill khong ton tai: templates/${relSkill}`);
+      }
+    }
     for (const plugin of agent.plugins || []) {
       if (!plugin.id || !plugin.package) errors.push(`${agent.id}: plugin can id + package`);
       if (!plugin.profile) errors.push(`${agent.id}: plugin ${plugin.id}: thieu profile`);

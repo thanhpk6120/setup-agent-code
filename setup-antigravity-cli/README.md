@@ -18,12 +18,15 @@
 | Global rules | `~/.gemini/AGENTS.md` |
 | Cấu hình CLI + statusLine | `~/.gemini/antigravity-cli/settings.json` |
 | MCP servers | `~/.gemini/config/mcp_config.json` |
-| Hooks (`trash-guard`) | `~/.gemini/config/hooks.json` |
+| Hooks (`trash-guard`, `review-gate`) | `~/.gemini/config/hooks.json` |
 | Skills (global) | `~/.gemini/config/skills/` |
 | Skills (CLI-only) | `~/.gemini/antigravity-cli/skills/` |
 | Trash Guard hook | `~/.gemini/antigravity-cli/hooks/pre-tool.mjs` |
+| Review Gate hook (`Stop`) | `~/.gemini/antigravity-cli/hooks/review-gate.mjs` |
+| Review Gate config (`/advisor`) | `~/.gemini/antigravity-cli/review-gate.json` |
+| Skill `/advisor` | `~/.gemini/config/skills/advisor/SKILL.md` |
 | HUD statusline | `~/.gemini/antigravity-cli/hud/hud.mjs` |
 
-**Không** ghi `~/.gemini/antigravity-cli/AGENTS.md`, `~/.gemini/GEMINI.md`, hay `~/.gemini/config/{GEMINI.md,AGENTS.md}` (nếu tồn tại từ trước sẽ được chuyển vào Thùng rác để tránh nạp kép global rules). Binary `agy` do Google phát hành — installer chỉ cấu hình, không tự cài.
+**Không** ghi `~/.gemini/antigravity-cli/AGENTS.md`, `~/.gemini/GEMINI.md`, hay `~/.gemini/config/{GEMINI.md,AGENTS.md}` (nếu tồn tại từ trước sẽ được chuyển vào Thùng rác để tránh nạp kép global rules). Nếu thiếu binary `agy`, installer hỗ trợ cài qua script chính thức của Google (`https://antigravity.google/cli/install.ps1` hoặc `install.sh`).
 
 Chi tiết option, MCP, verify: xem [README gốc](../README.md).

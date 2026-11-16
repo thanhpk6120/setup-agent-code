@@ -332,7 +332,27 @@ const PHASE_IMPL = {
       version: binary.version,
       minVersion: binary.minVersion
     });
+    const ensureBinInPath = async () => {
+      const rawDir = binary.binDir?.[U.osKey];
+      if (!rawDir) return;
+      const dir = U.expand(rawDir);
+      const candidates = U.isWin
+        ? ['.exe', '.cmd', '.bat', ''].map((ext) => path.join(dir, `${binary.command}${ext}`))
+        : [path.join(dir, binary.command)];
+      if (!candidates.some((p) => D.fileExists(p))) return;
+      await D.ensurePathRequirements(ctx, [{
+        id: `${c.agent.id}-bin`,
+        label: `${binary.command} bin`,
+        path: dir,
+        why: `chua ${binary.command}`
+      }]);
+    };
+
     let assess = check();
+    if (assess.state === 'missing' && ctx.mode === 'install' && !ctx.opts['skip-install']) {
+      await ensureBinInPath();
+      assess = check();
+    }
 
     // Check first: only ask for (re)install when the current state is not acceptable.
     if (assess.state === 'ok') {
@@ -371,6 +391,7 @@ const PHASE_IMPL = {
       if (action.type === 'note') { U.log.warn(action.message); continue; }
       executeInstallAction(action, binary);
       D.refreshPath();
+      await ensureBinInPath();
       if (check().state === 'ok') break;
     }
     assess = check();
@@ -467,7 +488,7 @@ const PHASE_IMPL = {
       if (cfg.kind === 'json') {
         let obj;
         try { obj = JSON.parse(rendered); } catch (e) { throw new Error(`template JSON loi (${cfg.template}): ${e.message}`); }
-        const existing = R.readJsonIfExists(dest);
+        const existing = R.readJsonIfExists(dest, { fallbackOnInvalid: policy === 'overwrite' || policy === 'skip' });
         // Merge whenever a live file exists: `--overwrite-all` must not delete
         // user data (hooks, MCP servers) the template does not know about.
         if (existing) obj = R.mergeKeepExisting(existing, obj);
@@ -530,7 +551,7 @@ const PHASE_IMPL = {
     const mcpFile = M.resolveToken(c.agent.mcp.file, c.tokens);
     const coveredByConfig = (c.agent.configs || []).some((cfg) => M.resolveToken(cfg.dest, c.tokens) === mcpFile);
     if (!coveredByConfig && c.agent.mcp.adapter !== 'codex-toml' && c.agent.mcp.adapter !== 'dsh-yaml' && c.agent.mcp.adapter !== 'goose-yaml') {
-      const existing = R.readJsonIfExists(mcpFile) || {};
+      const existing = R.readJsonIfExists(mcpFile, { fallbackOnInvalid: policy === 'overwrite' || policy === 'skip' }) || {};
       attachMcp(existing, c.agent.mcp.adapter, servers, knownMcpIds(c));
       writes.push({ dest: mcpFile, kind: 'json', content: `${JSON.stringify(existing, null, 2)}\n`, preserve: false });
     }
@@ -601,22 +622,32 @@ const PHASE_IMPL = {
     const source = path.join(ROOT, 'skills');
     if (!U.exists(source)) { U.log.warn('Khong tim thay thu muc skills/ canonical.'); return; }
     const withMemorix = ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix');
+    const withGitnexus = ctx.selectedMcp.has('gitnexus') && !ctx.blockedMcp.has('gitnexus');
     const dests = [c.agent.skillsDir, ...(c.agent.extraSkillsDirs || [])]
       .map((d) => M.resolveToken(d, c.tokens));
     for (const dest of dests) {
       for (const name of U.listDirs(source)) {
         if (!withMemorix && name.startsWith('memorix-')) continue;
+        if (!withGitnexus && name.startsWith('gitnexus-')) continue;
         const target = path.join(dest, name);
         // Existing skill ownership is unknown, even when its name matches canonical.
         if (fs.existsSync(target)) continue;
         U.copyDir(path.join(source, name), target);
+      }
+      for (const relSkill of c.agent.agentSkills || []) {
+        const srcSkill = path.join(ROOT, 'templates', relSkill);
+        const target = path.join(dest, path.basename(srcSkill));
+        if (!U.exists(srcSkill) || fs.existsSync(target)) continue;
+        U.copyDir(srcSkill, target);
       }
       U.log.ok(`skills -> ${dest} (${U.listDirs(dest).length} skills)`);
     }
   },
 
   P10: async (c) => {
-    for (const hook of c.agent.hooks || []) {
+    const hooks = c.agent.hooks || [];
+    const policy = hooks.length ? await chooseWritePolicy() : 'skip';
+    for (const hook of hooks) {
       const dest = M.resolveToken(hook.dest, c.tokens);
       if (hook.template) {
         const content = R.renderTemplate(ROOT, hook.template, buildVars(c));
@@ -625,12 +656,26 @@ const PHASE_IMPL = {
       }
       if (hook.register) {
         const file = M.resolveToken(hook.register.file, c.tokens);
-        const obj = R.readJsonIfExists(file) || {};
+        if (ctx.mode === 'install' && policy === 'skip') {
+          U.log.skip(`giu nguyen ${file}`);
+          continue;
+        }
+        let obj = {};
+        try {
+          obj = R.readJsonIfExists(file) || {};
+        } catch (err) {
+          if (policy === 'overwrite' || ctx.mode !== 'install') {
+            if (ctx.mode === 'install' && U.exists(file)) U.backupFile(file);
+            obj = {};
+          } else {
+            throw err;
+          }
+        }
         if (hook.register.key) {
           R.registerJsonArray(obj, hook.register.key, hook.register.value);
         } else {
           const command = M.resolveToken(hook.register.command, { ...c.tokens, dirPath: c.paths.dir.split(path.sep).join('/') });
-          R.registerJsonHook(obj, { name: hook.register.name, event: hook.register.event, matcher: hook.register.matcher, command, shape: hook.register.shape });
+          R.registerJsonHook(obj, { name: hook.register.name, event: hook.register.event, matcher: hook.register.matcher, command, shape: hook.register.shape, timeout: hook.register.timeout });
         }
         R.writeJson(file, obj, ctx.mode !== 'install');
         U.log.ok(`hook ${hook.register.event || hook.register.key} -> ${file}`);
@@ -907,7 +952,7 @@ function applyHookRegistrations(obj, c) {
       dirPath: c.paths.dir.split(path.sep).join('/'),
       trashGuardPath: (c.paths.extra.trashGuard || '').split(path.sep).join('/')
     });
-    R.registerJsonHook(obj, { event: hook.register.event, matcher: hook.register.matcher, command, shape: hook.register.shape });
+    R.registerJsonHook(obj, { name: hook.register.name, event: hook.register.event, matcher: hook.register.matcher, command, shape: hook.register.shape, timeout: hook.register.timeout });
   }
 }
 

@@ -6,6 +6,9 @@ base_url = "__AI_BASE_URL__"
 api_key = "__AI_API_KEY__"
 project_doc_fallback_filenames = ["AGENTS.md"]
 
+[features]
+codex_hooks = true
+
 [model_providers.custom]
 name = "custom"
 base_url = "__AI_BASE_URL__"

@@ -172,6 +172,7 @@ test('isolated install (mcp none) writes instruction files only and no memorix s
   assert.deepEqual(Object.keys(mcp.mcpServers), []);
   const skills = fs.readdirSync(path.join(home, '.omp', 'agent', 'skills'));
   assert.equal(skills.filter((s) => s.startsWith('memorix-')).length, 0);
+  assert.equal(skills.filter((s) => s.startsWith('gitnexus-')).length, 0);
   assert.ok(skills.length > 0);
 });
 
@@ -216,7 +217,25 @@ test('isolated install (mcp all, memorix) writes every manifest MCP on every ada
   assert.equal(Object.keys(agyMcp.mcpServers).length, expectedMcp);
   const agyHooks = JSON.parse(fs.readFileSync(path.join(home, '.gemini', 'config', 'hooks.json'), 'utf8'));
   assert.ok(agyHooks['trash-guard']?.PreToolUse?.length >= 3);
+  assert.equal(agyHooks['review-gate']?.enabled, true);
+  assert.equal(agyHooks['review-gate']?.Stop?.length, 1);
+  assert.equal(agyHooks['review-gate']?.Stop?.[0]?.timeout, 10);
+  assert.ok(agyHooks['review-gate']?.Stop?.[0]?.command?.includes('review-gate.mjs'));
+  assert.ok(fs.existsSync(path.join(home, '.gemini', 'antigravity-cli', 'hooks', 'review-gate.mjs')));
   assert.equal(agyHooks.version, undefined);
+
+  // Re-registering flat Stop hook preserves enabled:false and does not duplicate entries.
+  const copy = structuredClone(agyHooks);
+  copy['review-gate'].enabled = false;
+  R.registerJsonHook(copy, {
+    name: 'review-gate',
+    shape: 'antigravity',
+    event: 'Stop',
+    command: agyHooks['review-gate'].Stop[0].command,
+    timeout: 10
+  });
+  assert.equal(copy['review-gate'].enabled, false);
+  assert.equal(copy['review-gate'].Stop.length, 1);
 
   assert.ok(fs.existsSync(path.join(home, '.gemini', 'AGENTS.md')));
   assert.ok(!fs.existsSync(path.join(home, '.gemini', 'antigravity-cli', 'AGENTS.md')));
@@ -1082,5 +1101,86 @@ test('resolveBareHookCommands rewrites bare memorix shims without touching expli
   );
   assert.equal(hooks.other.PreToolUse[0].hooks[0].command, 'node "C:/app/hook.mjs"');
   assert.equal(R.resolveBareHookCommands(hooks, 'memorix', 'C:\\nvm4w\\nodejs\\memorix.cmd'), false);
+});
+
+test('antigravity-cli declares real install actions and resolves agy from binDir into session PATH', () => {
+  const manifests = M.loadManifests(ROOT);
+  const agy = M.agentById(manifests, 'antigravity-cli');
+  assert.equal(agy.binary.install.win[0].type, 'powershell');
+  assert.match(agy.binary.install.win[0].script, /antigravity\.google\/cli\/install\.ps1/);
+  assert.equal(agy.binary.install.unix[0].type, 'shell');
+  assert.match(agy.binary.install.unix[0].script, /antigravity\.google\/cli\/install\.sh/);
+  assert.ok(agy.binary.binDir?.win && agy.binary.binDir?.unix);
+
+  const home = tempHome();
+  const binDir = process.platform === 'win32'
+    ? path.join(home, 'AppData', 'Local', 'agy', 'bin')
+    : path.join(home, '.local', 'bin');
+  fs.mkdirSync(binDir, { recursive: true });
+  const fakeAgy = path.join(binDir, process.platform === 'win32' ? 'agy.cmd' : 'agy');
+  fs.writeFileSync(
+    fakeAgy,
+    process.platform === 'win32' ? '@echo off\r\necho 1.5.9\r\n' : '#!/bin/sh\necho 1.5.9\n',
+    'utf8'
+  );
+  if (process.platform !== 'win32') fs.chmodSync(fakeAgy, 0o755);
+
+  const cleanPath = (process.env.PATH || '')
+    .split(path.delimiter)
+    .filter((entry) => entry && !fs.existsSync(path.join(entry, process.platform === 'win32' ? 'agy.exe' : 'agy')))
+    .join(path.delimiter);
+  const env = {
+    ...process.env,
+    USERPROFILE: home,
+    HOME: home,
+    APPDATA: path.join(home, 'AppData', 'Roaming'),
+    LOCALAPPDATA: path.join(home, 'AppData', 'Local'),
+    PATH: cleanPath,
+    SETUP_RESUME_ENV_PATH: path.join(home, 'resume.env')
+  };
+  const result = spawnSync(
+    process.execPath,
+    [ENGINE, '--target', 'antigravity-cli', '--yes', '--mcp', 'none', '--no-memorix'],
+    { env, encoding: 'utf8', timeout: 120000 }
+  );
+  assert.equal(result.status, 0, `expected exit 0, got ${result.status}:\n${result.stdout}\n${result.stderr}`);
+  assert.ok(result.stdout.includes('da them vao PATH phien hien tai:'), `expected PATH addition:\n${result.stdout}`);
+  assert.ok(result.stdout.includes('agy da cai dung:'), `expected agy check PASS:\n${result.stdout}`);
+  assert.ok(!result.stdout.includes('agy van khong dung'), `should not warn missing:\n${result.stdout}`);
+});
+
+test('P7 overwrite recovers from empty or truncated JSON config files', () => {
+  const home = tempHome();
+  const agyDir = path.join(home, '.gemini', 'antigravity-cli');
+  const cfgDir = path.join(home, '.gemini', 'config');
+  fs.mkdirSync(agyDir, { recursive: true });
+  fs.mkdirSync(cfgDir, { recursive: true });
+  fs.writeFileSync(path.join(agyDir, 'settings.json'), '', 'utf8');
+  fs.writeFileSync(path.join(cfgDir, 'mcp_config.json'), '{"mcpServers":', 'utf8');
+
+  const result = runEngine(
+    ['--target', 'antigravity-cli', '--yes', '--overwrite-all', '--skip-install', '--mcp', 'none', '--no-memorix'],
+    home
+  );
+  assert.equal(result.status, 0, `expected exit 0, got ${result.status}:\n${result.stdout}\n${result.stderr}`);
+  const settings = JSON.parse(fs.readFileSync(path.join(agyDir, 'settings.json'), 'utf8'));
+  assert.equal(settings.artifactReviewPolicy, 'always-proceed');
+  const mcp = JSON.parse(fs.readFileSync(path.join(cfgDir, 'mcp_config.json'), 'utf8'));
+  assert.deepEqual(mcp.mcpServers, {});
+});
+
+test('P7 skip policy (--dry-run) ignores corrupt JSON safely without crashing', () => {
+  const home = tempHome();
+  const agyDir = path.join(home, '.gemini', 'antigravity-cli');
+  fs.mkdirSync(agyDir, { recursive: true });
+  fs.writeFileSync(path.join(agyDir, 'settings.json'), '{"broken":', 'utf8');
+
+  const skipRes = runEngine(
+    ['--target', 'antigravity-cli', '--dry-run', '--skip-install', '--mcp', 'none', '--no-memorix'],
+    home
+  );
+  assert.equal(skipRes.status, 0, `skip policy must succeed, got ${skipRes.status}:\n${skipRes.stdout}\n${skipRes.stderr}`);
+  assert.ok(!skipRes.stdout.includes('P7 that bai'), `P7 skip must not fail:\n${skipRes.stdout}`);
+  assert.equal(fs.readFileSync(path.join(agyDir, 'settings.json'), 'utf8'), '{"broken":');
 });
 

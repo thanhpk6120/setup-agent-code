@@ -41,7 +41,7 @@ manifest/            # nguồn sự thật duy nhất (agents, mcp, prompts, opt
 core/engine.mjs      # 1 engine, 13 phase cho Windows + macOS + Linux
 core/lib/            # util, manifest loader, render (JSON/TOML/YAML), verify
 templates/           # template cấu hình + instruction files (phần riêng từng agent)
-skills/              # 36 skills canonical (1 bản duy nhất)
+skills/              # 59 skills canonical (1 bản duy nhất)
 install.ps1/.sh      # launcher mỏng: kiểm tra Node -> gọi engine
 setup-*/             # shim tương thích ngược (deprecated)
 ```

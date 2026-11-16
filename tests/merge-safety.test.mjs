@@ -1,12 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { mergeKeepExisting, mergeToml, mergeYamlLayer, readJsonIfExists } from '../core/lib/render.mjs';
 
 test('invalid existing JSON fails closed while missing JSON returns null', () => {
   assert.throws(() => readJsonIfExists(fileURLToPath(new URL('../core/lib/render.mjs', import.meta.url))), SyntaxError);
+  assert.equal(readJsonIfExists(fileURLToPath(new URL('../core/lib/render.mjs', import.meta.url)), { fallbackOnInvalid: true }), null);
   assert.equal(readJsonIfExists(fileURLToPath(new URL('./nonexistent-merge-safety.json', import.meta.url))), null);
   assert.equal(readJsonIfExists(fileURLToPath(new URL('../package.json', import.meta.url))).name, 'setup-agent-code');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sac-json-'));
+  const blank = path.join(tmp, 'blank.json');
+  fs.writeFileSync(blank, '   \r\n  ', 'utf8');
+  assert.equal(readJsonIfExists(blank), null);
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
 
 test('empty template arrays preserve existing permissions', () => {
