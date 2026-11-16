@@ -1,6 +1,13 @@
 # Memorix — Memory Tools for Active Workspaces
 
-Use Memorix when the active workspace has Memorix tools available and prior context would materially help. For non-trivial coding work, Memory Autopilot is the default entry point before local progress notes or broad file exploration. Do not assume every workspace is configured for Memorix.
+Use Memorix via **MCP** (CLI hooks are disabled to keep chat and tool calls fast). Because no background hook auto-captures turns, **you must explicitly load and persist context via MCP tools** so nothing is forgotten across sessions.
+
+## Mandatory Session Lifecycle (MCP-only)
+
+1. **Start of chat / task:** For any non-trivial task, investigation, or continuation of prior work, call `memorix_project_context` (with the user's actual task) on your **first turn** before broad file reads, dev-log reads, or git archaeology.
+2. **During work (save immediately, don't wait for the end):** Whenever you reach a technical decision, fix a bug, change config/dependencies, or hit a non-obvious pitfall, call `memorix_store` (or `memorix_store_reasoning` for "why" decisions) right away—do not defer until session end in case the chat stops early.
+3. **End of task / session:** Before finishing a task that produced changes, findings, or decisions, call `memorix_session_end` with a concise structured summary (`Goal`, `Discoveries`, `Accomplished` + `Pending`, `Relevant Files`).
+4. **Exceptions:** Skip `memorix_store` / `memorix_session_end` for trivial greetings, simple one-off Q&A, or when the user explicitly requests read-only work with no memory writes.
 
 ## Start with Memory Autopilot
 
@@ -56,14 +63,6 @@ Use `memorix_store` when you learn something a future session should not have to
 ## When to resolve memory
 
 Use `memorix_resolve` when a task is done or a bug is fixed. This keeps future searches focused on active work instead of surfacing completed items.
-
-## End sessions with a summary
-
-When a session finishes, call `memorix_session_end` with a short structured summary so the next agent can resume. Recommended sections:
-- **Goal** — what this session was working on
-- **Discoveries** — findings, gotchas, learnings
-- **Accomplished** — completed items, plus PENDING items for the next session
-- **Relevant Files** — paths and what changed
 
 ## Tools quick reference
 

@@ -44,7 +44,7 @@
       "long": "--memorix",
       "ps": "-EnableMemorix",
       "type": "boolean",
-      "description": "Bat Memorix (MCP + hooks + skills memorix-*)"
+      "description": "Bat Memorix (MCP + rules + skills memorix-*)"
     },
     {
       "id": "no-memorix",

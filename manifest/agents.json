@@ -89,6 +89,12 @@
           "template": "hooks/omp/no-hard-delete.ts",
           "dest": "<ompExt>/no-hard-delete.ts",
           "register": null
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/omp/memorix-gate.ts",
+          "dest": "<ompExt>/memorix-gate.ts",
+          "register": null
         }
       ],
       "verify": {
@@ -214,6 +220,30 @@
           }
         },
         {
+          "whenMcp": "memorix",
+          "template": "hooks/claude/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<dir>/settings.json",
+            "event": "UserPromptSubmit",
+            "shape": "claude",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event start",
+            "timeout": 5
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/claude/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<dir>/settings.json",
+            "event": "Stop",
+            "shape": "claude",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event stop",
+            "timeout": 5
+          }
+        },
+        {
           "template": "hooks/claude/hud.mjs",
           "dest": "<dir>/hud/hud.mjs",
           "register": null
@@ -331,6 +361,11 @@
         {
           "template": "hooks/opencode/review-gate.js",
           "dest": "<dir>/plugins/review-gate.js"
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/opencode/memorix-gate.js",
+          "dest": "<dir>/plugins/memorix-gate.js"
         }
       ],
       "verify": {
@@ -434,6 +469,30 @@
             "shape": "claude",
             "command": "node \"<dirPath>/hooks/review-gate.mjs\"",
             "timeout": 10
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/codex/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<dir>/hooks.json",
+            "event": "UserPromptSubmit",
+            "shape": "claude",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event start",
+            "timeout": 5
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/codex/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<dir>/hooks.json",
+            "event": "Stop",
+            "shape": "claude",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event stop",
+            "timeout": 5
           }
         }
       ],
@@ -735,6 +794,32 @@
             "event": "Stop",
             "command": "node \"<dirPath>/hooks/review-gate.mjs\"",
             "timeout": 10
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/antigravity/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<geminiConfig>/hooks.json",
+            "name": "memorix-gate",
+            "shape": "antigravity",
+            "event": "PreInvocation",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event start",
+            "timeout": 5
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/antigravity/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<geminiConfig>/hooks.json",
+            "name": "memorix-gate",
+            "shape": "antigravity",
+            "event": "Stop",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event stop",
+            "timeout": 5
           }
         },
         {

@@ -648,6 +648,7 @@ const PHASE_IMPL = {
     const hooks = c.agent.hooks || [];
     const policy = hooks.length ? await chooseWritePolicy() : 'skip';
     for (const hook of hooks) {
+      if (hook.whenMcp && (!ctx.selectedMcp.has(hook.whenMcp) || ctx.blockedMcp.has(hook.whenMcp))) continue;
       const dest = M.resolveToken(hook.dest, c.tokens);
       if (hook.template) {
         const content = R.renderTemplate(ROOT, hook.template, buildVars(c));
@@ -688,14 +689,8 @@ const PHASE_IMPL = {
       await ensureLocalPlugin(c, localPlugin);
     }
     await ensureAgentNpmDeps(c);
-    if (!ctx.opts['skip-install'] && ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix') && (ctx.opts.memorix || ctx.interactive)) {
-      const agentFlag = { 'claude-code': 'claude', 'codex-cli': 'codex', dsh: 'dsh' }[c.agent.id];
-      if (agentFlag && U.which('memorix')) {
-        const r = U.run('memorix', ['hooks', 'install', '--agent', agentFlag, '--global'], { allowFail: true, timeout: 120000 });
-        if (r.ok) U.log.ok(`memorix hooks (${agentFlag}) da cai`);
-        else U.log.warn(`memorix hooks (${agentFlag}) that bai: ${(r.stderr || r.stdout).slice(0, 160)}`);
-      }
-    }
+    // Memorix runs MCP-only across all agents; do not install CLI lifecycle hooks
+    // because spawning `memorix hook` per prompt/tool adds multi-second latency.
     if (U.isWin && !ctx.opts['skip-install'] && ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix')) {
       const memorixBin = U.which('memorix');
       if (memorixBin) {
@@ -946,6 +941,7 @@ function attachMcp(obj, adapter, servers, knownIds) {
 
 function applyHookRegistrations(obj, c) {
   for (const hook of c.agent.hooks || []) {
+    if (hook.whenMcp && (!ctx.selectedMcp.has(hook.whenMcp) || ctx.blockedMcp.has(hook.whenMcp))) continue;
     if (!hook.register || hook.register.key) continue;
     const command = M.resolveToken(hook.register.command, {
       ...c.tokens,

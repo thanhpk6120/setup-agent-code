@@ -75,7 +75,7 @@ setup-*/             # shim tương thích ngược (deprecated)
 | `-SkipInstall` | `--skip-install` | Chỉ ghi cấu hình: không cài binary/MCP/dependency, không sửa PATH |
 | `-Force` | `--force` | Tự đồng ý mọi prompt (không ép cài lại tool đã mới nhất) |
 | `-OverwriteAll` | `--overwrite-all` | Ghi đè cấu hình (luôn tạo `.bak.<timestamp>`) |
-| `-EnableMemorix` | `--memorix` | Bật Memorix (MCP + hooks + skills) |
+| `-EnableMemorix` | `--memorix` | Bật Memorix (MCP + rules + skills) |
 | `-DisableMemorix` | `--no-memorix` | Tắt Memorix, dọn `memorix-*` vào Thùng rác |
 | `-Mcp <all\|none\|list>` | `--mcp ...` | Chọn MCP chính xác |
 | `-Preset <minimal\|standard\|full>` | `--preset ...` | Preset MCP |

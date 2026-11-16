@@ -35,15 +35,11 @@ for (const scenario of [
   });
 }
 
-for (const [agent, flag] of [['dsh', 'dsh'], ['claude-code', 'claude'], ['codex-cli', 'codex']]) {
-  test(`P10 retains global Memorix hooks without --skip-install for ${agent}`, async () => {
+for (const [agent] of [['dsh'], ['claude-code'], ['codex-cli'], ['antigravity-cli']]) {
+  test(`P10 does not install global Memorix CLI hooks (MCP-only) for ${agent}`, async () => {
     const h = harness({ agent });
     await h.phases.P10(h.c);
-    const runs = h.calls.filter(({ kind }) => kind === 'run');
-    assert.equal(runs.length, 1);
-    assert.equal(runs[0].command, 'memorix');
-    assert.deepEqual(Array.from(runs[0].args), ['hooks', 'install', '--agent', flag, '--global']);
-    assert.equal(runs[0].options.allowFail, true);
-    assert.equal(runs[0].options.timeout, 120000);
+    const memorixRuns = h.calls.filter(({ kind, command, args }) => kind === 'run' && command === 'memorix' && Array.isArray(args) && args[0] === 'hooks');
+    assert.equal(memorixRuns.length, 0);
   });
 }
