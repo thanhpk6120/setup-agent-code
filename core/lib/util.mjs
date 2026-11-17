@@ -116,6 +116,18 @@ export function which(cmd) {
   return results[0];
 }
 
+export function resolveStableBin(cmd) {
+  const found = which(cmd);
+  if (found && /[/\\]fnm_multishells[/\\]/i.test(found)) {
+    let realDir = path.dirname(process.execPath);
+    try { realDir = path.dirname(fs.realpathSync(process.execPath)); } catch {}
+    const sibling = path.join(realDir, isWin ? `${cmd}.cmd` : cmd);
+    if (exists(sibling) && !/[/\\]fnm_multishells[/\\]/i.test(sibling)) return sibling;
+    return cmd;
+  }
+  return found || cmd;
+}
+
 export function versionOf(cmd, args = ['--version'], timeout = 15000) {
   try {
     const bin = which(cmd) || cmd;
@@ -185,8 +197,12 @@ export function npmGlobalRoot() {
 }
 
 export function resolveNpmPath(relative) {
-  const root = npmGlobalRoot();
-  return root ? path.join(root, ...relative.split('/')) : '';
+  let root = npmGlobalRoot();
+  if (!root) return '';
+  if (/[/\\]fnm_multishells[/\\]/i.test(root)) {
+    try { root = fs.realpathSync(root); } catch {}
+  }
+  return path.join(root, ...relative.split('/'));
 }
 
 /** Version compare for x.y.z strings. Returns true when a >= b. */

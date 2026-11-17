@@ -87,6 +87,46 @@ test('antigravity memorix-gate: stop allows read-only, blocks unpersisted edits 
   }
 });
 
+test('antigravity memorix-gate: post emits user_markdown once per memorix call with response summary', () => {
+  const sid = `agy-post-${Date.now()}-${Math.random()}`;
+  const t = makeTranscript([
+    { type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'check' },
+    {
+      type: 'PLANNER_RESPONSE',
+      tool_calls: [
+        { name: 'read_file', args: { Path: 'a.js' } },
+        { name: 'call_mcp_tool', args: { ServerName: '"memorix"', ToolName: '"memorix_project_context"' } }
+      ]
+    },
+    { type: 'GENERIC', source: 'MODEL', content: 'file content' },
+    { type: 'GENERIC', source: 'MODEL', content: 'Created At: 2026-11-17\nMemorix Autopilot Brief for demo\nMemories: 2 active / 3 total' }
+  ]);
+  try {
+    const first = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'post', { conversationId: sid, transcriptPath: t.file });
+    assert.ok(Array.isArray(first.injectSteps) && first.injectSteps.length === 1);
+    const msg = first.injectSteps[0].systemMessage;
+    assert.equal(msg.systemMessage, '');
+    assert.match(msg.metadata.user_markdown, /memorix_project_context/);
+    assert.match(msg.metadata.user_markdown, /Memorix Autopilot Brief for demo/);
+
+    // Re-running without new steps should not duplicate output
+    const second = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'post', { conversationId: sid, transcriptPath: t.file });
+    assert.deepEqual(second, {});
+
+    // Appending another memorix call reports only the new call
+    fs.appendFileSync(t.file, JSON.stringify({
+      type: 'PLANNER_RESPONSE',
+      tool_calls: [{ name: 'mcp_memorix_memorix_store', args: { title: 'Save note' } }]
+    }) + '\n', 'utf8');
+    const third = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'post', { conversationId: sid, transcriptPath: t.file });
+    assert.ok(Array.isArray(third.injectSteps) && third.injectSteps.length === 1);
+    assert.match(third.injectSteps[0].systemMessage.metadata.user_markdown, /memorix_store/);
+    assert.doesNotMatch(third.injectSteps[0].systemMessage.metadata.user_markdown, /memorix_project_context/);
+  } finally {
+    fs.rmSync(t.dir, { recursive: true, force: true });
+  }
+});
+
 test('claude memorix-gate: UserPromptSubmit and Stop enforce MCP load/save without blocking read-only or stop_hook_active', () => {
   const sid = `claude-${Date.now()}-${Math.random()}`;
   const unpersisted = makeTranscript([
@@ -110,6 +150,14 @@ test('claude memorix-gate: UserPromptSubmit and Stop enforce MCP load/save witho
 
     assert.deepEqual(runHook('templates/hooks/claude/memorix-gate.mjs', 'stop', { transcript_path: unpersisted.file, stop_hook_active: true }), {});
     assert.deepEqual(runHook('templates/hooks/claude/memorix-gate.mjs', 'stop', { transcript_path: persisted.file }), {});
+
+    const postMem = runHook('templates/hooks/claude/memorix-gate.mjs', 'post', {
+      tool_name: 'mcp__memorix__memorix_project_context',
+      tool_response: 'Memorix Autopilot Brief\nMemories: 3 active'
+    });
+    assert.match(postMem.systemMessage || '', /memorix_project_context/);
+    assert.match(postMem.systemMessage || '', /Memorix Autopilot Brief/);
+    assert.deepEqual(runHook('templates/hooks/claude/memorix-gate.mjs', 'post', { tool_name: 'Read', tool_response: 'ok' }), {});
   } finally {
     fs.rmSync(unpersisted.dir, { recursive: true, force: true });
     fs.rmSync(persisted.dir, { recursive: true, force: true });
@@ -135,6 +183,14 @@ test('codex memorix-gate: UserPromptSubmit and Stop handle apply_patch and memor
     assert.equal(blocked.decision, 'block');
 
     assert.deepEqual(runHook('templates/hooks/codex/memorix-gate.mjs', 'stop', { transcript_path: persisted.file }), {});
+
+    const postMem = runHook('templates/hooks/codex/memorix-gate.mjs', 'post', {
+      tool_name: 'memorix_store',
+      tool_response: '[OK] Stored observation #42'
+    });
+    assert.match(postMem.systemMessage || '', /memorix_store/);
+    assert.match(postMem.systemMessage || '', /Stored observation #42/);
+    assert.deepEqual(runHook('templates/hooks/codex/memorix-gate.mjs', 'post', { tool_name: 'apply_patch', tool_response: 'ok' }), {});
   } finally {
     fs.rmSync(unpersisted.dir, { recursive: true, force: true });
     fs.rmSync(persisted.dir, { recursive: true, force: true });
@@ -154,7 +210,11 @@ test('opencode memorix-gate plugin reminds once on context and once on idle afte
 
     const hooks = {};
     const synthetics = [];
+    const toasts = [];
     await plugin.setup({
+      tui: {
+        showToast: async (t) => { toasts.push(t); }
+      },
       session: {
         hook: (name, fn) => { hooks[`session.${name}`] = fn; },
         synthetic: async (msg) => { synthetics.push(msg); }
@@ -182,9 +242,11 @@ test('opencode memorix-gate plugin reminds once on context and once on idle afte
     assert.equal(synthetics.length, 1);
 
     await hooks['tool.execute.after']({ sessionID: 's1', status: 'completed', tool: 'edit' });
-    await hooks['tool.execute.after']({ sessionID: 's1', status: 'completed', tool: 'mcp_memorix_memorix_store' });
+    await hooks['tool.execute.after']({ sessionID: 's1', status: 'completed', tool: 'mcp_memorix_memorix_store', output: '[OK] Stored #7' });
     await hooks['session.experimental.idle']({ sessionID: 's1', background: [] });
     assert.equal(synthetics.length, 1);
+    assert.equal(toasts.length, 1);
+    assert.match(toasts[0].message, /memorix_store: \[OK\] Stored #7/);
   } finally {
     fs.rmSync(modDir, { recursive: true, force: true });
   }
@@ -193,8 +255,13 @@ test('opencode memorix-gate plugin reminds once on context and once on idle afte
 test('omp memorix-gate extension reminds once on before_agent_start and followUp on agent_end after unpersisted edits', async () => {
   const tsSrc = fs.readFileSync(path.join(ROOT, 'templates/hooks/omp/memorix-gate.ts'), 'utf8');
   const jsSrc = tsSrc
+    .replace(/interface PiContext \{[\s\S]*?\}\r?\n/, '')
     .replace(/interface PiInstance \{[\s\S]*?\}\r?\n\r?\n/, '')
+    .replace(/function extractText\(raw: unknown\): string/g, 'function extractText(raw)')
+    .replace(/function summarizeToolResult\(raw: unknown\): string/g, 'function summarizeToolResult(raw)')
+    .replace(/const obj = raw as Record<string, unknown>;/g, 'const obj = raw;')
     .replace(/\(pi: PiInstance\)/g, '(pi)')
+    .replace(/\(event: unknown, ctx\?: PiContext\)/g, '(event, ctx)')
     .replace(/\(event: unknown\)/g, '(event)')
     .replace(/event as Record<string, unknown>/g, 'event');
   const modDir = fs.mkdtempSync(path.join(os.tmpdir(), 'memorix-omp-test-'));
@@ -205,8 +272,10 @@ test('omp memorix-gate extension reminds once on before_agent_start and followUp
 
     const handlers = {};
     const followUps = [];
+    const messages = [];
     register({
       on: (ev, fn) => { handlers[ev] = fn; },
+      sendMessage: (msg, opts) => { messages.push({ msg, opts }); },
       sendUserMessage: (msg, opts) => { followUps.push({ msg, opts }); }
     });
 
@@ -225,6 +294,11 @@ test('omp memorix-gate extension reminds once on before_agent_start and followUp
 
     handlers.tool_call({ toolName: 'edit' });
     handlers.tool_call({ toolName: 'memorix_store' });
+    handlers.tool_result({ toolName: 'memorix_store', content: 'Stored #99' });
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].msg.display, true);
+    assert.equal(messages[0].opts.triggerTurn, false);
+    assert.match(messages[0].msg.content, /memorix_store: Stored #99/);
     handlers.agent_end({});
     assert.equal(followUps.length, 1);
   } finally {

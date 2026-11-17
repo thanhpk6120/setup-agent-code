@@ -6,8 +6,11 @@
       config:
         serverName: memorix
         transport: stdio
-        command: memorix
+        command: node
         args:
+          - "__MEMORIX_WRAPPER__"
+          - "--bin"
+          - "__MEMORIX_BIN__"
           - serve
           - --mode
           - lite

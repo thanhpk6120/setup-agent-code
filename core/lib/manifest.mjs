@@ -208,7 +208,8 @@ export function buildServerSpec(server, resolvers) {
   const substitute = (item) => String(item)
     .replace(/<bin:([^>]+)>/g, (_, name) => binOf(name))
     .replace(/<npm:([^>]+)>/g, (_, rel) => resolvers.npmPath(rel) || `<missing:${rel}>`)
-    .replace(/<cloakbrowser>/g, resolvers.cloakbrowser);
+    .replace(/<cloakbrowser>/g, resolvers.cloakbrowser)
+    .replace(/<memorixWrapper>/g, resolvers.memorixWrapper || '');
 
   if (server.kind === 'gitnexus') {
     if (isWin) {
@@ -234,7 +235,9 @@ export function buildServerSpec(server, resolvers) {
   } else {
     args = args.map(substitute);
   }
-  const wrapped = wrapWindowsShim(command, args);
+  const wrapped = wrapWindowsShim(command, args, {
+    resolve: (name) => resolvers.bin(name) || which(name)
+  });
   return { command: wrapped.command, args: wrapped.args, env };
 }
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Lightweight Memorix gate hook for OpenAI Codex CLI:
 // - start (UserPromptSubmit): once per session, reminds the agent to load repo context via MCP `memorix_project_context`.
+// - post (PostToolUse): emits `systemMessage` with a compact summary whenever a Memorix MCP tool runs.
 // - stop (Stop): if the current turn edited files without calling a Memorix save tool, blocks Stop once.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -15,6 +16,7 @@ const EDIT_TOOLS = new Set([
   'replace_file_content'
 ]);
 
+const MEMORIX_ANY_RE = /(?:^|[_:])memorix_/;
 const MEMORIX_LOAD_RE = /(?:^|[_:])memorix_(?:project_context|session_start)$/;
 const MEMORIX_SAVE_RE = /(?:^|[_:])memorix_(?:store|store_reasoning|session_end|resolve)$/;
 
@@ -108,6 +110,37 @@ function handleStart(payload) {
   };
 }
 
+function extractToolResponseText(resp) {
+  if (typeof resp === 'string') return resp;
+  if (Array.isArray(resp)) {
+    return resp.map((item) => (typeof item === 'string' ? item : item?.text || '')).filter(Boolean).join('\n');
+  }
+  if (resp && typeof resp === 'object') {
+    if (typeof resp.content === 'string') return resp.content;
+    if (Array.isArray(resp.content)) return extractToolResponseText(resp.content);
+    if (typeof resp.text === 'string') return resp.text;
+    try { return JSON.stringify(resp); } catch { return ''; }
+  }
+  return '';
+}
+
+function handlePost(payload) {
+  const toolName = String(payload.tool_name || payload.toolName || payload.name || '');
+  if (!MEMORIX_ANY_RE.test(toolName)) return {};
+  const shortName = toolName.replace(/^mcp__memorix__/, '');
+  const rawText = extractToolResponseText(payload.tool_response ?? payload.toolResponse ?? payload.output);
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+    .map((l) => (l.length > 160 ? `${l.slice(0, 157)}...` : l));
+  const summary = lines.length > 0 ? lines.join(' | ') : 'executed';
+  return {
+    systemMessage: `[Memorix] ${shortName}: ${summary}`
+  };
+}
+
 function handleStop(payload) {
   if (payload.stop_hook_active === true) return {};
   const transcriptPath = payload.transcript_path || payload.transcriptPath;
@@ -148,7 +181,11 @@ async function main() {
 
   try {
     const event = getEventArg();
-    const out = event === 'start' ? handleStart(payload) : handleStop(payload);
+    const out = event === 'start'
+      ? handleStart(payload)
+      : event === 'post'
+        ? handlePost(payload)
+        : handleStop(payload);
     process.stdout.write(`${JSON.stringify(out)}\n`);
   } catch {
     process.stdout.write('{}\n');

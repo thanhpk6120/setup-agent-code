@@ -424,6 +424,7 @@ const PHASE_IMPL = {
         c.rows.push(V.result(`install:${id}`, ok ? 'PASS' : 'FAIL', ok ? 'da cai' : 'copy/npm install that bai'));
         continue;
       }
+      if (id === 'memorix') installMemorixWrapper();
 
       const check = () => D.assessVerify(server.verify, resolveFile);
       let assess = check();
@@ -891,6 +892,8 @@ function buildVars(c) {
     CLAUDE_HUD_PATH: path.join(c.paths.dir, 'hud', 'hud.mjs').split(path.sep).join('/'),
     // Do not quote AGY_HUD_PATH: agy's statusline_runner splits on whitespace without unquoting.
     AGY_HUD_PATH: path.join(c.paths.dir, 'hud', 'hud.mjs').split(path.sep).join('/'),
+    MEMORIX_WRAPPER: path.join(ctx.home, 'mcp-servers', 'memorix', 'memorix-mcp-wrapper.mjs').split(path.sep).join('/'),
+    MEMORIX_BIN: (U.resolveStableBin?.('memorix') || U.which('memorix') || 'memorix').split(path.sep).join('/'),
     HOME: ctx.home,
     USERPROFILE: ctx.home,
     OS: process.platform
@@ -898,10 +901,14 @@ function buildVars(c) {
 }
 
 function buildSelectedSpecs(c) {
+  if (ctx.selectedMcp.has('memorix') && !ctx.blockedMcp.has('memorix') && !ctx.dryRun) {
+    installMemorixWrapper();
+  }
   const resolvers = {
-    bin: (name) => U.which(name),
+    bin: (name) => U.resolveStableBin?.(name) ?? U.which(name),
     npmPath: (rel) => U.resolveNpmPath(rel),
-    cloakbrowser: path.join(ctx.home, 'mcp-servers', 'cloakbrowser', 'mcp-server-full.mjs')
+    cloakbrowser: path.join(ctx.home, 'mcp-servers', 'cloakbrowser', 'mcp-server-full.mjs'),
+    memorixWrapper: path.join(ctx.home, 'mcp-servers', 'memorix', 'memorix-mcp-wrapper.mjs')
   };
   const specs = [];
   for (const id of ctx.selectedMcp) {
@@ -989,6 +996,16 @@ async function writeConfig(c, { dest, content, preserve }, policy) {
   U.ensureDir(path.dirname(target));
   U.writeFileAtomic(target, content);
   U.log.ok(`ghi ${target}`);
+}
+
+function installMemorixWrapper() {
+  const src = path.join(ROOT, 'templates', 'hooks', 'memorix-mcp-wrapper.mjs');
+  const dest = path.join(ctx.home, 'mcp-servers', 'memorix', 'memorix-mcp-wrapper.mjs');
+  if (!U.exists(src)) return;
+  const content = U.readText(src);
+  if (U.exists(dest) && U.readText(dest) === content) return;
+  U.ensureDir(path.dirname(dest));
+  U.writeFileAtomic(dest, content);
 }
 
 async function installCloakbrowser(c, server) {

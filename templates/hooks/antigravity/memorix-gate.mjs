@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Lightweight Memorix gate hook for Antigravity CLI:
 // - start (PreInvocation): once per session, reminds the agent to load repo context via MCP `memorix_project_context`.
+// - post (PostInvocation): emits inline `user_markdown` log/response summary whenever a Memorix MCP tool ran.
 // - stop (Stop): if the current turn edited files without calling a Memorix save tool, blocks Stop once.
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -79,12 +80,107 @@ function extractToolCalls(step) {
   if (!step || !Array.isArray(step.tool_calls)) return [];
   return step.tool_calls.map((c) => {
     const rawName = String(c?.name || c?.toolName || '');
+    const rawArgs = c?.args ?? c?.arguments ?? c?.input ?? {};
     if (rawName === 'call_mcp_tool') {
-      const toolName = unquoteArg(c?.args?.ToolName ?? c?.arguments?.ToolName ?? c?.input?.ToolName);
-      if (toolName) return { name: toolName };
+      const serverName = unquoteArg(rawArgs.ServerName);
+      const toolName = unquoteArg(rawArgs.ToolName);
+      if (toolName) {
+        return {
+          name: toolName,
+          isMemorix: serverName === 'memorix' || /^memorix_/.test(toolName),
+          args: rawArgs
+        };
+      }
     }
-    return { name: rawName };
+    return {
+      name: rawName,
+      isMemorix: /(?:^|[_:])memorix_/.test(rawName),
+      args: rawArgs
+    };
   });
+}
+
+function getSessionHash(payload, transcriptPath) {
+  const sessionKey = String(
+    payload.conversationId || payload.session_id || payload.sessionId || payload.conversation_id || transcriptPath || ''
+  );
+  if (!sessionKey) return '';
+  return crypto.createHash('sha1').update(`antigravity:${sessionKey}`).digest('hex').slice(0, 16);
+}
+
+function cleanToolResponse(content) {
+  if (typeof content !== 'string' || !content.trim()) return [];
+  const lines = content
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l && !/^(?:Created|Completed) At:\s/i.test(l));
+  return lines.slice(0, 4).map((l) => (l.length > 160 ? `${l.slice(0, 157)}...` : l));
+}
+
+function findToolResponseLines(steps, plannerIdx, toolPos) {
+  let seenGeneric = 0;
+  for (let j = plannerIdx + 1; j < steps.length; j++) {
+    const st = steps[j];
+    if (!st) continue;
+    if (st.type === 'PLANNER_RESPONSE' || st.type === 'USER_INPUT') break;
+    if (st.type === 'GENERIC') {
+      if (seenGeneric === toolPos) return cleanToolResponse(st.content);
+      seenGeneric += 1;
+    }
+  }
+  return [];
+}
+
+function handlePost(payload) {
+  const transcriptPath = payload.transcriptPath || payload.transcript_path;
+  const steps = readSteps(transcriptPath);
+  if (steps.length === 0) return {};
+
+  const hash = getSessionHash(payload, transcriptPath);
+  const cursorFile = hash ? path.join(os.tmpdir(), `memorix-gate-post-${hash}.cursor`) : '';
+
+  let startIdx = 0;
+  if (cursorFile && fs.existsSync(cursorFile)) {
+    const prev = Number.parseInt(fs.readFileSync(cursorFile, 'utf8').trim(), 10);
+    if (Number.isFinite(prev) && prev >= 0 && prev <= steps.length) startIdx = prev;
+  } else {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (isRealUserTurnStart(steps[i])) {
+        startIdx = i + 1;
+        break;
+      }
+    }
+  }
+
+  if (cursorFile) {
+    try { fs.writeFileSync(cursorFile, String(steps.length), 'utf8'); } catch {}
+  }
+
+  const entries = [];
+  for (let i = startIdx; i < steps.length; i++) {
+    const calls = extractToolCalls(steps[i]);
+    for (let pos = 0; pos < calls.length; pos++) {
+      const call = calls[pos];
+      if (!call.isMemorix) continue;
+      const respLines = findToolResponseLines(steps, i, pos);
+      const shortName = call.name.replace(/^mcp_memorix_/, '');
+      const header = `> **Memorix** \`${shortName}\``;
+      const body = respLines.length > 0 ? respLines.map((l) => `> ${l}`).join('\n') : '> *(executed)*';
+      entries.push(`${header}\n${body}`);
+    }
+  }
+
+  if (entries.length === 0) return {};
+  return {
+    injectSteps: [{
+      systemMessage: {
+        systemMessage: '',
+        metadata: {
+          user_markdown: entries.join('\n>\n')
+        }
+      }
+    }]
+  };
 }
 
 function handleStart(payload) {
@@ -155,7 +251,11 @@ async function main() {
 
   try {
     const event = getEventArg();
-    const out = event === 'start' ? handleStart(payload) : handleStop(payload);
+    const out = event === 'start'
+      ? handleStart(payload)
+      : event === 'post'
+        ? handlePost(payload)
+        : handleStop(payload);
     process.stdout.write(`${JSON.stringify(out)}\n`);
   } catch {
     process.stdout.write('{}\n');

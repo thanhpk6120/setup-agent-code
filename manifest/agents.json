@@ -237,6 +237,19 @@
           "dest": "<dir>/hooks/memorix-gate.mjs",
           "register": {
             "file": "<dir>/settings.json",
+            "event": "PostToolUse",
+            "matcher": ".*memorix_.*",
+            "shape": "claude",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event post",
+            "timeout": 5
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/claude/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<dir>/settings.json",
             "event": "Stop",
             "shape": "claude",
             "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event stop",
@@ -480,6 +493,19 @@
             "event": "UserPromptSubmit",
             "shape": "claude",
             "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event start",
+            "timeout": 5
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/codex/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<dir>/hooks.json",
+            "event": "PostToolUse",
+            "matcher": ".*memorix_.*",
+            "shape": "claude",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event post",
             "timeout": 5
           }
         },
@@ -806,6 +832,19 @@
             "shape": "antigravity",
             "event": "PreInvocation",
             "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event start",
+            "timeout": 5
+          }
+        },
+        {
+          "whenMcp": "memorix",
+          "template": "hooks/antigravity/memorix-gate.mjs",
+          "dest": "<dir>/hooks/memorix-gate.mjs",
+          "register": {
+            "file": "<geminiConfig>/hooks.json",
+            "name": "memorix-gate",
+            "shape": "antigravity",
+            "event": "PostInvocation",
+            "command": "node \"<dirPath>/hooks/memorix-gate.mjs\" --event post",
             "timeout": 5
           }
         },

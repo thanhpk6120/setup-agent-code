@@ -237,8 +237,11 @@
       ],
       "env": [],
       "spec": {
-        "command": "memorix",
+        "command": "node",
         "args": [
+          "<memorixWrapper>",
+          "--bin",
+          "<bin:memorix>",
           "serve",
           "--mode",
           "lite"
