@@ -33,11 +33,13 @@ test('antigravity memorix-gate: start reminds once per session and skips after m
     { type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }
   ]);
   try {
-    const first = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'start', { session_id: sid, transcriptPath: t.file });
+    const first = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'start', { conversationId: sid, transcriptPath: t.file });
     assert.ok(Array.isArray(first.injectSteps) && first.injectSteps.length === 1);
-    assert.match(first.injectSteps[0].ephemeralMessage, /memorix_project_context/);
+    const sys = first.injectSteps[0].systemMessage;
+    assert.match(sys?.systemMessage || '', /memorix_project_context/);
+    assert.match(sys?.metadata?.user_markdown || '', /memorix_project_context/);
 
-    const second = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'start', { session_id: sid, transcriptPath: t.file });
+    const second = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'start', { conversationId: sid, transcriptPath: t.file });
     assert.deepEqual(second, {});
 
     const tLoaded = makeTranscript([

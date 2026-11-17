@@ -41,7 +41,7 @@ export default Plugin.define({
       remindedStart.add(event.sessionID);
       if (Array.isArray(event.system)) {
         event.system.push({
-          text: '[Memorix] Đầu session mới: nếu tác vụ này liên quan đến repo/code hoặc tiếp tục công việc cũ, hãy gọi MCP tool `memorix_project_context` (với mô tả task) trước khi đọc sâu codebase.'
+          text: '[Memorix] Đầu session mới: hãy gọi MCP tool `memorix_project_context` (với mô tả task) ngay trong lượt đầu tiên trước khi đọc sâu codebase hoặc git log (chỉ bỏ qua nếu là chào hỏi/hỏi đáp thuần túy không liên quan workspace).'
         });
       }
     });

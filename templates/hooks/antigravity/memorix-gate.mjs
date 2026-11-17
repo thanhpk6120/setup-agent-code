@@ -192,11 +192,8 @@ function handleStart(payload) {
     }
   }
 
-  const sessionKey = String(
-    payload.session_id || payload.sessionId || payload.conversation_id || transcriptPath || ''
-  );
-  if (sessionKey) {
-    const hash = crypto.createHash('sha1').update(`antigravity:${sessionKey}`).digest('hex').slice(0, 16);
+  const hash = getSessionHash(payload, transcriptPath);
+  if (hash) {
     const marker = path.join(os.tmpdir(), `memorix-gate-${hash}.seen`);
     if (fs.existsSync(marker)) return {};
     try { fs.writeFileSync(marker, String(Date.now()), 'utf8'); } catch {}
@@ -204,7 +201,12 @@ function handleStart(payload) {
 
   return {
     injectSteps: [{
-      ephemeralMessage: '[Memorix] Đầu session mới: nếu tác vụ này liên quan đến repo/code hoặc tiếp tục công việc cũ, hãy gọi MCP tool `memorix_project_context` (với mô tả task) trước khi đọc sâu codebase.'
+      systemMessage: {
+        systemMessage: '[Memorix] Đầu session mới: hãy gọi MCP tool `memorix_project_context` (với mô tả task) ngay trong lượt đầu tiên trước khi đọc sâu codebase hoặc git log (chỉ bỏ qua nếu là chào hỏi/hỏi đáp thuần túy không liên quan workspace).',
+        metadata: {
+          user_markdown: '> **Memorix** `session-start` — đã nhắc nạp ngữ cảnh dự án (`memorix_project_context`)'
+        }
+      }
     }]
   };
 }
