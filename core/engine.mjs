@@ -998,14 +998,42 @@ async function writeConfig(c, { dest, content, preserve }, policy) {
   U.log.ok(`ghi ${target}`);
 }
 
-function installMemorixWrapper() {
-  const src = path.join(ROOT, 'templates', 'hooks', 'memorix-mcp-wrapper.mjs');
-  const dest = path.join(ctx.home, 'mcp-servers', 'memorix', 'memorix-mcp-wrapper.mjs');
+function copyTemplateIfChanged(src, dest) {
   if (!U.exists(src)) return;
   const content = U.readText(src);
   if (U.exists(dest) && U.readText(dest) === content) return;
   U.ensureDir(path.dirname(dest));
   U.writeFileAtomic(dest, content);
+}
+
+function installMemorixWrapper() {
+  copyTemplateIfChanged(
+    path.join(ROOT, 'templates', 'hooks', 'memorix-mcp-wrapper.mjs'),
+    path.join(ctx.home, 'mcp-servers', 'memorix', 'memorix-mcp-wrapper.mjs')
+  );
+  const memorixDir = path.join(ctx.home, '.memorix');
+  const ensureDest = path.join(memorixDir, 'ensure-serve-http.mjs');
+  copyTemplateIfChanged(path.join(ROOT, 'templates', 'memorix', 'ensure-serve-http.mjs'), ensureDest);
+  copyTemplateIfChanged(path.join(ROOT, 'templates', 'memorix', 'prune-snapshots.mjs'), path.join(memorixDir, 'prune-snapshots.mjs'));
+
+  if (U.isWin && !ctx.dryRun && ctx.home === os.homedir()) {
+    const startupDir = path.join(ctx.home, 'AppData', 'Roaming', 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
+    const vbsPath = path.join(startupDir, 'memorix-serve-http.vbs');
+    if (!U.exists(vbsPath)) {
+      let nodeExe = process.execPath;
+      try { nodeExe = fs.realpathSync(process.execPath); } catch {}
+      const vbs = [
+        'Set FSO = CreateObject("Scripting.FileSystemObject")',
+        'Set WshShell = CreateObject("WScript.Shell")',
+        `nodeExe = "${nodeExe.replace(/"/g, '""')}"`,
+        'If Not FSO.FileExists(nodeExe) Then nodeExe = "node"',
+        `WshShell.Run """" & nodeExe & """ ""${ensureDest.replace(/"/g, '""')}""", 0, False`,
+        ''
+      ].join('\r\n');
+      U.ensureDir(startupDir);
+      U.writeFileAtomic(vbsPath, vbs);
+    }
+  }
 }
 
 async function installCloakbrowser(c, server) {

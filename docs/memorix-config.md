@@ -78,25 +78,41 @@ Memorix đặt `DEFAULT_FORMATION_TIMEOUT_MS = 12000` (12 giây) và yêu cầu 
 
 ---
 
-## 4. Cách áp dụng & kiểm tra trên máy mới
+## 4. Cách áp dụng & kiểm tra trên máy mới (1 lệnh)
 
-1. Chạy bộ cài của `setup-agent-code` **kèm cờ bật Memorix** (vì mặc định `memorix` đang tắt):
-   - **Windows:** `.\install.ps1 -EnableMemorix` (hoặc chọn bật Memorix trong menu tương tác / đặt `ENABLE_MEMORIX=true` trong `.env`)
-   - **macOS / Linux:** `./install.sh --memorix`
-2. Tạo `~/.memorix/config.toml` theo mẫu ở mục 2 và thay `<OPENROUTER_API_KEY>` bằng key của bạn.
-3. Mở terminal tại một repo bất kỳ và chạy kiểm tra:
+Bạn có thể dùng script tự động đi kèm trong repo để cài đặt toàn bộ giống hệ thống hiện tại (`memorix`, `fastembed --allow-scripts=onnxruntime-node`, `memorix-mcp-wrapper.mjs`, `~/.memorix/config.toml`, `ensure-serve-http.mjs`, `prune-snapshots.mjs` và auto-start khi khởi động máy):
 
 ```powershell
-# Kiểm tra config và trạng thái Memorix
+# Chạy setup đầy đủ (thay <OPENROUTER_API_KEY> bằng key của bạn)
+node scripts/setup-memorix.mjs --api-key "<OPENROUTER_API_KEY>"
+
+# Hoặc qua npm script (có thể truyền -- --dry-run để xem trước):
+npm run setup:memorix -- --api-key "<OPENROUTER_API_KEY>"
+```
+
+Sau đó gắn MCP và hook `memorix-gate` cho các coding agent:
+
+```powershell
+# Windows:
+.\install.ps1 -EnableMemorix
+
+# macOS / Linux:
+./install.sh --memorix
+```
+
+Kiểm tra trạng thái:
+
+```powershell
 memorix doctor
 ```
 
-4. Khởi động server HTTP dùng chung (khuyến nghị khi mở nhiều agent):
+---
 
-```powershell
-# Chạy nền (khuyên dùng để không chiếm terminal):
-memorix background start
+## 5. Tự động khởi động khi mở máy & dọn snapshot DB (khuyên dùng)
 
-# Hoặc chạy foreground trong một terminal riêng:
-memorix serve-http
-```
+- **Auto-start `serve-http` (tự tạo bởi `scripts/setup-memorix.mjs`):**
+  - **Windows:** `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\memorix-serve-http.vbs` gọi ẩn `~/.memorix/ensure-serve-http.mjs` (check port `3211`, idempotent).
+  - **macOS:** `~/Library/LaunchAgents/com.memorix.serve-http.plist`.
+  - **Linux:** `~/.config/autostart/memorix-serve-http.desktop`.
+- **Dọn lịch sử snapshot code định kỳ (giữ nguyên observations):**
+  Chạy `node ~/.memorix/prune-snapshots.mjs` (hỗ trợ `--dry-run` và biến `MEMORIX_KEEP_SNAPSHOTS=5`). Script chỉ giữ lại 5 snapshot mới nhất mỗi `projectId` trong `code_state_snapshots`, chạy `VACUUM` + `PRAGMA wal_checkpoint(TRUNCATE)`, **không chạm tới `observations`, `knowledge_claims` hay `evidence_cards`**.

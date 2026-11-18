@@ -10,7 +10,8 @@
     "test": "node --experimental-vm-modules --test tests/*.test.mjs",
     "validate": "node scripts/validate.mjs",
     "dry-run": "node core/engine.mjs --target all --dry-run --json",
-    "doctor": "node core/engine.mjs --target all --doctor"
+    "doctor": "node core/engine.mjs --target all --doctor",
+    "setup:memorix": "node scripts/setup-memorix.mjs"
   },
   "license": "MIT"
 }

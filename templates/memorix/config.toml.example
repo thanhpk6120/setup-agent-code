@@ -1,0 +1,32 @@
+[agent]
+provider = "openai"
+model = "baidu/ernie-5.5-flash-preview:free"
+base_url = "https://openrouter.ai/api/v1"
+api_key = "<OPENROUTER_API_KEY>"
+
+[memory.llm]
+provider = "openai"
+model = "baidu/ernie-5.5-flash-preview:free"
+base_url = "https://openrouter.ai/api/v1"
+api_key = "<OPENROUTER_API_KEY>"
+
+[embedding]
+provider = "fastembed"
+
+[git]
+auto_hook = true
+ingest_on_commit = true
+max_diff_size = 500
+skip_merge_commits = true
+# exclude_patterns = ["*.lock", "dist/**"]
+
+[memory]
+inject = "full"
+sync_advisory = true
+auto_cleanup = true
+formation = "active"
+
+[server]
+transport = "stdio"
+dashboard = true
+dashboard_port = 3210
