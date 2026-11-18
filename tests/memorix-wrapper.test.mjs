@@ -182,3 +182,88 @@ test('memorix-mcp-wrapper gracefully falls back when --bin points to a stale/mis
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('memorix-mcp-wrapper negotiates initialize protocolVersion back to client request', async () => {
+  const srv = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const msg = JSON.parse(raw);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Mcp-Session-Id': 'sid-ver' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-11-25', serverInfo: { name: 'memorix' } } }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    const res = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [WRAPPER], {
+        env: { ...process.env, MEMORIX_HTTP_URL: `http://127.0.0.1:${port}/mcp`, MEMORIX_PREFER_HTTP: '1' },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      let out = '';
+      const timer = setTimeout(() => { child.kill(); reject(new Error('timeout')); }, 8000);
+      child.stdout.on('data', (d) => {
+        out += d.toString();
+        if (out.includes('\n')) {
+          clearTimeout(timer);
+          child.kill();
+          resolve(JSON.parse(out.trim()));
+        }
+      });
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 11, method: 'initialize', params: { protocolVersion: '2025-03-26' } }) + '\n');
+    });
+    assert.equal(res.id, 11);
+    assert.equal(res.result.protocolVersion, '2025-03-26');
+  } finally {
+    srv.close();
+  }
+});
+
+test('memorix-mcp-wrapper does not block subsequent requests behind an open SSE stream', async () => {
+  const openRes = new Set();
+  const srv = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const msg = JSON.parse(raw);
+      if (msg.method === 'subscriptions/listen') {
+        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Mcp-Session-Id': 'sid-sse' });
+        res.write('data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{}}\n\n');
+        openRes.add(res);
+        req.on('close', () => openRes.delete(res));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { tools: [] } }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    const got = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [WRAPPER], {
+        env: { ...process.env, MEMORIX_HTTP_URL: `http://127.0.0.1:${port}/mcp`, MEMORIX_PREFER_HTTP: '1' },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      const lines = [];
+      const timer = setTimeout(() => { child.kill(); reject(new Error(`timeout, got=${lines.join('|')}`)); }, 5000);
+      child.stdout.on('data', (d) => {
+        for (const l of d.toString().split(/\r?\n/).filter(Boolean)) lines.push(l);
+        if (lines.some((l) => l.includes('"id":2'))) {
+          clearTimeout(timer);
+          child.kill();
+          resolve(lines.map((l) => JSON.parse(l)));
+        }
+      });
+      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'subscriptions/listen' }) + '\n');
+      setTimeout(() => {
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
+      }, 50);
+    });
+    assert.ok(got.some((m) => m.id === 2 && Array.isArray(m.result?.tools)));
+  } finally {
+    for (const r of openRes) r.end();
+    srv.close();
+  }
+});

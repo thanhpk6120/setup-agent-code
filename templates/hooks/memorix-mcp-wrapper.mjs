@@ -74,7 +74,23 @@ function writeJsonLine(obj) {
   process.stdout.write(`${JSON.stringify(obj)}\n`);
 }
 
-async function emitSseMessages(bodyStream) {
+function normalizeResponse(obj, reqMsg) {
+  if (
+    reqMsg &&
+    reqMsg.method === 'initialize' &&
+    typeof reqMsg.params?.protocolVersion === 'string' &&
+    obj &&
+    obj.id === reqMsg.id &&
+    obj.result &&
+    typeof obj.result.protocolVersion === 'string' &&
+    obj.result.protocolVersion !== reqMsg.params.protocolVersion
+  ) {
+    obj.result.protocolVersion = reqMsg.params.protocolVersion;
+  }
+  return obj;
+}
+
+async function emitSseMessages(bodyStream, reqMsg, onNegotiated) {
   const reader = bodyStream.getReader();
   const decoder = new TextDecoder();
   let buf = '';
@@ -87,7 +103,10 @@ async function emitSseMessages(bodyStream) {
     if (!raw || raw === '[DONE]') return;
     try {
       const parsed = JSON.parse(raw);
-      writeJsonLine(parsed);
+      if (reqMsg?.method === 'initialize' && parsed?.result?.protocolVersion && typeof onNegotiated === 'function') {
+        onNegotiated(parsed.result.protocolVersion);
+      }
+      writeJsonLine(normalizeResponse(parsed, reqMsg));
     } catch {
       // Ignore non-JSON SSE comments/heartbeats
     }
@@ -118,19 +137,18 @@ async function runHttpBridge(httpUrl) {
   const projectRoot = process.cwd();
   let projectHandle = '';
   let sessionId = '';
+  let negotiatedProtocol = '';
   process.stderr.write(`[memorix-wrapper] Using shared HTTP control plane: ${httpUrl} (cwd: ${projectRoot})\n`);
 
   const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-  let queue = Promise.resolve();
+  const ac = new AbortController();
+  const inFlight = new Set();
+  let initGate = Promise.resolve();
 
-  const forwardLine = async (line) => {
-    const trimmed = line.trim();
-    if (!trimmed) return;
-    let msg;
-    try {
-      msg = JSON.parse(trimmed);
-    } catch {
-      return;
+  const forwardMessage = async (msg, rawBody) => {
+    if (msg.method === 'initialize') {
+      sessionId = '';
+      negotiatedProtocol = '';
     }
 
     const headers = {
@@ -138,6 +156,14 @@ async function runHttpBridge(httpUrl) {
       Accept: 'application/json, text/event-stream',
       'Mcp-Project-Root': projectRoot
     };
+    const metaProto = msg?.params?._meta?.['io.modelcontextprotocol/protocolVersion'];
+    const protoHeader = typeof metaProto === 'string' && metaProto
+      ? metaProto
+      : (msg.method !== 'initialize' ? negotiatedProtocol : '');
+    if (protoHeader) {
+      headers['MCP-Protocol-Version'] = protoHeader;
+      if (msg.method) headers['Mcp-Method'] = msg.method;
+    }
     if (projectHandle) headers['Mcp-Project-Handle'] = projectHandle;
     if (sessionId) headers['Mcp-Session-Id'] = sessionId;
     if (process.env.MEMORIX_HTTP_AUTH_TOKEN) {
@@ -149,13 +175,14 @@ async function runHttpBridge(httpUrl) {
       res = await fetch(httpUrl, {
         method: 'POST',
         headers,
-        body: trimmed
+        body: rawBody,
+        signal: ac.signal
       });
 
       const nextHandle = res.headers.get('mcp-project-handle');
       if (nextHandle) projectHandle = nextHandle;
       const nextSid = res.headers.get('mcp-session-id');
-      if (nextSid) sessionId = nextSid;
+      if (res.ok && nextSid) sessionId = nextSid;
 
       if (res.status === 202 || res.status === 204) {
         await res.body?.cancel?.();
@@ -164,7 +191,7 @@ async function runHttpBridge(httpUrl) {
 
       const ct = (res.headers.get('content-type') || '').toLowerCase();
       if (ct.includes('text/event-stream') && res.body) {
-        await emitSseMessages(res.body);
+        await emitSseMessages(res.body, msg, (proto) => { negotiatedProtocol = proto; });
         return;
       }
 
@@ -183,9 +210,17 @@ async function runHttpBridge(httpUrl) {
       try {
         const payload = JSON.parse(text);
         if (Array.isArray(payload)) {
-          for (const item of payload) writeJsonLine(item);
+          for (const item of payload) {
+            if (msg.method === 'initialize' && item?.result?.protocolVersion) {
+              negotiatedProtocol = item.result.protocolVersion;
+            }
+            writeJsonLine(normalizeResponse(item, msg));
+          }
         } else {
-          writeJsonLine(payload);
+          if (msg.method === 'initialize' && payload?.result?.protocolVersion) {
+            negotiatedProtocol = payload.result.protocolVersion;
+          }
+          writeJsonLine(normalizeResponse(payload, msg));
         }
       } catch {
         if (msg && msg.id !== undefined && msg.id !== null) {
@@ -197,6 +232,7 @@ async function runHttpBridge(httpUrl) {
         }
       }
     } catch (err) {
+      if (ac.signal.aborted) return;
       if (msg && msg.id !== undefined && msg.id !== null) {
         writeJsonLine({
           jsonrpc: '2.0',
@@ -208,14 +244,37 @@ async function runHttpBridge(httpUrl) {
   };
 
   rl.on('line', (line) => {
-    queue = queue.then(() => forwardLine(line)).catch((err) => {
-      process.stderr.write(`[memorix-wrapper] Queue error: ${err instanceof Error ? err.message : String(err)}\n`);
-    });
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    let msg;
+    try {
+      msg = JSON.parse(trimmed);
+    } catch {
+      return;
+    }
+
+    if (msg.method === 'initialize') {
+      const p = initGate.then(() => forwardMessage(msg, trimmed)).catch((err) => {
+        process.stderr.write(`[memorix-wrapper] Init error: ${err instanceof Error ? err.message : String(err)}\n`);
+      });
+      initGate = p;
+      inFlight.add(p);
+      p.finally(() => inFlight.delete(p));
+    } else {
+      // Run non-init requests concurrently after initGate so long-lived streams
+      // like `subscriptions/listen` never block subsequent requests.
+      const p = initGate.then(() => forwardMessage(msg, trimmed)).catch((err) => {
+        process.stderr.write(`[memorix-wrapper] Request error: ${err instanceof Error ? err.message : String(err)}\n`);
+      });
+      inFlight.add(p);
+      p.finally(() => inFlight.delete(p));
+    }
   });
 
   await new Promise((resolve) => {
     rl.once('close', () => {
-      queue.finally(resolve);
+      ac.abort();
+      Promise.allSettled([...inFlight]).finally(resolve);
     });
   });
 }
