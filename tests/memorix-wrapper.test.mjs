@@ -267,3 +267,53 @@ test('memorix-mcp-wrapper does not block subsequent requests behind an open SSE 
     srv.close();
   }
 });
+
+test('memorix-mcp-wrapper forwards Mcp-Method and Mcp-Name for 2026-07-28 tools/call', async () => {
+  let seenHeaders = null;
+  const srv = http.createServer((req, res) => {
+    seenHeaders = req.headers;
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const msg = JSON.parse(raw);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: msg.id, result: { content: [{ type: 'text', text: 'ok' }] } }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const port = srv.address().port;
+  try {
+    const res = await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [WRAPPER], {
+        env: { ...process.env, MEMORIX_HTTP_URL: `http://127.0.0.1:${port}/mcp`, MEMORIX_PREFER_HTTP: '1' },
+        stdio: ['pipe', 'pipe', 'pipe']
+      });
+      let out = '';
+      const timer = setTimeout(() => { child.kill(); reject(new Error('timeout')); }, 5000);
+      child.stdout.on('data', (d) => {
+        out += d.toString();
+        if (out.includes('\n')) {
+          clearTimeout(timer);
+          child.kill();
+          resolve(JSON.parse(out.trim()));
+        }
+      });
+      child.stdin.write(JSON.stringify({
+        jsonrpc: '2.0',
+        id: 21,
+        method: 'tools/call',
+        params: {
+          name: 'memorix_project_context',
+          arguments: { task: 'test' },
+          _meta: { 'io.modelcontextprotocol/protocolVersion': '2026-07-28' }
+        }
+      }) + '\n');
+    });
+    assert.equal(res.id, 21);
+    assert.equal(seenHeaders['mcp-protocol-version'], '2026-07-28');
+    assert.equal(seenHeaders['mcp-method'], 'tools/call');
+    assert.equal(seenHeaders['mcp-name'], 'memorix_project_context');
+  } finally {
+    srv.close();
+  }
+});

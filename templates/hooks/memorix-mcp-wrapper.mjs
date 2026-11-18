@@ -163,6 +163,9 @@ async function runHttpBridge(httpUrl) {
     if (protoHeader) {
       headers['MCP-Protocol-Version'] = protoHeader;
       if (msg.method) headers['Mcp-Method'] = msg.method;
+      if (typeof msg?.params?.name === 'string' && msg.params.name) {
+        headers['Mcp-Name'] = msg.params.name;
+      }
     }
     if (projectHandle) headers['Mcp-Project-Handle'] = projectHandle;
     if (sessionId) headers['Mcp-Session-Id'] = sessionId;
