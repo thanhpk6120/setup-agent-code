@@ -78,9 +78,22 @@ test('antigravity memorix-gate: stop allows read-only, blocks unpersisted edits 
     assert.equal(blocked.decision, 'continue');
     assert.match(blocked.reason, /memorix_store/);
 
+    // Re-running Stop in the same turn without new edits must not block in a loop
+    assert.deepEqual(runHook('templates/hooks/antigravity/memorix-gate.mjs', 'stop', { transcriptPath: unpersisted.file, terminationReason: 'NO_TOOL_CALL' }), {});
+
     assert.deepEqual(runHook('templates/hooks/antigravity/memorix-gate.mjs', 'stop', { transcriptPath: unpersisted.file, continuationActive: true, terminationReason: 'NO_TOOL_CALL' }), {});
     assert.deepEqual(runHook('templates/hooks/antigravity/memorix-gate.mjs', 'stop', { transcriptPath: persisted.file, terminationReason: 'NO_TOOL_CALL' }), {});
     assert.deepEqual(runHook('templates/hooks/antigravity/memorix-gate.mjs', 'stop', { transcriptPath: persistedLazy.file, terminationReason: 'NO_TOOL_CALL' }), {});
+
+    const persistedCli = makeTranscript([
+      { type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'edit' },
+      { type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', args: { Path: 'a.js' } }, { name: 'run_command', args: { CommandLine: 'memorix remember "Saved note"' } }] }
+    ]);
+    try {
+      assert.deepEqual(runHook('templates/hooks/antigravity/memorix-gate.mjs', 'stop', { transcriptPath: persistedCli.file, terminationReason: 'NO_TOOL_CALL' }), {});
+    } finally {
+      fs.rmSync(persistedCli.dir, { recursive: true, force: true });
+    }
   } finally {
     fs.rmSync(readOnly.dir, { recursive: true, force: true });
     fs.rmSync(unpersisted.dir, { recursive: true, force: true });

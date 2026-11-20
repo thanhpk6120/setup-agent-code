@@ -55,7 +55,7 @@ function isRealUserTurnStart(step) {
   return true;
 }
 
-function getCurrentTurnSteps(steps) {
+function getCurrentTurn(steps) {
   let lastUserIdx = -1;
   for (let i = steps.length - 1; i >= 0; i--) {
     if (isRealUserTurnStart(steps[i])) {
@@ -63,7 +63,10 @@ function getCurrentTurnSteps(steps) {
       break;
     }
   }
-  return lastUserIdx >= 0 ? steps.slice(lastUserIdx + 1) : steps;
+  return {
+    turnStartIdx: lastUserIdx,
+    steps: lastUserIdx >= 0 ? steps.slice(lastUserIdx + 1) : steps
+  };
 }
 
 function unquoteArg(val) {
@@ -211,12 +214,18 @@ function handleStart(payload) {
   };
 }
 
+function isCliMemorixSave(call) {
+  if (!call || !/^(?:run_command|bash|powershell)$/i.test(call.name)) return false;
+  const cmd = String(call.args?.CommandLine || call.args?.command || call.args?.cmd || '');
+  return /\bmemorix\s+(?:store|remember|session)\b/i.test(cmd);
+}
+
 function handleStop(payload) {
   if (payload.continuationActive === true || (payload.terminationReason && payload.terminationReason !== 'NO_TOOL_CALL')) {
     return {};
   }
   const transcriptPath = payload.transcriptPath || payload.transcript_path;
-  const steps = getCurrentTurnSteps(readSteps(transcriptPath));
+  const { turnStartIdx, steps } = getCurrentTurn(readSteps(transcriptPath));
 
   let seq = 0;
   let lastEditSeq = -1;
@@ -225,11 +234,21 @@ function handleStop(payload) {
     for (const call of extractToolCalls(step)) {
       seq += 1;
       if (EDIT_TOOLS.has(call.name)) lastEditSeq = seq;
-      if (MEMORIX_SAVE_RE.test(call.name)) lastSaveSeq = seq;
+      if (MEMORIX_SAVE_RE.test(call.name) || isCliMemorixSave(call)) lastSaveSeq = seq;
     }
   }
 
   if (lastEditSeq === -1 || lastSaveSeq >= lastEditSeq) return {};
+
+  const hash = getSessionHash(payload, transcriptPath);
+  if (hash) {
+    const blockKey = `${turnStartIdx}:${lastEditSeq}`;
+    const marker = path.join(os.tmpdir(), `memorix-gate-stop-${hash}.seen`);
+    try {
+      if (fs.existsSync(marker) && fs.readFileSync(marker, 'utf8').trim() === blockKey) return {};
+      fs.writeFileSync(marker, blockKey, 'utf8');
+    } catch {}
+  }
 
   return {
     decision: 'continue',
