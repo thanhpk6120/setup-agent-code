@@ -41,7 +41,7 @@ const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_AGENT_DETAIL_LINES = 5;
 const THINKING_RECENCY_MS = 30_000;
 const STALE_AGENT_MS = 15 * 60_000;
-const GIT_CACHE_TTL_MS = 3_000;
+const GIT_CACHE_TTL_MS = 10_000;
 const THINKING_PART_TYPES = new Set(["thinking", "reasoning"]);
 const AGENT_TOOL_NAMES = new Set(["Task", "proxy_Task", "Agent"]);
 const SKILL_TOOL_NAMES = new Set(["Skill", "proxy_Skill"]);
@@ -79,7 +79,13 @@ function readStdin() {
       process.stdin.off("data", onData);
       process.stdin.off("end", onEnd);
       process.stdin.off("error", onError);
-      process.stdin.pause();
+      try {
+        process.stdin.pause();
+        process.stdin.unref?.();
+        process.stdin.destroy?.();
+      } catch {
+        // Ignore stream cleanup errors.
+      }
     };
 
     const finish = (value) => {
@@ -236,7 +242,18 @@ function findGitHead(startDir) {
   return null;
 }
 
-function getGitInfo(workspacePath) {
+function resolveGitBin() {
+  if (process.platform === "win32") {
+    const directGit = "C:\\Program Files\\Git\\mingw64\\bin\\git.exe";
+    if (existsSync(directGit)) return directGit;
+  }
+  return "git";
+}
+
+function getGitInfo(workspacePath, data) {
+  if (typeof data?.vcs?.branch === "string" && data.vcs.branch.trim()) {
+    return { branch: data.vcs.branch.trim(), dirty: Boolean(data.vcs.dirty) };
+  }
   if (!workspacePath || !existsSync(workspacePath)) return null;
   const gitLoc = findGitHead(workspacePath);
   if (!gitLoc || !existsSync(gitLoc.headPath)) return null;
@@ -258,43 +275,43 @@ function getGitInfo(workspacePath) {
   const safeRepoKey = createHash("sha1").update(gitLoc.repoRoot).digest("hex").slice(0, 12);
   const cachePath = join(tmpdir(), `claude-hud-git-${safeRepoKey}.json`);
   const now = Date.now();
+  let cachedDirty = false;
   try {
     if (existsSync(cachePath)) {
       const cached = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (cached && cached.branch === branch && Number.isFinite(cached.ts) && now >= cached.ts && now - cached.ts < GIT_CACHE_TTL_MS) {
-        return { branch, dirty: Boolean(cached.dirty) };
+      if (cached && cached.branch === branch && Number.isFinite(cached.ts)) {
+        cachedDirty = Boolean(cached.dirty);
+        if (now >= cached.ts && now - cached.ts < GIT_CACHE_TTL_MS) {
+          return { branch, dirty: cachedDirty };
+        }
       }
     }
   } catch {
     // Ignore cache read error.
   }
 
-  let dirty = false;
-  let gitOk = false;
+  let dirty = cachedDirty;
   try {
     const out = execFileSync(
-      "git",
+      resolveGitBin(),
       ["--no-optional-locks", "status", "--porcelain", "--untracked-files=no"],
       {
         cwd: gitLoc.repoRoot,
-        timeout: 200,
+        timeout: 150,
         encoding: "utf8",
         stdio: ["ignore", "pipe", "ignore"],
         windowsHide: true,
       },
     );
     dirty = Boolean(out && out.trim().length > 0);
-    gitOk = true;
   } catch {
-    dirty = false;
+    // Keep previous cached dirty state and cache the attempt to prevent retry storms under heavy disk I/O.
   }
 
-  if (gitOk) {
-    try {
-      writeFileSync(cachePath, JSON.stringify({ branch, dirty, ts: now }));
-    } catch {
-      // Best effort.
-    }
+  try {
+    writeFileSync(cachePath, JSON.stringify({ branch, dirty, ts: now }));
+  } catch {
+    // Best effort.
   }
 
   return { branch, dirty };
@@ -846,7 +863,7 @@ function renderFromPayload(data) {
     || transcriptSummary.sessionStartTimestamp
     || getOrCreateSessionStart(sessionId);
   const sessionDuration = formatSessionDuration(sessionStart);
-  const gitInfo = getGitInfo(workspacePath);
+  const gitInfo = getGitInfo(workspacePath, data);
   const skillName = transcriptSummary.lastSkill || deriveSkillName(workspacePath, sessionId);
 
   const modelColor = getModelTierColor(model);
@@ -953,6 +970,11 @@ async function fallbackToOmnHud() {
 
 async function main() {
   const stdin = await readStdin();
+  try {
+    process.stdin.unref?.();
+  } catch {
+    // Ignore.
+  }
 
   if (stdin.trim()) {
     try {
@@ -970,11 +992,14 @@ async function main() {
   await fallbackToOmnHud();
 }
 
-process.stdout.on("error", (error) => {
-  if (error?.code === "EPIPE") {
-    process.exit(0);
-  }
-  throw error;
+process.stdout.on("error", () => {
+  process.exit(0);
+});
+process.on("uncaughtException", () => {
+  process.exit(0);
+});
+process.on("unhandledRejection", () => {
+  process.exit(0);
 });
 
 main();
