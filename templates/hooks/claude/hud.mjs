@@ -5,6 +5,8 @@
  * Falls back to the OMC HUD runtime when stdin data is unavailable.
  */
 
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -17,7 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ANSI = {
@@ -38,6 +40,8 @@ const MAX_TAIL_BYTES = 512 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_AGENT_DETAIL_LINES = 5;
 const THINKING_RECENCY_MS = 30_000;
+const STALE_AGENT_MS = 15 * 60_000;
+const GIT_CACHE_TTL_MS = 3_000;
 const THINKING_PART_TYPES = new Set(["thinking", "reasoning"]);
 const AGENT_TOOL_NAMES = new Set(["Task", "proxy_Task", "Agent"]);
 const SKILL_TOOL_NAMES = new Set(["Skill", "proxy_Skill"]);
@@ -87,7 +91,7 @@ function readStdin() {
 
     const armTimer = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => finish(input), 250);
+      timer = setTimeout(() => finish(input), input.trim() ? 50 : 250);
     };
 
     const onData = (chunk) => {
@@ -95,6 +99,16 @@ function readStdin() {
       if (input.length > 1024 * 1024) {
         finish(input.slice(0, 1024 * 1024));
         return;
+      }
+      const trimmed = input.trim();
+      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        try {
+          JSON.parse(trimmed);
+          finish(input);
+          return;
+        } catch {
+          // Incomplete JSON chunk, wait for more data.
+        }
       }
       armTimer();
     };
@@ -156,8 +170,8 @@ function writeContextBridge(sessionId, remainingPercentage, used) {
 function formatSessionDuration(startTimestamp) {
   if (!startTimestamp) return null;
 
-  const startedAt = Date.parse(startTimestamp);
-  if (Number.isNaN(startedAt)) return null;
+  const startedAt = typeof startTimestamp === "number" ? startTimestamp : Date.parse(startTimestamp);
+  if (!Number.isFinite(startedAt)) return null;
 
   const minutes = Math.max(0, Math.floor((Date.now() - startedAt) / 60000));
   if (minutes < 60) return `${minutes}m`;
@@ -166,6 +180,130 @@ function formatSessionDuration(startTimestamp) {
   const remainderMinutes = minutes % 60;
   if (remainderMinutes === 0) return `${hours}h`;
   return `${hours}h${remainderMinutes}m`;
+}
+
+function getOrCreateSessionStart(sessionId) {
+  const safeSessionId = sanitizeSessionId(sessionId);
+  if (!safeSessionId) return null;
+
+  const cachePath = join(tmpdir(), `claude-hud-session-${safeSessionId}.json`);
+  try {
+    if (existsSync(cachePath)) {
+      const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (Number.isFinite(parsed?.startedAt)) {
+        return parsed.startedAt;
+      }
+    }
+  } catch {
+    // Ignore cache read error.
+  }
+
+  const startedAt = Date.now();
+  try {
+    writeFileSync(cachePath, JSON.stringify({ session_id: safeSessionId, startedAt }));
+  } catch {
+    // Best effort.
+  }
+  return startedAt;
+}
+
+function findGitHead(startDir) {
+  let current = startDir;
+  for (let i = 0; i < 10; i++) {
+    const dotGit = join(current, ".git");
+    if (existsSync(dotGit)) {
+      try {
+        const stat = statSync(dotGit);
+        if (stat.isDirectory()) {
+          return { repoRoot: current, headPath: join(dotGit, "HEAD") };
+        }
+        if (stat.isFile()) {
+          const content = readFileSync(dotGit, "utf8");
+          const match = content.match(/^gitdir:\s*(.+)$/m);
+          if (match) {
+            const gitDir = resolve(current, match[1].trim());
+            return { repoRoot: current, headPath: join(gitDir, "HEAD") };
+          }
+        }
+      } catch {
+        return null;
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return null;
+}
+
+function getGitInfo(workspacePath) {
+  if (!workspacePath || !existsSync(workspacePath)) return null;
+  const gitLoc = findGitHead(workspacePath);
+  if (!gitLoc || !existsSync(gitLoc.headPath)) return null;
+
+  let branch = null;
+  try {
+    const head = readFileSync(gitLoc.headPath, "utf8").trim();
+    if (head.startsWith("ref:")) {
+      branch = head.replace(/^ref:\s*(?:refs\/heads\/)?/, "").trim();
+    } else if (head.length >= 7) {
+      branch = head.slice(0, 7);
+    }
+  } catch {
+    return null;
+  }
+
+  if (!branch) return null;
+
+  const safeRepoKey = createHash("sha1").update(gitLoc.repoRoot).digest("hex").slice(0, 12);
+  const cachePath = join(tmpdir(), `claude-hud-git-${safeRepoKey}.json`);
+  const now = Date.now();
+  try {
+    if (existsSync(cachePath)) {
+      const cached = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (cached && cached.branch === branch && Number.isFinite(cached.ts) && now >= cached.ts && now - cached.ts < GIT_CACHE_TTL_MS) {
+        return { branch, dirty: Boolean(cached.dirty) };
+      }
+    }
+  } catch {
+    // Ignore cache read error.
+  }
+
+  let dirty = false;
+  let gitOk = false;
+  try {
+    const out = execFileSync(
+      "git",
+      ["--no-optional-locks", "status", "--porcelain", "--untracked-files=no"],
+      {
+        cwd: gitLoc.repoRoot,
+        timeout: 200,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      },
+    );
+    dirty = Boolean(out && out.trim().length > 0);
+    gitOk = true;
+  } catch {
+    dirty = false;
+  }
+
+  if (gitOk) {
+    try {
+      writeFileSync(cachePath, JSON.stringify({ branch, dirty, ts: now }));
+    } catch {
+      // Best effort.
+    }
+  }
+
+  return { branch, dirty };
+}
+
+function extractSkillFromPath(pathValue) {
+  if (typeof pathValue !== "string" || !pathValue.trim()) return null;
+  const match = pathValue.trim().match(/[/\\]skills[/\\]([^/\\]+)[/\\]SKILL\.md$/i);
+  return match ? match[1] : null;
 }
 
 function normalizeSkillName(skillName) {
@@ -331,7 +469,7 @@ function readTailText(filePath) {
 function getModelTierColor(model) {
   if (!model) return ANSI.cyan;
   const tier = String(model).toLowerCase();
-  if (tier.includes("opus")) return ANSI.magenta;
+  if (tier.includes("opus") || tier.includes("fable")) return ANSI.magenta;
   if (tier.includes("sonnet")) return ANSI.yellow;
   if (tier.includes("haiku")) return ANSI.green;
   return ANSI.cyan;
@@ -483,14 +621,14 @@ function parseTaskOutputResult(content) {
 }
 
 function renderAgentDetailLines(agents) {
+  const now = Date.now();
   const running = [...agents]
-    .filter((agent) => agent.status === "running")
+    .filter((agent) => agent.status === "running" && now - agent.startTime < STALE_AGENT_MS)
     .sort((a, b) => b.startTime - a.startTime);
 
   if (running.length === 0) return [];
 
   const detailLines = [];
-  const now = Date.now();
   const displayCount = Math.min(running.length, MAX_AGENT_DETAIL_LINES);
 
   running.slice(0, MAX_AGENT_DETAIL_LINES).forEach((agent, index) => {
@@ -518,6 +656,7 @@ function renderAgentDetailLines(agents) {
 
 function parseTranscriptSummary(transcriptPath) {
   const summary = {
+    sessionStartTimestamp: null,
     toolCallCount: 0,
     agentCallCount: 0,
     skillCallCount: 0,
@@ -546,6 +685,9 @@ function parseTranscriptSummary(transcriptPath) {
     try {
       const entry = JSON.parse(line);
       const timestamp = parseEventTimestamp(entry?.timestamp);
+      if (!summary.sessionStartTimestamp && timestamp != null) {
+        summary.sessionStartTimestamp = timestamp;
+      }
       const content = entry?.message?.content;
       if (!Array.isArray(content)) continue;
 
@@ -572,6 +714,12 @@ function parseTranscriptSummary(transcriptPath) {
           if (SKILL_TOOL_NAMES.has(block.name)) {
             summary.skillCallCount++;
             summary.lastSkill = normalizeSkillName(block?.input?.skill) || summary.lastSkill;
+          } else if (block.name === "Read" || block.name === "read_file") {
+            const skillFromPath = extractSkillFromPath(block?.input?.file_path || block?.input?.Path);
+            if (skillFromPath) {
+              summary.skillCallCount++;
+              summary.lastSkill = skillFromPath;
+            }
           }
         }
 
@@ -606,11 +754,14 @@ function parseTranscriptSummary(transcriptPath) {
     }
   }
 
-  const runningAgents = [...agentMap.values()].filter((agent) => agent.status === "running");
+  const now = Date.now();
+  const runningAgents = [...agentMap.values()].filter(
+    (agent) => agent.status === "running" && now - agent.startTime < STALE_AGENT_MS,
+  );
   summary.runningAgentCount = runningAgents.length;
   summary.agents = runningAgents;
   if (lastThinkingSeen != null) {
-    summary.thinkingActive = Date.now() - lastThinkingSeen <= THINKING_RECENCY_MS;
+    summary.thinkingActive = now - lastThinkingSeen <= THINKING_RECENCY_MS;
   }
 
   return summary;
@@ -621,7 +772,11 @@ function formatCallCounts(summary) {
 }
 
 function deriveDisplayModel(data, stdinCache) {
-  return data?.model?.display_name || stdinCache?.model?.display_name || null;
+  return data?.model?.display_name
+    || data?.model?.id
+    || stdinCache?.model?.display_name
+    || stdinCache?.model?.id
+    || null;
 }
 
 function deriveWorkspacePath(data, stdinCache) {
@@ -632,49 +787,76 @@ function deriveWorkspacePath(data, stdinCache) {
     || null;
 }
 
-function deriveRemainingPercentage(data, stdinCache) {
-  const value = data?.context_window?.remaining_percentage
-    ?? stdinCache?.context_window?.remaining_percentage
-    ?? null;
+function parseFinitePercentage(raw) {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === "string" && !raw.trim()) return null;
+  const numeric = Number(raw);
+  return Number.isFinite(numeric) ? Math.max(0, Math.min(100, numeric)) : null;
+}
 
-  if (typeof value === "string" && !value.trim()) {
-    return null;
+function deriveRemainingPercentage(data, stdinCache) {
+  const cw = data?.context_window || stdinCache?.context_window;
+  if (!cw || typeof cw !== "object") return null;
+
+  const directRemaining = parseFinitePercentage(cw.remaining_percentage);
+  if (directRemaining != null) return directRemaining;
+
+  const usedPct = parseFinitePercentage(cw.used_percentage);
+  if (usedPct != null) return Math.max(0, Math.min(100, 100 - usedPct));
+
+  const windowSize = Number(cw.context_window_size);
+  const cu = cw.current_usage;
+  if (Number.isFinite(windowSize) && windowSize > 0 && cu && typeof cu === "object") {
+    const sum =
+      (Number(cu.input_tokens) || 0) +
+      (Number(cu.cache_creation_input_tokens) || 0) +
+      (Number(cu.cache_read_input_tokens) || 0);
+    if (sum > 0) {
+      return Math.max(0, Math.min(100, 100 - (sum / windowSize) * 100));
+    }
   }
 
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : null;
+  return null;
 }
 
 function renderFromPayload(data) {
+  if (!data || typeof data !== "object") return null;
+
   const directWorkspacePath = data?.workspace?.current_dir || data?.cwd || null;
   const sessionMeta = deriveSessionMeta(directWorkspacePath);
   const stdinCache = sessionMeta.stdinCache;
-  const workspacePath = deriveWorkspacePath(data, stdinCache);
-  if (!workspacePath) return null;
+  const workspacePath = deriveWorkspacePath(data, stdinCache) || process.cwd();
 
   const resolvedSessionMeta = workspacePath === directWorkspacePath
     ? sessionMeta
     : deriveSessionMeta(workspacePath);
   const activeStdinCache = resolvedSessionMeta.stdinCache;
   const model = deriveDisplayModel(data, activeStdinCache);
-  const remainingPercentage = deriveRemainingPercentage(data, activeStdinCache);
 
-  if (!model || remainingPercentage == null) {
+  if (!model) {
     return null;
   }
 
+  const remainingPercentage = deriveRemainingPercentage(data, activeStdinCache);
   const sessionId = data?.session_id || resolvedSessionMeta.sessionId;
-  const sessionDuration = formatSessionDuration(resolvedSessionMeta.sessionStartTimestamp);
   const transcriptSummary = parseTranscriptSummary(
     deriveTranscriptPath(workspacePath, sessionId, activeStdinCache, data),
   );
+  const sessionStart = resolvedSessionMeta.sessionStartTimestamp
+    || transcriptSummary.sessionStartTimestamp
+    || getOrCreateSessionStart(sessionId);
+  const sessionDuration = formatSessionDuration(sessionStart);
+  const gitInfo = getGitInfo(workspacePath);
   const skillName = transcriptSummary.lastSkill || deriveSkillName(workspacePath, sessionId);
-  const used = calculateUsedContext(remainingPercentage);
-  writeContextBridge(sessionId, remainingPercentage, used);
+
+  const modelColor = getModelTierColor(model);
+  const gitBadge = gitInfo
+    ? ` ${ANSI.cyan}(${gitInfo.branch}${gitInfo.dirty ? `${ANSI.yellow}*${ANSI.cyan}` : ""})${ANSI.reset}`
+    : "";
 
   const leadingParts = [
-    `${ANSI.bold}${model}${ANSI.reset}`,
-    `${ANSI.dim}${workspacePath}${ANSI.reset}`,
+    `${ANSI.bold}${modelColor}${model}${ANSI.reset}`,
+    `${ANSI.dim}${workspacePath}${ANSI.reset}${gitBadge}`,
   ];
   const trailingParts = [];
 
@@ -690,7 +872,12 @@ function renderFromPayload(data) {
     trailingParts.push(`${ANSI.cyan}skill:${skillName}${ANSI.reset}`);
   }
 
-  trailingParts.push(formatContext(remainingPercentage));
+  if (remainingPercentage != null) {
+    const used = calculateUsedContext(remainingPercentage);
+    writeContextBridge(sessionId, remainingPercentage, used);
+    trailingParts.push(formatContext(remainingPercentage));
+  }
+
   trailingParts.push(`${ANSI.cyan}agents:${transcriptSummary.runningAgentCount}${ANSI.reset}`);
   trailingParts.push(`${ANSI.dim}${formatCallCounts(transcriptSummary)}${ANSI.reset}`);
 

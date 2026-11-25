@@ -5,6 +5,7 @@
  */
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   closeSync,
   existsSync,
@@ -37,6 +38,7 @@ const MAX_HEAD_BYTES = 8 * 1024;
 const MAX_AGENT_DETAIL_LINES = 5;
 const THINKING_RECENCY_MS = 30_000;
 const STALE_AGENT_MS = 15 * 60_000;
+const GIT_CACHE_TTL_MS = 3_000;
 const AGENT_TOOL_NAMES = new Set(["invoke_subagent", "run_workflow"]);
 
 function sanitizeSessionId(sessionId) {
@@ -74,7 +76,7 @@ function readStdin() {
 
     const armTimer = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => finish(input), 200);
+      timer = setTimeout(() => finish(input), input.trim() ? 50 : 200);
     };
 
     const onData = (chunk) => {
@@ -82,6 +84,16 @@ function readStdin() {
       if (input.length > 1024 * 1024) {
         finish(input.slice(0, 1024 * 1024));
         return;
+      }
+      const trimmed = input.trim();
+      if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+        try {
+          JSON.parse(trimmed);
+          finish(input);
+          return;
+        } catch {
+          // Incomplete JSON chunk, wait for more data.
+        }
       }
       armTimer();
     };
@@ -287,11 +299,26 @@ function getGitInfo(workspacePath) {
 
   if (!branch) return null;
 
+  const safeRepoKey = createHash("sha1").update(gitLoc.repoRoot).digest("hex").slice(0, 12);
+  const cachePath = join(tmpdir(), `agy-hud-git-${safeRepoKey}.json`);
+  const now = Date.now();
+  try {
+    if (existsSync(cachePath)) {
+      const cached = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (cached && cached.branch === branch && Number.isFinite(cached.ts) && now >= cached.ts && now - cached.ts < GIT_CACHE_TTL_MS) {
+        return { branch, dirty: Boolean(cached.dirty) };
+      }
+    }
+  } catch {
+    // Ignore cache read error.
+  }
+
   let dirty = false;
+  let gitOk = false;
   try {
     const out = execFileSync(
       "git",
-      ["status", "--porcelain", "--untracked-files=no"],
+      ["--no-optional-locks", "status", "--porcelain", "--untracked-files=no"],
       {
         cwd: gitLoc.repoRoot,
         timeout: 200,
@@ -301,8 +328,17 @@ function getGitInfo(workspacePath) {
       },
     );
     dirty = Boolean(out && out.trim().length > 0);
+    gitOk = true;
   } catch {
     dirty = false;
+  }
+
+  if (gitOk) {
+    try {
+      writeFileSync(cachePath, JSON.stringify({ branch, dirty, ts: now }));
+    } catch {
+      // Best effort.
+    }
   }
 
   return { branch, dirty };
@@ -487,7 +523,7 @@ function parseTranscriptSummary(transcriptPath) {
 
   let lastThinkingSeen = null;
   const activeSubagents = new Map();
-  let lastLaunchedSubagent = null;
+  const pendingSubagents = [];
 
   for (const line of tail.split(/\r?\n/)) {
     if (!line.trim()) continue;
@@ -526,7 +562,7 @@ function parseTranscriptSummary(transcriptPath) {
             status: "running",
             startTime: timestamp ?? Date.now(),
           };
-          lastLaunchedSubagent = agentEntry;
+          pendingSubagents.push(agentEntry);
           activeSubagents.set(agentEntry.id, agentEntry);
         } else if (tc.name === "swarm") {
           const action = unwrapArgString(args.action);
@@ -540,6 +576,7 @@ function parseTranscriptSummary(transcriptPath) {
           const action = unwrapArgString(args.Action);
           if (action === "kill_all") {
             activeSubagents.clear();
+            pendingSubagents.length = 0;
           } else if (action === "kill") {
             const ids = unwrapArgString(args.ConversationIds);
             for (const key of activeSubagents.keys()) {
@@ -556,18 +593,28 @@ function parseTranscriptSummary(transcriptPath) {
       }
     }
 
-    // Bind returned conversationId or detect subagent completion message
+    // Bind returned conversationId (FIFO) or detect subagent completion / server restart message
     if (entry?.type === "GENERIC" && typeof entry?.content === "string") {
       const idMatch = entry.content.match(/conversation[_\s]?id["'\s:=]+([0-9a-f-]{8,})/i);
-      if (idMatch && lastLaunchedSubagent && lastLaunchedSubagent.id.startsWith("pending-")) {
-        activeSubagents.delete(lastLaunchedSubagent.id);
-        lastLaunchedSubagent.id = idMatch[1];
-        activeSubagents.set(lastLaunchedSubagent.id, lastLaunchedSubagent);
-        lastLaunchedSubagent = null;
+      if (idMatch) {
+        while (pendingSubagents.length > 0) {
+          const nextPending = pendingSubagents.shift();
+          if (nextPending && activeSubagents.has(nextPending.id)) {
+            activeSubagents.delete(nextPending.id);
+            nextPending.id = idMatch[1];
+            activeSubagents.set(nextPending.id, nextPending);
+            break;
+          }
+        }
       }
     }
 
     if (typeof entry?.content === "string" && activeSubagents.size > 0) {
+      if (entry.content.includes("All your subagents and background tasks have been stopped")) {
+        activeSubagents.clear();
+        pendingSubagents.length = 0;
+        continue;
+      }
       for (const [subId, agent] of activeSubagents.entries()) {
         if (
           !subId.startsWith("pending-") &&
