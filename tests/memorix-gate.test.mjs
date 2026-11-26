@@ -37,6 +37,7 @@ test('antigravity memorix-gate: start reminds once per session and skips after m
     assert.ok(Array.isArray(first.injectSteps) && first.injectSteps.length === 1);
     const sys = first.injectSteps[0].systemMessage;
     assert.match(sys?.systemMessage || '', /memorix_project_context/);
+    assert.match(sys?.systemMessage || '', /memorix_session_start/);
     assert.match(sys?.metadata?.user_markdown || '', /memorix_project_context/);
 
     const second = runHook('templates/hooks/antigravity/memorix-gate.mjs', 'start', { conversationId: sid, transcriptPath: t.file });

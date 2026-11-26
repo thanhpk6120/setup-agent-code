@@ -116,16 +116,42 @@ export function which(cmd) {
   return results[0];
 }
 
+/** Rewrite an fnm versioned installation path to `<fnm>/aliases/default/...` when default points to it. */
+export function preferFnmDefaultAlias(resolvedPath) {
+  if (!resolvedPath) return resolvedPath;
+  const text = String(resolvedPath);
+  const match = text.match(/^(.*[/\\]fnm)[/\\]node-versions[/\\][^/\\]+[/\\]installation((?:[/\\].*)?)$/i);
+  if (!match) return resolvedPath;
+  const fnmRoot = match[1];
+  const suffix = match[2] || '';
+  const versionDir = text.slice(0, text.length - suffix.length);
+  const defaultAlias = path.join(fnmRoot, 'aliases', 'default');
+  if (!exists(defaultAlias)) return resolvedPath;
+  try {
+    const aliasReal = path.resolve(fs.realpathSync(defaultAlias));
+    const versionReal = path.resolve(fs.realpathSync(versionDir));
+    const same = isWin
+      ? aliasReal.toLowerCase() === versionReal.toLowerCase()
+      : aliasReal === versionReal;
+    if (!same) return resolvedPath;
+    const rel = suffix.replace(/^[/\\]+/, '');
+    const candidate = rel ? path.join(defaultAlias, rel) : defaultAlias;
+    return exists(candidate) ? candidate : resolvedPath;
+  } catch {
+    return resolvedPath;
+  }
+}
+
 export function resolveStableBin(cmd) {
   const found = which(cmd);
   if (found && /[/\\]fnm_multishells[/\\]/i.test(found)) {
     let realDir = path.dirname(process.execPath);
     try { realDir = path.dirname(fs.realpathSync(process.execPath)); } catch {}
     const sibling = path.join(realDir, isWin ? `${cmd}.cmd` : cmd);
-    if (exists(sibling) && !/[/\\]fnm_multishells[/\\]/i.test(sibling)) return sibling;
+    if (exists(sibling) && !/[/\\]fnm_multishells[/\\]/i.test(sibling)) return preferFnmDefaultAlias(sibling);
     return cmd;
   }
-  return found || cmd;
+  return found ? preferFnmDefaultAlias(found) : cmd;
 }
 
 export function versionOf(cmd, args = ['--version'], timeout = 15000) {
@@ -202,7 +228,7 @@ export function resolveNpmPath(relative) {
   if (/[/\\]fnm_multishells[/\\]/i.test(root)) {
     try { root = fs.realpathSync(root); } catch {}
   }
-  return path.join(root, ...relative.split('/'));
+  return preferFnmDefaultAlias(path.join(root, ...relative.split('/')));
 }
 
 /** Version compare for x.y.z strings. Returns true when a >= b. */
