@@ -11,7 +11,7 @@ Manage the Stop-hook Independent Reviewer configuration stored at `~/.gemini/ant
 
 - `model`:
   - Subagent tiers (runs via `invoke_subagent`): `"inherit"` | `"flash_lite"` | `"flash"` | `"pro"` (default: `"inherit"`)
-  - Exact model ID (runs via `review-gate.mjs --run` using `agy` `stdin` `stream-json`, passing full `git diff` or non-git file contents up to ~120 KB in 1 turn, auto-filtering lockfiles, with temporary patch file fallback cleaned to Trash after review, 180s timeout): any model ID from `agy models` matching `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$` (e.g., `"gemini-4-neon-high"`, `"gemini-4-neon-medium"`, `"claude-sonnet-5-5-high"`, `"claude-opus-5-5-medium"`)
+  - Exact model ID (runs via `review-gate.mjs --run` using `agy` `stdin` `stream-json`, passing full `git diff` or non-git file contents up to ~120 KB in 1 turn, auto-filtering lockfiles, with temporary patch file fallback cleaned to Trash after review, 600s timeout): any model ID from `agy models` matching `^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$` (e.g., `"gemini-4-neon-high"`, `"gemini-4-neon-medium"`, `"claude-sonnet-5-5-high"`, `"claude-opus-5-5-medium"`)
 - `enabled`: `true` | `false` (default: `true`)
 
 ## Behavior by Argument

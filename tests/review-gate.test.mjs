@@ -292,6 +292,7 @@ test('antigravity review-gate supports exact model IDs via agy CLI, rejects unsa
   assert.ok(rExact.reason.includes('gemini-4-neon-high'));
   assert.ok(rExact.reason.includes('review-gate.mjs'));
   assert.ok(rExact.reason.includes('--run --files "src/app.js"'));
+  assert.ok(rExact.reason.includes('NotificationTimeoutSeconds: 615'));
   assert.ok(!rExact.reason.includes('invoke_subagent'));
 
   const rUnsafe = runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: transcript }, unsafeCfg);
@@ -307,12 +308,12 @@ test('antigravity review-gate supports exact model IDs via agy CLI, rejects unsa
     {}
   );
 
-  // Direct `agy --print "..."` (without prior flags) and POSIX `REVIEW_GATE_SKIP=1 agy ...` also clear review gate.
+  // Direct `agy --print` with matching `--model` and POSIX `REVIEW_GATE_SKIP=1 agy ...` clear review gate.
   const directPrintTranscript = path.join(dir, 'agy-direct.jsonl');
   fs.writeFileSync(directPrintTranscript, [
     JSON.stringify({ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }),
     JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', arguments: { Path: 'src/app.js' } }] }),
-    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'agy --print "Review diff"' } }] })
+    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'agy --model gemini-4-neon-high --print "Review diff"' } }] })
   ].join('\n'));
   assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: directPrintTranscript }, exactCfg), {});
 
@@ -320,20 +321,23 @@ test('antigravity review-gate supports exact model IDs via agy CLI, rejects unsa
   fs.writeFileSync(posixTranscript, [
     JSON.stringify({ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }),
     JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', arguments: { Path: 'src/app.js' } }] }),
-    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: "REVIEW_GATE_SKIP='1' C:/bin/agy.exe -p \"Review diff\"" } }] })
+    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: "REVIEW_GATE_SKIP='1' C:/bin/agy.exe --model gemini-4-neon-high -p \"Review diff\"" } }] })
   ].join('\n'));
   assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: posixTranscript }, exactCfg), {});
 
   for (const validCmd of [
-    'agy --print="Review diff"',
-    '"C:\\bin\\agy.exe" --print "Review diff"',
-    'agy.cmd -p="Review diff"',
-    'agy.ps1 --print "Review diff"',
-    'agy --cwd "x `"--print`"" --print "Review diff"',
-    'agy --model chat --print "Review diff"',
-    'agy --cwd chat --print "Review diff"',
-    'agy --prompt "Review diff"',
+    'agy --model gemini-4-neon-high --print="Review diff"',
+    'agy --print "Review diff" --model gemini-4-neon-high',
+    'agy --model=gemini-4-neon-high --print "Review diff"',
+    '"C:\\bin\\agy.exe" --model "gemini-4-neon-high" --print "Review diff"',
+    'agy.cmd --model gemini-4-neon-high -p="Review diff"',
+    'agy.ps1 --model gemini-4-neon-high --print "Review diff"',
+    'agy --cwd "x `"--print`"" --model gemini-4-neon-high --print "Review diff"',
+    'agy --cwd chat --model gemini-4-neon-high --print "Review diff"',
+    'agy --model gemini-4-neon-high --prompt "Review diff"',
     'node "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --files "src/app.js"',
+    'node "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --model gemini-4-neon-high --files "src/app.js"',
+    'node "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --model=gemini-4-neon-high --files "src/app.js"',
     'node --no-warnings "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --files "src/app.js"'
   ]) {
     const t = path.join(dir, `agy-${Math.random().toString(36).slice(2, 8)}.jsonl`);
@@ -355,6 +359,73 @@ test('antigravity review-gate supports exact model IDs via agy CLI, rejects unsa
     }]
   })}`);
   assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: transcript }, exactCfg), {});
+});
+
+test('antigravity review-gate enforces exact model ID against subagents and mismatched CLI models', () => {
+  const dir = makeTempDir();
+  const exactCfg = path.join(dir, 'exact.json');
+  const inheritCfg = path.join(dir, 'inherit.json');
+  const proCfg = path.join(dir, 'pro.json');
+  fs.writeFileSync(exactCfg, JSON.stringify({ enabled: true, model: 'gemini-4-neon-high' }));
+  fs.writeFileSync(inheritCfg, JSON.stringify({ enabled: true, model: 'inherit' }));
+  fs.writeFileSync(proCfg, JSON.stringify({ enabled: true, model: 'pro' }));
+
+  // Exact model configured: invoke_subagent / run_workflow / swarm add must NOT satisfy Review Gate.
+  for (const call of [
+    { name: 'invoke_subagent', args: { TypeName: 'research', Role: 'Independent Reviewer' } },
+    { name: 'run_workflow', args: { Description: 'review' } },
+    { name: 'swarm', args: { action: 'add', name: 'reviewer' } }
+  ]) {
+    const t = path.join(dir, `sub-${call.name}.jsonl`);
+    fs.writeFileSync(t, [
+      JSON.stringify({ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }),
+      JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', arguments: { Path: 'src/app.js' } }] }),
+      JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [call] })
+    ].join('\n'));
+    const res = runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: t }, exactCfg);
+    assert.equal(res.decision, 'continue', call.name);
+    assert.ok(res.reason.includes('review-gate.mjs'), call.name);
+    assert.ok(!res.reason.includes('invoke_subagent'), call.name);
+  }
+
+  // Exact model configured: mismatched --model on review-gate.mjs --run or missing/mismatched --model on agy --print must still block.
+  for (const invalidCmd of [
+    'node "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --model flash --files "src/app.js"',
+    'node "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --model=pro --files "src/app.js"',
+    'node "C:/mock-home/.gemini/antigravity-cli/hooks/review-gate.mjs" --run --model',
+    'agy --print "Review diff"',
+    'agy --model flash --print "Review diff"',
+    'agy --model chat --print "Review diff"',
+    'agy --print "Review diff" --model gemini-4-neon-high --model flash'
+  ]) {
+    const t = path.join(dir, `bad-${Math.random().toString(36).slice(2, 8)}.jsonl`);
+    fs.writeFileSync(t, [
+      JSON.stringify({ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }),
+      JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', arguments: { Path: 'src/app.js' } }] }),
+      JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: invalidCmd } }] })
+    ].join('\n'));
+    const res = runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: t }, exactCfg);
+    assert.equal(res.decision, 'continue', invalidCmd);
+  }
+
+  // Tier configs (inherit / pro): invoke_subagent and direct agy --print without --model still pass.
+  const subTranscript = path.join(dir, 'tier-sub.jsonl');
+  fs.writeFileSync(subTranscript, [
+    JSON.stringify({ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }),
+    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', arguments: { Path: 'src/app.js' } }] }),
+    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'invoke_subagent', args: { TypeName: 'research' } }] })
+  ].join('\n'));
+  assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: subTranscript }, inheritCfg), {});
+  assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: subTranscript }, proCfg), {});
+
+  const tierPrintTranscript = path.join(dir, 'tier-print.jsonl');
+  fs.writeFileSync(tierPrintTranscript, [
+    JSON.stringify({ type: 'USER_INPUT', source: 'USER_EXPLICIT', content: 'fix bug' }),
+    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'edit_file', arguments: { Path: 'src/app.js' } }] }),
+    JSON.stringify({ type: 'PLANNER_RESPONSE', tool_calls: [{ name: 'run_command', args: { CommandLine: 'agy --print "Review diff"' } }] })
+  ].join('\n'));
+  assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: tierPrintTranscript }, inheritCfg), {});
+  assert.deepEqual(runHook({ terminationReason: 'NO_TOOL_CALL', continuationActive: false, transcriptPath: tierPrintTranscript }, proCfg), {});
 });
 
 test('antigravity review-gate --run collects inline git diff, untracked files, non-git files, and caps size', () => {
@@ -515,6 +586,11 @@ test('antigravity review-gate --run collects inline git diff, untracked files, n
     'if (!process.argv.includes("--print=")) {',
     '  console.error("missing --print= arg:", JSON.stringify(process.argv));',
     '  process.exit(3);',
+    '}',
+    'const timeoutIdx = process.argv.indexOf("--print-timeout");',
+    'if (timeoutIdx === -1 || process.argv[timeoutIdx + 1] !== "600s") {',
+    '  console.error("expected --print-timeout 600s:", JSON.stringify(process.argv));',
+    '  process.exit(5);',
     '}',
     'if (process.argv.includes("fail-model")) {',
     '  console.log(JSON.stringify({ event: "result", result: { status: "ERROR", response: "" } }));',

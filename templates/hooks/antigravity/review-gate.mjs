@@ -200,7 +200,12 @@ function splitShellStatements(cmd) {
   return statements;
 }
 
-function isCliReviewCall(call) {
+function isExactModelConfig(config) {
+  const model = typeof config?.model === 'string' ? config.model.trim() : '';
+  return Boolean(model) && !SUBAGENT_TIERS.has(model);
+}
+
+function isCliReviewCall(call, expectedExactModel = null) {
   const name = String(call?.name || call?.toolName || '').toLowerCase();
   if (!SHELL_TOOLS.has(name)) return false;
   const args = call?.args || call?.arguments || {};
@@ -219,6 +224,8 @@ function isCliReviewCall(call) {
     const bin = stmt[idx].text.split(/[/\\]/).pop().toLowerCase();
     if (AGY_BINS.has(bin)) {
       let seenPositional = false;
+      let hasPrint = false;
+      let modelVal = null;
       for (let j = idx + 1; j < stmt.length; j++) {
         if (stmt[j].startsQuoted) continue;
         const flag = stmt[j].text;
@@ -227,7 +234,17 @@ function isCliReviewCall(call) {
           flag === '--print' || flag === '-p' || flag === '--prompt' ||
           flag.startsWith('--print=') || flag.startsWith('-p=') || flag.startsWith('--prompt=')
         ) {
-          return true;
+          hasPrint = true;
+          continue;
+        }
+        if (flag === '--model') {
+          modelVal = j + 1 < stmt.length ? stmt[j + 1].text.trim() : '';
+          j += 1;
+          continue;
+        }
+        if (flag.startsWith('--model=')) {
+          modelVal = flag.slice('--model='.length).trim();
+          continue;
         }
         if (!flag.includes('=') && AGY_VALUE_FLAGS.has(flag)) {
           j += 1;
@@ -235,8 +252,14 @@ function isCliReviewCall(call) {
         }
         if (!flag.startsWith('-') && !seenPositional) {
           seenPositional = true;
-          if (AGY_NON_PRINT_SUBCOMMANDS.has(flag.toLowerCase())) break;
+          if (!hasPrint && AGY_NON_PRINT_SUBCOMMANDS.has(flag.toLowerCase())) {
+            hasPrint = false;
+            break;
+          }
         }
+      }
+      if (hasPrint && (!expectedExactModel || modelVal === expectedExactModel)) {
+        return true;
       }
     } else if (NODE_BINS.has(bin) && idx + 1 < stmt.length) {
       let scriptIdx = -1;
@@ -259,14 +282,28 @@ function isCliReviewCall(call) {
         if (scriptBase === 'review-gate.mjs') {
           let hasRun = false;
           let hasDryRun = false;
+          let hasModelFlag = false;
+          let modelVal = '';
           for (let j = scriptIdx + 1; j < stmt.length; j++) {
             if (stmt[j].startsQuoted) continue;
             const flag = stmt[j].text;
             if (flag === '--') break;
             if (flag === '--run') hasRun = true;
-            if (flag === '--dry-run') hasDryRun = true;
+            else if (flag === '--dry-run') hasDryRun = true;
+            else if (flag === '--model') {
+              hasModelFlag = true;
+              modelVal = j + 1 < stmt.length ? stmt[j + 1].text.trim() : '';
+              j += 1;
+            } else if (flag.startsWith('--model=')) {
+              hasModelFlag = true;
+              modelVal = flag.slice('--model='.length).trim();
+            } else if (flag === '--cwd' || flag === '--max-inline-chars') {
+              j += 1;
+            }
           }
-          if (hasRun && !hasDryRun) return true;
+          if (hasRun && !hasDryRun && (!expectedExactModel || !hasModelFlag || modelVal === expectedExactModel)) {
+            return true;
+          }
         }
       }
     }
@@ -274,14 +311,17 @@ function isCliReviewCall(call) {
   return false;
 }
 
-function isReviewCall(call) {
-  const name = call?.name || call?.toolName || '';
-  if (REVIEW_TOOLS.has(name)) return true;
-  if (name === 'swarm') {
-    const action = call?.args?.action || call?.arguments?.action;
-    return action === 'add';
+function isReviewCall(call, config = DEFAULT_CONFIG) {
+  const exactModel = isExactModelConfig(config) ? config.model.trim() : null;
+  if (!exactModel) {
+    const name = call?.name || call?.toolName || '';
+    if (REVIEW_TOOLS.has(name)) return true;
+    if (name === 'swarm') {
+      const action = call?.args?.action || call?.arguments?.action;
+      return action === 'add';
+    }
   }
-  return isCliReviewCall(call);
+  return isCliReviewCall(call, exactModel);
 }
 
 function extractEditedPath(call) {
@@ -289,7 +329,7 @@ function extractEditedPath(call) {
   return unquoteArg(String(args.Path || args.path || args.TargetFile || args.file || '')).trim();
 }
 
-function analyzeTurn(steps) {
+function analyzeTurn(steps, config = DEFAULT_CONFIG) {
   let lastEditSeq = -1;
   let lastReviewSeq = -1;
   let seq = 0;
@@ -307,7 +347,7 @@ function analyzeTurn(steps) {
         if (p) editedPathsAfterReview.push({ seq, path: p });
         else hasUnreviewedUnknownEdit = true;
       }
-      if (isReviewCall(call)) lastReviewSeq = seq;
+      if (isReviewCall(call, config)) lastReviewSeq = seq;
     }
   }
 
@@ -988,14 +1028,14 @@ async function runCliReview(argv) {
   agyArgs.push(
     '--model', rawModel,
     '--disable-slash-commands',
-    '--print-timeout', '180s',
+    '--print-timeout', '600s',
     '--input-format', 'stream-json',
     '--output-format', 'stream-json',
     '--print='
   );
   const launch = resolveAgyLaunch(agyBin, agyArgs);
   const rawTimeout = Number(process.env.REVIEW_GATE_TIMEOUT_MS);
-  const timeoutMs = Number.isInteger(rawTimeout) && rawTimeout > 0 ? rawTimeout : 190_000;
+  const timeoutMs = Number.isInteger(rawTimeout) && rawTimeout > 0 ? rawTimeout : 610_000;
 
   try {
     const res = await spawnAsyncReview(launch, {
@@ -1095,7 +1135,7 @@ async function main() {
   try {
     const transcriptPath = payload.transcriptPath || payload.transcript_path;
     const steps = getCurrentTurnSteps(transcriptPath);
-    const analysis = analyzeTurn(steps);
+    const analysis = analyzeTurn(steps, config);
     if (analysis.needsReview) {
       const targetHint = analysis.files.length ? ` (${analysis.files.map((f) => path.basename(f)).join(', ')})` : '';
       const scriptPath = SELF_SCRIPT.split(path.sep).join('/');
@@ -1105,7 +1145,7 @@ async function main() {
         : `node ${formatShellFileArg(scriptPath)} --run`;
       const invokeHint = SUBAGENT_TIERS.has(config.model)
         ? `Hãy gọi \`invoke_subagent\` với \`TypeName: "research"\`, \`Model: "${config.model}"\` (dùng \`/advisor\` để đổi model hoặc tắt/bật), \`Role: "Independent Reviewer"\` để kiểm tra nhanh:`
-        : `Hãy chạy review độc lập 1-lượt bằng đúng model \`${config.model}\` (tự đính kèm \`git diff\` hoặc nội dung file nếu không có git) qua \`run_command\` với lệnh \`${cliHint}\` (đặt \`NotificationTimeoutSeconds: 195\`; sau khi task chạy nền hoàn tất hãy đọc kết quả review, sửa lỗi thật nếu có rồi mới trả lời kết luận cho người dùng; dùng \`/advisor\` để đổi model hoặc tắt/bật):`;
+        : `Hãy chạy review độc lập 1-lượt bằng đúng model \`${config.model}\` (tự đính kèm \`git diff\` hoặc nội dung file nếu không có git) qua \`run_command\` với lệnh \`${cliHint}\` (đặt \`NotificationTimeoutSeconds: 615\`; sau khi task chạy nền hoàn tất hãy đọc kết quả review, sửa lỗi thật nếu có rồi mới trả lời kết luận cho người dùng; dùng \`/advisor\` để đổi model hoặc tắt/bật):`;
       process.stdout.write(`${JSON.stringify({
         decision: 'continue',
         reason: [
