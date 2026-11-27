@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * OMC HUD - Statusline Script
- * Renders a compact HUD from Claude Code statusline stdin payload.
+ * Renders a 2-line (or compact) HUD from Claude Code statusline stdin payload
+ * + transcript.jsonl (TodoWrite/TaskCreate/TaskUpdate, subagents, skills) + OMC state.
  * Falls back to the OMC HUD runtime when stdin data is unavailable.
  */
 
@@ -19,7 +20,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const ANSI = {
@@ -32,11 +33,13 @@ const ANSI = {
   redBlink: "\x1b[5;31m",
   cyan: "\x1b[36m",
   magenta: "\x1b[35m",
+  blue: "\x1b[34m",
   reset: "\x1b[0m",
 };
 
 const AUTO_COMPACT_BUFFER_PCT = 16.5;
 const MAX_TAIL_BYTES = 512 * 1024;
+const MAX_HEAD_BYTES = 8 * 1024;
 const MAX_JSON_BYTES = 1024 * 1024;
 const MAX_AGENT_DETAIL_LINES = 5;
 const THINKING_RECENCY_MS = 30_000;
@@ -46,6 +49,22 @@ const THINKING_PART_TYPES = new Set(["thinking", "reasoning"]);
 const AGENT_TOOL_NAMES = new Set(["Task", "proxy_Task", "Agent"]);
 const SKILL_TOOL_NAMES = new Set(["Skill", "proxy_Skill"]);
 
+const DEFAULT_HUD_CONFIG = {
+  layout: "two-line",
+  showCost: true,
+  showQuota: true,
+  showReviewGate: true,
+  showChecklist: true,
+  showMode: true,
+};
+
+function toFiniteNumber(val) {
+  if (val === null || val === undefined) return null;
+  if (typeof val === "string" && !val.trim()) return null;
+  const n = Number(val);
+  return Number.isFinite(n) ? n : null;
+}
+
 function readJson(filePath) {
   try {
     const stat = statSync(filePath);
@@ -54,6 +73,20 @@ function readJson(filePath) {
   } catch {
     return null;
   }
+}
+
+function loadHudConfig() {
+  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const parsed = readJson(join(configDir, "hud-config.json"));
+  if (!parsed || typeof parsed !== "object") return { ...DEFAULT_HUD_CONFIG };
+  return {
+    layout: parsed.layout === "compact" ? "compact" : "two-line",
+    showCost: parsed.showCost !== false,
+    showQuota: parsed.showQuota !== false,
+    showReviewGate: parsed.showReviewGate !== false,
+    showChecklist: parsed.showChecklist !== false,
+    showMode: parsed.showMode !== false,
+  };
 }
 
 function sanitizeSessionId(sessionId) {
@@ -145,12 +178,57 @@ function colorizeContext(used) {
   return ANSI.redBlink;
 }
 
-function formatContext(remainingPercentage) {
+function formatCompactTokens(tokens) {
+  if (!Number.isFinite(tokens) || tokens <= 0) return null;
+  if (tokens >= 1_000_000) {
+    const val = tokens / 1_000_000;
+    return Number.isInteger(val) ? `${val}M` : `${val.toFixed(1)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${Math.round(tokens / 1_000)}k`;
+  }
+  return String(Math.round(tokens));
+}
+
+function deriveContextDetails(data, stdinCache) {
+  const cw = data?.context_window || stdinCache?.context_window;
+  if (!cw || typeof cw !== "object") {
+    return { currentTokens: null, windowSize: null, cacheHitPct: null };
+  }
+
+  const ws = Number(cw.context_window_size);
+  const windowSize = Number.isFinite(ws) && ws > 0 ? ws : null;
+  let currentTokens = null;
+  let cacheHitPct = null;
+
+  const cu = cw.current_usage;
+  if (cu && typeof cu === "object") {
+    const inputTok = Number(cu.input_tokens) || 0;
+    const cacheCreateTok = Number(cu.cache_creation_input_tokens) || 0;
+    const cacheReadTok = Number(cu.cache_read_input_tokens) || 0;
+    const sum = inputTok + cacheCreateTok + cacheReadTok;
+    if (sum > 0) {
+      currentTokens = sum;
+      if (cacheReadTok > 0) {
+        cacheHitPct = Math.max(0, Math.min(100, Math.round((cacheReadTok / sum) * 100)));
+      }
+    }
+  }
+  return { currentTokens, windowSize, cacheHitPct };
+}
+
+function formatContext(remainingPercentage, details) {
   const used = calculateUsedContext(remainingPercentage);
   const filled = Math.floor(used / 10);
   const bar = "█".repeat(filled) + "░".repeat(10 - filled);
   const color = colorizeContext(used);
-  return `${color}${bar} ${used}%${ANSI.reset}`;
+
+  const curStr = formatCompactTokens(details?.currentTokens);
+  const maxStr = formatCompactTokens(details?.windowSize);
+  const tokenSuffix = curStr && maxStr ? ` ${ANSI.dim}(${curStr}/${maxStr})${ANSI.reset}` : "";
+  const cacheSuffix = details?.cacheHitPct != null ? ` ${ANSI.dim}⚡${details.cacheHitPct}%${ANSI.reset}` : "";
+
+  return `${color}${bar} ${used}%${ANSI.reset}${tokenSuffix}${cacheSuffix}`;
 }
 
 function writeContextBridge(sessionId, remainingPercentage, used) {
@@ -386,13 +464,17 @@ function deriveSessionMeta(workspacePath) {
   };
 }
 
-function deriveActiveMode(workspacePath, sessionId) {
+function deriveActiveModeState(workspacePath, sessionId) {
   const modes = ["ralph", "autopilot", "ultrawork", "team", "ultraqa"];
 
   for (const mode of modes) {
     const state = readSessionState(workspacePath, sessionId, `${mode}-state.json`);
     if (state?.active) {
-      return mode;
+      return {
+        mode,
+        iteration: toFiniteNumber(state.iteration),
+        maxIterations: toFiniteNumber(state.max_iterations ?? state.maxIterations),
+      };
     }
   }
 
@@ -400,9 +482,6 @@ function deriveActiveMode(workspacePath, sessionId) {
 }
 
 function deriveSkillName(workspacePath, sessionId) {
-  const activeMode = deriveActiveMode(workspacePath, sessionId);
-  if (activeMode) return activeMode;
-
   const state = readSessionState(workspacePath, sessionId, "skill-active-state.json");
   if (state?.active && typeof state.skill_name === "string" && state.skill_name.trim()) {
     return normalizeSkillName(state.skill_name);
@@ -458,28 +537,34 @@ function deriveTranscriptPath(workspacePath, sessionId, stdinCache, data) {
   );
 }
 
-function readTailText(filePath) {
+function readHeadAndTail(filePath) {
   try {
     const { size } = statSync(filePath);
     if (size <= MAX_TAIL_BYTES) {
-      return readFileSync(filePath, "utf8");
+      return { head: "", tail: readFileSync(filePath, "utf8") };
     }
 
-    const start = size - MAX_TAIL_BYTES;
     const fd = openSync(filePath, "r");
-    const buffer = Buffer.alloc(MAX_TAIL_BYTES);
-
     try {
+      const headLen = Math.min(MAX_HEAD_BYTES, size);
+      const headBuf = Buffer.alloc(headLen);
+      readSync(fd, headBuf, 0, headLen, 0);
+
+      const start = size - MAX_TAIL_BYTES;
+      const buffer = Buffer.alloc(MAX_TAIL_BYTES);
       readSync(fd, buffer, 0, MAX_TAIL_BYTES, start);
+
+      const text = buffer.toString("utf8");
+      const firstNewline = text.indexOf("\n");
+      return {
+        head: headBuf.toString("utf8"),
+        tail: firstNewline === -1 ? text : text.slice(firstNewline + 1),
+      };
     } finally {
       closeSync(fd);
     }
-
-    const text = buffer.toString("utf8");
-    const firstNewline = text.indexOf("\n");
-    return firstNewline === -1 ? text : text.slice(firstNewline + 1);
   } catch {
-    return null;
+    return { head: "", tail: null };
   }
 }
 
@@ -637,6 +722,24 @@ function parseTaskOutputResult(content) {
   return null;
 }
 
+function summarizeTodos(todos) {
+  if (!Array.isArray(todos) || todos.length === 0) return null;
+  let done = 0;
+  let current = null;
+  for (const t of todos) {
+    if (!t || typeof t !== "object") continue;
+    const st = String(t.status || "").toLowerCase();
+    if (st === "completed") done += 1;
+    else if (st === "in_progress" && !current) {
+      current = String(t.activeForm || t.content || t.subject || "")
+        .replace(/[\r\n]+/g, " ")
+        .trim()
+        .slice(0, 32);
+    }
+  }
+  return { done, total: todos.length, current };
+}
+
 function renderAgentDetailLines(agents) {
   const now = Date.now();
   const running = [...agents]
@@ -679,6 +782,7 @@ function parseTranscriptSummary(transcriptPath) {
     skillCallCount: 0,
     runningAgentCount: 0,
     lastSkill: null,
+    checklist: null,
     thinkingActive: false,
     agents: [],
   };
@@ -687,16 +791,34 @@ function parseTranscriptSummary(transcriptPath) {
     return summary;
   }
 
-  const raw = readTailText(transcriptPath);
-  if (!raw) {
+  const { head, tail } = readHeadAndTail(transcriptPath);
+  if (!tail) {
     return summary;
+  }
+
+  if (head) {
+    for (const hLine of head.split(/\r?\n/)) {
+      if (!hLine.trim()) continue;
+      try {
+        const ts = parseEventTimestamp(JSON.parse(hLine)?.timestamp);
+        if (ts != null) {
+          summary.sessionStartTimestamp = ts;
+          break;
+        }
+      } catch {
+        // Ignore malformed or partial boundary line.
+      }
+    }
   }
 
   const agentMap = new Map();
   const backgroundAgentMap = new Map();
+  const taskMap = new Map();
+  const pendingTaskCreates = new Map();
+  let taskSeq = 0;
   let lastThinkingSeen = null;
 
-  for (const line of raw.split(/\r?\n/)) {
+  for (const line of tail.split(/\r?\n/)) {
     if (!line.trim()) continue;
 
     try {
@@ -715,6 +837,32 @@ function parseTranscriptSummary(transcriptPath) {
 
         if (block?.type === "tool_use" && block.id && typeof block.name === "string") {
           summary.toolCallCount++;
+
+          if (block.name === "TodoWrite") {
+            if (Array.isArray(block?.input?.todos)) {
+              summary.checklist = summarizeTodos(block.input.todos);
+            }
+          } else if (block.name === "TaskCreate") {
+            pendingTaskCreates.set(block.id, {
+              subject: block?.input?.subject || "",
+              activeForm: block?.input?.activeForm || "",
+              status: "pending",
+            });
+          } else if (block.name === "TaskUpdate") {
+            const tid = String(block?.input?.taskId || "").trim();
+            if (tid) {
+              if (block?.input?.status === "deleted") {
+                taskMap.delete(tid);
+              } else {
+                const existing = taskMap.get(tid) || { subject: "", activeForm: "", status: "pending" };
+                if (block?.input?.status) existing.status = block.input.status;
+                if (block?.input?.subject) existing.subject = block.input.subject;
+                if (block?.input?.activeForm) existing.activeForm = block.input.activeForm;
+                taskMap.set(tid, existing);
+              }
+              summary.checklist = summarizeTodos([...taskMap.values()]);
+            }
+          }
 
           if (AGENT_TOOL_NAMES.has(block.name)) {
             summary.agentCallCount++;
@@ -741,6 +889,20 @@ function parseTranscriptSummary(transcriptPath) {
         }
 
         if (block?.type === "tool_result" && block.tool_use_id) {
+          const pendingTask = pendingTaskCreates.get(block.tool_use_id);
+          if (pendingTask) {
+            pendingTaskCreates.delete(block.tool_use_id);
+            if (!block.is_error) {
+              const resText = extractTextContent(block.content);
+              const idMatch = resText.match(/Task\s*#([a-zA-Z0-9_-]+)/i)
+                || resText.match(/["'](?:taskId|task_id|id)["']\s*[:=]\s*["']?([a-zA-Z0-9_-]+)/i);
+              taskSeq += 1;
+              const resolvedId = idMatch ? idMatch[1] : String(taskSeq);
+              taskMap.set(resolvedId, pendingTask);
+              summary.checklist = summarizeTodos([...taskMap.values()]);
+            }
+          }
+
           const agent = agentMap.get(block.tool_use_id);
           if (agent) {
             const blockText = extractTextContent(block.content);
@@ -786,6 +948,123 @@ function parseTranscriptSummary(transcriptPath) {
 
 function formatCallCounts(summary) {
   return `🔧 ${summary.toolCallCount} 🤖 ${summary.agentCallCount} ⚡ ${summary.skillCallCount}`;
+}
+
+function formatCostAndLines(costObj) {
+  if (!costObj || typeof costObj !== "object") return null;
+  const parts = [];
+  const usd = Number(costObj.total_cost_usd ?? costObj.total_usd);
+  if (Number.isFinite(usd) && usd > 0) {
+    parts.push(`${ANSI.green}${usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`}${ANSI.reset}`);
+  }
+  const added = Number(costObj.total_lines_added) || 0;
+  const removed = Number(costObj.total_lines_removed) || 0;
+  if (added > 0 || removed > 0) {
+    parts.push(`${ANSI.green}+${added}${ANSI.reset}${ANSI.dim}/${ANSI.reset}${ANSI.red}-${removed}${ANSI.reset}`);
+  }
+  return parts.length > 0 ? parts.join(" ") : null;
+}
+
+function formatResetShort(val) {
+  const sec = toFiniteNumber(val?.reset_in_seconds);
+  const ts = sec !== null && sec > 0
+    ? sec
+    : (() => {
+        const raw = val?.resets_at ?? val?.reset_time;
+        const n = toFiniteNumber(raw);
+        if (n !== null) {
+          const ms = n > 1e12 ? n : n * 1000;
+          return ms > Date.now() ? (ms - Date.now()) / 1000 : 0;
+        }
+        if (typeof raw === "string" && raw.trim()) {
+          const parsed = Date.parse(raw);
+          return Number.isFinite(parsed) && parsed > Date.now() ? (parsed - Date.now()) / 1000 : 0;
+        }
+        return 0;
+      })();
+  if (ts <= 0) return "";
+  if (ts < 3600) return `/${Math.max(1, Math.round(ts / 60))}m`;
+  if (ts < 86400) return `/${Math.round(ts / 3600)}h`;
+  return `/${Math.round(ts / 86400)}d`;
+}
+
+function formatRateLimits(rateLimits, quota) {
+  if (rateLimits && typeof rateLimits === "object") {
+    const parts = [];
+    for (const [label, bucket] of [["5h", rateLimits.five_hour], ["7d", rateLimits.seven_day]]) {
+      if (!bucket || typeof bucket !== "object") continue;
+      const used = toFiniteNumber(bucket.used_percentage);
+      if (used === null) continue;
+      const rem = Math.max(0, Math.min(100, Math.round(100 - used)));
+      const color = rem >= 50 ? ANSI.green : rem >= 20 ? ANSI.yellow : ANSI.red;
+      parts.push(`${color}${label}:${rem}%${formatResetShort(bucket)}${ANSI.reset}`);
+    }
+    if (parts.length > 0) return parts.join(" ");
+  }
+  if (quota && typeof quota === "object") {
+    let fiveHour = null;
+    let weekly = null;
+    let lowest = null;
+    for (const [key, val] of Object.entries(quota)) {
+      if (!val || typeof val !== "object" || val.disabled) continue;
+      const frac = toFiniteNumber(val.remaining_fraction);
+      if (frac === null) continue;
+      const pct = Math.max(0, Math.min(100, Math.round(frac * 100)));
+      const item = { pct, reset: formatResetShort(val) };
+      if (!lowest || pct < lowest.pct) lowest = item;
+      const win = typeof val.window === "string" ? val.window.toLowerCase() : "";
+      if (win === "5h" || /5h|five[_-]?hour/i.test(key)) {
+        if (!fiveHour || pct < fiveHour.pct) fiveHour = item;
+      } else if (win === "weekly" || /weekly|7d|seven[_-]?day/i.test(key)) {
+        if (!weekly || pct < weekly.pct) weekly = item;
+      }
+    }
+    if (fiveHour || weekly) {
+      const parts = [];
+      for (const [label, item] of [["5h", fiveHour], ["7d", weekly]]) {
+        if (!item) continue;
+        const color = item.pct >= 50 ? ANSI.green : item.pct >= 20 ? ANSI.yellow : ANSI.red;
+        parts.push(`${color}${label}:${item.pct}%${item.reset}${ANSI.reset}`);
+      }
+      return parts.join(" ");
+    }
+    if (lowest) {
+      const color = lowest.pct >= 50 ? ANSI.green : lowest.pct >= 20 ? ANSI.yellow : ANSI.red;
+      return `${color}Q:${lowest.pct}%${lowest.reset}${ANSI.reset}`;
+    }
+  }
+  return null;
+}
+
+function formatPermissionMode(mode) {
+  if (!mode) return null;
+  const trimmed = String(mode).trim();
+  const lower = trimmed.toLowerCase();
+  if (!lower || lower === "default") return null;
+  if (lower === "plan") return `${ANSI.magenta}plan${ANSI.reset}`;
+  if (lower === "bypasspermissions" || lower === "dontask") return `${ANSI.yellow}${trimmed}${ANSI.reset}`;
+  if (lower === "acceptedits") return `${ANSI.green}acceptEdits${ANSI.reset}`;
+  return `${ANSI.cyan}${trimmed}${ANSI.reset}`;
+}
+
+function readReviewGateBadge() {
+  const configDir = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude");
+  const cfg = readJson(join(configDir, "review-gate.json"));
+  if (!cfg || typeof cfg !== "object") return null;
+  if (cfg.enabled === false) return `${ANSI.dim}RG:off${ANSI.reset}`;
+  const model = typeof cfg.model === "string" ? cfg.model.trim() : "";
+  if (!model || model === "inherit") return null;
+  return `${ANSI.dim}RG:${model.slice(0, 18)}${ANSI.reset}`;
+}
+
+function formatWorkspacePath(workspacePath, terminalWidth) {
+  if (!workspacePath) return "";
+  if (Number.isFinite(terminalWidth) && terminalWidth > 0 && terminalWidth < 120 && workspacePath.length > 36) {
+    const base = basename(workspacePath);
+    const parent = basename(dirname(workspacePath));
+    return parent ? `…/${parent}/${base}` : `…/${base}`;
+  }
+  return workspacePath;
 }
 
 function deriveDisplayModel(data, stdinCache) {
@@ -839,6 +1118,7 @@ function deriveRemainingPercentage(data, stdinCache) {
 function renderFromPayload(data) {
   if (!data || typeof data !== "object") return null;
 
+  const cfg = loadHudConfig();
   const directWorkspacePath = data?.workspace?.current_dir || data?.cwd || null;
   const sessionMeta = deriveSessionMeta(directWorkspacePath);
   const stdinCache = sessionMeta.stdinCache;
@@ -855,6 +1135,7 @@ function renderFromPayload(data) {
   }
 
   const remainingPercentage = deriveRemainingPercentage(data, activeStdinCache);
+  const contextDetails = deriveContextDetails(data, activeStdinCache);
   const sessionId = data?.session_id || resolvedSessionMeta.sessionId;
   const transcriptSummary = parseTranscriptSummary(
     deriveTranscriptPath(workspacePath, sessionId, activeStdinCache, data),
@@ -864,46 +1145,68 @@ function renderFromPayload(data) {
     || getOrCreateSessionStart(sessionId);
   const sessionDuration = formatSessionDuration(sessionStart);
   const gitInfo = getGitInfo(workspacePath, data);
+  const activeMode = cfg.showMode ? deriveActiveModeState(workspacePath, sessionId) : null;
   const skillName = transcriptSummary.lastSkill || deriveSkillName(workspacePath, sessionId);
+  const modeBadge = formatPermissionMode(data?.permission_mode) || formatPermissionMode(data?.cycle_mode);
+  const costText = cfg.showCost ? formatCostAndLines(data?.cost) : null;
+  const rateText = cfg.showQuota ? formatRateLimits(data?.rate_limits, data?.quota) : null;
+  const rgBadge = cfg.showReviewGate ? readReviewGateBadge() : null;
 
   const modelColor = getModelTierColor(model);
+  const displayWorkspace = formatWorkspacePath(workspacePath, Number(data?.terminal_width));
   const gitBadge = gitInfo
     ? ` ${ANSI.cyan}(${gitInfo.branch}${gitInfo.dirty ? `${ANSI.yellow}*${ANSI.cyan}` : ""})${ANSI.reset}`
     : "";
 
-  const leadingParts = [
-    `${ANSI.bold}${modelColor}${model}${ANSI.reset}`,
-    `${ANSI.dim}${workspacePath}${ANSI.reset}${gitBadge}`,
-  ];
-  const trailingParts = [];
-
-  if (transcriptSummary.thinkingActive) {
-    trailingParts.push(`${ANSI.cyan}thinking${ANSI.reset}`);
+  const line1Parts = [`${ANSI.bold}${modelColor}${model}${ANSI.reset}`];
+  if (data?.agent?.name && data.agent.name !== "default") {
+    line1Parts.push(`${ANSI.magenta}@${data.agent.name}${ANSI.reset}`);
   }
-
-  if (sessionDuration) {
-    trailingParts.push(`${ANSI.cyan}session:${sessionDuration}${ANSI.reset}`);
+  if (modeBadge) line1Parts.push(modeBadge);
+  if (data?.output_style?.name && data.output_style.name !== "default") {
+    line1Parts.push(`${ANSI.dim}style:${data.output_style.name}${ANSI.reset}`);
   }
+  if (data?.vim?.mode) line1Parts.push(`${ANSI.blue}VIM:${data.vim.mode}${ANSI.reset}`);
+  line1Parts.push(`${ANSI.dim}${displayWorkspace}${ANSI.reset}${gitBadge}`);
 
-  if (skillName) {
-    trailingParts.push(`${ANSI.cyan}skill:${skillName}${ANSI.reset}`);
+  if (activeMode) {
+    const iterSuffix = activeMode.iteration != null
+      ? ` #${activeMode.iteration}${activeMode.maxIterations != null ? `/${activeMode.maxIterations}` : ""}`
+      : "";
+    line1Parts.push(`${ANSI.bold}${ANSI.magenta}🎯 ${activeMode.mode.toUpperCase()}${iterSuffix}${ANSI.reset}`);
   }
+  if (rgBadge) line1Parts.push(rgBadge);
 
+  const line2Parts = [];
   if (remainingPercentage != null) {
     const used = calculateUsedContext(remainingPercentage);
     writeContextBridge(sessionId, remainingPercentage, used);
-    trailingParts.push(formatContext(remainingPercentage));
+    line2Parts.push(formatContext(remainingPercentage, contextDetails));
+  }
+  if (costText) line2Parts.push(costText);
+  if (rateText) line2Parts.push(rateText);
+  if (sessionDuration) line2Parts.push(`${ANSI.cyan}session:${sessionDuration}${ANSI.reset}`);
+  if (transcriptSummary.thinkingActive) line2Parts.push(`${ANSI.cyan}thinking${ANSI.reset}`);
+  if (skillName) line2Parts.push(`${ANSI.cyan}skill:${skillName}${ANSI.reset}`);
+
+  if (cfg.showChecklist && transcriptSummary.checklist) {
+    const { done, total, current } = transcriptSummary.checklist;
+    const curLabel = current ? `: ${current}` : "";
+    line2Parts.push(`${ANSI.cyan}☑ ${done}/${total}${curLabel}${ANSI.reset}`);
   }
 
-  trailingParts.push(`${ANSI.cyan}agents:${transcriptSummary.runningAgentCount}${ANSI.reset}`);
-  trailingParts.push(`${ANSI.dim}${formatCallCounts(transcriptSummary)}${ANSI.reset}`);
+  line2Parts.push(`${ANSI.cyan}agents:${transcriptSummary.runningAgentCount}${ANSI.reset}`);
+  line2Parts.push(`${ANSI.dim}${formatCallCounts(transcriptSummary)}${ANSI.reset}`);
 
-  const leading = leadingParts.join(` ${ANSI.dim}│${ANSI.reset} `);
-  const header = trailingParts.length === 0
-    ? leading
-    : `${leading} ${ANSI.dim}|${ANSI.reset} ${trailingParts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+  const sepPipe = ` ${ANSI.dim}│${ANSI.reset} `;
+  let header;
+  if (cfg.layout === "compact") {
+    header = `${line1Parts.join(sepPipe)} ${ANSI.dim}|${ANSI.reset} ${line2Parts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+  } else {
+    header = `${line1Parts.join(sepPipe)}\n${line2Parts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+  }
+
   const detailLines = renderAgentDetailLines(transcriptSummary.agents);
-
   return detailLines.length > 0 ? `${header}\n${detailLines.join("\n")}` : header;
 }
 

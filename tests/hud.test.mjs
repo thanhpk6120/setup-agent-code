@@ -201,3 +201,234 @@ test('hud scripts exit immediately when stdin stays open after JSON payload', as
   assert.ok(claudeRes.elapsedMs < 1000, `Claude HUD took too long: ${claudeRes.elapsedMs}ms`);
   assert.match(claudeRes.stdout, /\(main\*\)/);
 });
+
+test('antigravity hud: renders Tier 1-3 fields, /goal lifecycle + >512KB persistence, checklist, phase, and layout', () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agy-hud-t3-'));
+  const sessionId = 'sess-goal-1';
+  const goalCacheFile = path.join(os.tmpdir(), `agy-hud-goal-${sessionId}.json`);
+  try {
+    const agyDir = path.join(tmpHome, '.gemini', 'antigravity-cli');
+    const logDir = path.join(agyDir, 'brain', sessionId, '.system_generated', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    fs.writeFileSync(path.join(agyDir, 'review-gate.json'), JSON.stringify({ enabled: true, model: 'gemini-4-neon-high' }));
+
+    const transcriptPath = path.join(logDir, 'transcript.jsonl');
+    const nowIso = new Date().toISOString();
+    const entries = [
+      {
+        type: 'USER_INPUT',
+        source: 'USER_EXPLICIT',
+        created_at: nowIso,
+        content: '<USER_REQUEST>/goal</USER_REQUEST>\n/goal is a [Slash Command]: run overnight',
+      },
+      {
+        type: 'SYSTEM_MESSAGE',
+        source: 'SYSTEM',
+        created_at: nowIso,
+        content: 'Plan mode is off: execute now',
+      },
+      {
+        type: 'PLANNER_RESPONSE',
+        model: 'gemini-4-hydrogen-medium',
+        created_at: nowIso,
+        tool_calls: [
+          {
+            name: 'update_steps',
+            args: {
+              steps: [
+                { title: 'Read files', status: 'done' },
+                { title: 'Edit HUD script', status: 'in_progress' },
+                { title: 'Run tests', status: 'pending' },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        type: 'USER_INPUT',
+        source: 'SYSTEM',
+        created_at: nowIso,
+        content: 'Goal stop hook reminder: include <!-- GOAL_COMPLETE --> when done.',
+      },
+    ];
+    fs.writeFileSync(transcriptPath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+
+    const payload = {
+      session_id: sessionId,
+      transcript_path: transcriptPath,
+      agent_state: 'working',
+      cycle_mode: 'auto',
+      sandbox: { enabled: true },
+      vim: { mode: 'NORMAL' },
+      model: { display_name: 'Orchestrator (Neon)', effort: 'high' },
+      workspace: { current_dir: path.join(tmpHome, 'deep', 'nested', 'workspace', 'my-cool-repo') },
+      terminal_width: 90,
+      exceeds_200k_tokens: true,
+      task_count: 2,
+      artifact_count: 3,
+      pending_input_count: 1,
+      cost: { total_usd: 0.42, subagent_usd: 0.05, estimated: true },
+      quota: {
+        'gemini-5h': { remaining_fraction: 0.98, reset_in_seconds: 7200 },
+        'gemini-weekly': { remaining_fraction: 0.45, reset_in_seconds: 172800 },
+        '3p-5h': { remaining_fraction: 0.8, reset_in_seconds: 3600 },
+        '3p-weekly': { remaining_fraction: 0.9, reset_in_seconds: 345600 },
+      },
+      context_window: {
+        used_percentage: 32,
+        context_window_size: 1000000,
+        current_usage: { input_tokens: 100000, cache_read_input_tokens: 300000 },
+      },
+      subagents: [{ name: 'research', role: 'Codebase Explorer', status: 'running' }],
+    };
+
+    const out = runHud(AGY_HUD, payload, tmpHome);
+    assert.doesNotMatch(out, /undefined/);
+    const lines = out.split('\n');
+    assert.ok(lines.length >= 3, `Expected 2 header lines + subagent line, got:\n${out}`);
+    assert.match(lines[0], /● WORK/);
+    assert.match(lines[0], /Orchestrator \(Neon\) \[Exec:4-hydrogen-medium\]|Orchestrator \(Neon\) \[Exec:hydrogen-medium\]/);
+    assert.match(lines[0], /auto/);
+    assert.match(lines[0], /🔒SBX/);
+    assert.match(lines[0], /VIM:NORMAL/);
+    assert.match(lines[0], /…\/workspace\/my-cool-repo/);
+    assert.match(lines[0], /🎯 GOAL .* #1/);
+    assert.match(lines[0], /RG:4-neon-high|RG:neon-high/);
+    assert.match(lines[1], /32% \(400k\/1M\) ⚡75%/);
+    assert.doesNotMatch(lines[1], />200k/);
+    assert.match(lines[1], /~\$0\.42 \(sub:\$0\.05\)/);
+    assert.match(lines[1], /5h:98%\/2h 7d:45%\/2d/);
+    assert.match(lines[1], /☑ 1\/3: Edit HUD script/);
+    assert.match(lines[1], /tasks:2/);
+    assert.match(lines[1], /📄3/);
+    assert.match(lines[1], /📥1/);
+    assert.match(lines[1], /agents:1/);
+    assert.match(lines[2], /Codebase Explorer/);
+
+    // Claude model selects 3p-* 5h + 7d quota buckets
+    const out3p = runHud(AGY_HUD, { ...payload, model: { display_name: 'Claude Sonnet 5.5' }, subagents: [] }, tmpHome);
+    assert.match(out3p, /5h:80%\/1h 7d:90%\/4d/);
+
+    // Scroll transcript past 512 KB without any goal markers -> cached active /goal must persist!
+    // Also verify null remaining_fraction does NOT render false Q:0%/5h:0%/7d:0%, new reminder increments to #2 without double-counting,
+    // and inline `<!-- GOAL_COMPLETE -->` inside text does NOT close the goal prematurely.
+    const filler = JSON.stringify({ type: 'PLANNER_RESPONSE', model: 'gemini-4-hydrogen-medium', content: 'x'.repeat(1024) });
+    fs.appendFileSync(transcriptPath, `${Array(600).fill(filler).join('\n')}\n`, 'utf8');
+    fs.appendFileSync(
+      transcriptPath,
+      [
+        JSON.stringify({ type: 'USER_INPUT', source: 'SYSTEM', step_index: 900, created_at: nowIso, content: 'Reminder: <!-- GOAL_COMPLETE -->' }),
+        JSON.stringify({ type: 'PLANNER_RESPONSE', created_at: nowIso, content: 'Discussing `<!-- GOAL_COMPLETE -->` in docs' }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+    const outScrolled1 = runHud(AGY_HUD, { ...payload, quota: { 'gemini-weekly': { remaining_fraction: null } } }, tmpHome);
+    const outScrolled2 = runHud(AGY_HUD, { ...payload, quota: { 'gemini-weekly': { remaining_fraction: null } } }, tmpHome);
+    assert.match(outScrolled1, /🎯 GOAL .* #2/);
+    assert.match(outScrolled2, /🎯 GOAL .* #2/);
+    assert.doesNotMatch(outScrolled1, /Q:0%|5h:0%|7d:0%/);
+
+    // tool_confirmation_pending overrides state badge + compact layout works
+    fs.writeFileSync(path.join(agyDir, 'hud-config.json'), JSON.stringify({ layout: 'compact' }));
+    const outWait = runHud(AGY_HUD, { ...payload, tool_confirmation_pending: true, subagents: [] }, tmpHome);
+    assert.equal(outWait.split('\n').length, 1);
+    assert.match(outWait, /⚠ WAIT y\/n/);
+
+    // Goal completion marker switches badge to ✓ GOAL and persists across subsequent renders within 60s
+    fs.appendFileSync(
+      transcriptPath,
+      `${JSON.stringify({ type: 'PLANNER_RESPONSE', created_at: new Date().toISOString(), content: 'Done <!-- GOAL_COMPLETE -->' })}\n`,
+      'utf8',
+    );
+    const outDone1 = runHud(AGY_HUD, { ...payload, cycle_mode: 'default', permission_mode: 'plan', subagents: [] }, tmpHome);
+    const outDone2 = runHud(AGY_HUD, { ...payload, cycle_mode: 'default', permission_mode: 'plan', subagents: [] }, tmpHome);
+    assert.match(outDone1, /✓ GOAL/);
+    assert.match(outDone2, /✓ GOAL/);
+    assert.match(outDone1, /plan/);
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    fs.rmSync(goalCacheFile, { force: true });
+  }
+});
+
+test('claude hud: renders Tier 1-3 fields (cost, lines, rate_limits, cache%, TodoWrite, OMC mode, review-gate)', () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-hud-t3-'));
+  try {
+    const claudeDir = path.join(tmpHome, '.claude');
+    const projDir = path.join(claudeDir, 'projects', 'proj-t3');
+    const wsDir = path.join(tmpHome, 'work', 'very-long-folder-name', 'claude-demo-app');
+    const omcStateDir = path.join(wsDir, '.omc', 'state');
+    fs.mkdirSync(projDir, { recursive: true });
+    fs.mkdirSync(omcStateDir, { recursive: true });
+
+    fs.writeFileSync(path.join(claudeDir, 'review-gate.json'), JSON.stringify({ enabled: true, model: 'opus' }));
+    fs.writeFileSync(path.join(omcStateDir, 'ralph-state.json'), JSON.stringify({ active: true, iteration: 2, max_iterations: 5 }));
+
+    const transcriptPath = path.join(projDir, 'sess-c3.jsonl');
+    const nowIso = new Date().toISOString();
+    const entries = [
+      {
+        timestamp: nowIso,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              id: 'todo1',
+              name: 'TodoWrite',
+              input: {
+                todos: [
+                  { content: 'Setup', status: 'completed' },
+                  { content: 'Implement HUD', activeForm: 'Implementing HUD', status: 'in_progress' },
+                  { content: 'Verify', status: 'pending' },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    ];
+    fs.writeFileSync(transcriptPath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+
+    const payload = {
+      session_id: 'sess-c3',
+      transcript_path: transcriptPath,
+      model: { display_name: 'Claude Sonnet 4.5' },
+      agent: { name: 'reviewer' },
+      permission_mode: 'acceptEdits',
+      output_style: { name: 'concise' },
+      vim: { mode: 'INSERT' },
+      workspace: { current_dir: wsDir },
+      terminal_width: 100,
+      exceeds_200k_tokens: true,
+      cost: { total_cost_usd: 1.25, total_lines_added: 42, total_lines_removed: 7 },
+      rate_limits: {
+        five_hour: { used_percentage: 20 },
+        seven_day: { used_percentage: 85 },
+      },
+      context_window: {
+        remaining_percentage: 70,
+        context_window_size: 200000,
+        current_usage: { input_tokens: 20000, cache_read_input_tokens: 40000 },
+      },
+    };
+
+    const out = runHud(CLAUDE_HUD, payload, tmpHome);
+    const lines = out.split('\n');
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /Claude Sonnet 4\.5/);
+    assert.match(lines[0], /@reviewer/);
+    assert.match(lines[0], /acceptEdits/);
+    assert.match(lines[0], /style:concise/);
+    assert.match(lines[0], /VIM:INSERT/);
+    assert.match(lines[0], /…\/very-long-folder-name\/claude-demo-app/);
+    assert.match(lines[0], /🎯 RALPH #2\/5/);
+    assert.match(lines[0], /RG:opus/);
+    assert.match(lines[1], /36% \(60k\/200k\) ⚡67%/);
+    assert.doesNotMatch(lines[1], />200k/);
+    assert.match(lines[1], /\$1\.25 \+42\/-7/);
+    assert.match(lines[1], /5h:80% 7d:15%/);
+    assert.match(lines[1], /☑ 1\/3: Implementing HUD/);
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
