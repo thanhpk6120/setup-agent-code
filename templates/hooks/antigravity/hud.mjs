@@ -244,14 +244,14 @@ function formatContext(contextWindow) {
   const { usedPct, currentTokens, windowSize, cacheHitPct } = deriveContextUsage(contextWindow);
   if (usedPct == null) return null;
 
-  const filled = Math.floor(usedPct / 10);
+  const filled = usedPct > 0 ? Math.max(1, Math.min(10, Math.round(usedPct / 10))) : 0;
   const bar = "█".repeat(filled) + "░".repeat(10 - filled);
   const color = colorizeContext(usedPct);
 
   const curStr = formatCompactTokens(currentTokens);
   const maxStr = formatCompactTokens(windowSize);
   const tokenSuffix = curStr && maxStr ? ` ${ANSI.dim}(${curStr}/${maxStr})${ANSI.reset}` : "";
-  const cacheSuffix = cacheHitPct != null ? ` ${ANSI.dim}⚡${cacheHitPct}%${ANSI.reset}` : "";
+  const cacheSuffix = cacheHitPct != null ? ` ${ANSI.dim}💾 ${cacheHitPct}%${ANSI.reset}` : "";
 
   return `${color}${bar} ${usedPct}%${ANSI.reset}${tokenSuffix}${cacheSuffix}`;
 }
@@ -779,11 +779,21 @@ function parseTranscriptSummary(transcriptPath, sessionId) {
       }
     }
 
+    // Antigravity Orchestrator always starts every explicit user turn in Plan phase
+    // regardless of permission/cycle mode (accept-edits/auto/default); Exec begins
+    // only after exit_plan_mode or "Plan mode is off:".
+    if (entry?.type === "USER_INPUT" && entry?.source === "USER_EXPLICIT") {
+      summary.orchestratorPhase = "plan";
+      summary.lastModel = null;
+    }
+
     if (entry?.source === "SYSTEM" || entry?.type === "SYSTEM_MESSAGE") {
       if (entryContent.includes("Plan mode is off:")) {
         summary.orchestratorPhase = "exec";
-      } else if (entryContent.includes("[plan review due]")) {
+        summary.lastModel = null;
+      } else if (entryContent.includes("[plan review")) {
         summary.orchestratorPhase = "plan";
+        summary.lastModel = null;
       }
     }
 
@@ -796,8 +806,10 @@ function parseTranscriptSummary(transcriptPath, sessionId) {
 
         if (tc.name === "exit_plan_mode") {
           summary.orchestratorPhase = "exec";
+          summary.lastModel = null;
         } else if (tc.name === "enter_plan_mode") {
           summary.orchestratorPhase = "plan";
+          summary.lastModel = null;
         } else if (tc.name === "update_steps") {
           const parsedSteps = parseStepsArg(args.steps);
           if (parsedSteps) summary.checklist = parsedSteps;
@@ -1118,12 +1130,19 @@ function renderFromPayload(data) {
 
   const modelColor = getModelTierColor(modelName);
   let modelLabel = modelName;
-  if (/orchestrator/i.test(modelName) && transcriptSummary.lastModel) {
+  if (/orchestrator/i.test(modelName)) {
     const isPlanCycle = activeMode?.toLowerCase() === "plan";
+    // Fallback to cycle_mode when no phase marker exists in the 512 KB tail (e.g. fresh/scrolled session).
     const phaseTag = (transcriptSummary.orchestratorPhase === "plan" || (!transcriptSummary.orchestratorPhase && isPlanCycle))
       ? "Plan"
-      : "Exec";
-    modelLabel += ` ${ANSI.dim}[${phaseTag}:${shortenModelName(transcriptSummary.lastModel)}]${ANSI.reset}`;
+      : transcriptSummary.orchestratorPhase === "exec"
+        ? "Exec"
+        : null;
+    if (transcriptSummary.lastModel) {
+      modelLabel += ` ${ANSI.dim}[${phaseTag || "Exec"}:${shortenModelName(transcriptSummary.lastModel)}]${ANSI.reset}`;
+    } else if (phaseTag) {
+      modelLabel += ` ${ANSI.dim}[${phaseTag}]${ANSI.reset}`;
+    }
   } else if (data?.model?.effort && !modelName.toLowerCase().includes(String(data.model.effort).toLowerCase())) {
     modelLabel += ` ${ANSI.dim}[${data.model.effort}]${ANSI.reset}`;
   }
@@ -1151,7 +1170,16 @@ function renderFromPayload(data) {
   if (costText) line2Parts.push(costText);
   if (quotaText) line2Parts.push(quotaText);
   if (sessionDuration) line2Parts.push(`${ANSI.cyan}session:${sessionDuration}${ANSI.reset}`);
-  if (transcriptSummary.thinkingActive) line2Parts.push(`${ANSI.cyan}thinking${ANSI.reset}`);
+  const agentStateLower = typeof data?.agent_state === "string" ? data.agent_state.toLowerCase() : "";
+  const isIdleOrStopped =
+    data?.tool_confirmation_pending === true ||
+    agentStateLower === "idle" ||
+    agentStateLower === "error" ||
+    agentStateLower === "initializing" ||
+    agentStateLower === "authenticating";
+  if (transcriptSummary.thinkingActive && !isIdleOrStopped) {
+    line2Parts.push(`${ANSI.cyan}thinking${ANSI.reset}`);
+  }
   if (transcriptSummary.lastSkill) line2Parts.push(`${ANSI.cyan}skill:${transcriptSummary.lastSkill}${ANSI.reset}`);
 
   if (cfg.showChecklist && transcriptSummary.checklist) {
@@ -1164,15 +1192,17 @@ function renderFromPayload(data) {
   if (Number(data?.artifact_count) > 0) line2Parts.push(`${ANSI.dim}📄${data.artifact_count}${ANSI.reset}`);
   if (Number(data?.pending_input_count) > 0) line2Parts.push(`${ANSI.yellow}📥${data.pending_input_count}${ANSI.reset}`);
 
-  line2Parts.push(`${ANSI.cyan}agents:${runningCount}${ANSI.reset}`);
+  if (runningCount > 0) line2Parts.push(`${ANSI.cyan}agents:${runningCount}${ANSI.reset}`);
   line2Parts.push(`${ANSI.dim}${formatCallCounts(transcriptSummary)}${ANSI.reset}`);
 
   const sepPipe = ` ${ANSI.dim}│${ANSI.reset} `;
   let header;
   if (cfg.layout === "compact") {
-    header = `${line1Parts.join(sepPipe)} ${ANSI.dim}|${ANSI.reset} ${line2Parts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+    header = line2Parts.length > 0
+      ? `${line1Parts.join(sepPipe)}${sepPipe}${line2Parts.join(sepPipe)}`
+      : line1Parts.join(sepPipe);
   } else {
-    header = `${line1Parts.join(sepPipe)}\n${line2Parts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+    header = `${line1Parts.join(sepPipe)}\n${line2Parts.join(sepPipe)}`;
   }
 
   const detailLines = renderAgentDetailLines(runningAgents);

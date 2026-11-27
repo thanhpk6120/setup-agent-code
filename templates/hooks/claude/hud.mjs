@@ -219,14 +219,14 @@ function deriveContextDetails(data, stdinCache) {
 
 function formatContext(remainingPercentage, details) {
   const used = calculateUsedContext(remainingPercentage);
-  const filled = Math.floor(used / 10);
+  const filled = used > 0 ? Math.max(1, Math.min(10, Math.round(used / 10))) : 0;
   const bar = "█".repeat(filled) + "░".repeat(10 - filled);
   const color = colorizeContext(used);
 
   const curStr = formatCompactTokens(details?.currentTokens);
   const maxStr = formatCompactTokens(details?.windowSize);
   const tokenSuffix = curStr && maxStr ? ` ${ANSI.dim}(${curStr}/${maxStr})${ANSI.reset}` : "";
-  const cacheSuffix = details?.cacheHitPct != null ? ` ${ANSI.dim}⚡${details.cacheHitPct}%${ANSI.reset}` : "";
+  const cacheSuffix = details?.cacheHitPct != null ? ` ${ANSI.dim}💾 ${details.cacheHitPct}%${ANSI.reset}` : "";
 
   return `${color}${bar} ${used}%${ANSI.reset}${tokenSuffix}${cacheSuffix}`;
 }
@@ -1195,15 +1195,19 @@ function renderFromPayload(data) {
     line2Parts.push(`${ANSI.cyan}☑ ${done}/${total}${curLabel}${ANSI.reset}`);
   }
 
-  line2Parts.push(`${ANSI.cyan}agents:${transcriptSummary.runningAgentCount}${ANSI.reset}`);
+  if (transcriptSummary.runningAgentCount > 0) {
+    line2Parts.push(`${ANSI.cyan}agents:${transcriptSummary.runningAgentCount}${ANSI.reset}`);
+  }
   line2Parts.push(`${ANSI.dim}${formatCallCounts(transcriptSummary)}${ANSI.reset}`);
 
   const sepPipe = ` ${ANSI.dim}│${ANSI.reset} `;
   let header;
   if (cfg.layout === "compact") {
-    header = `${line1Parts.join(sepPipe)} ${ANSI.dim}|${ANSI.reset} ${line2Parts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+    header = line2Parts.length > 0
+      ? `${line1Parts.join(sepPipe)}${sepPipe}${line2Parts.join(sepPipe)}`
+      : line1Parts.join(sepPipe);
   } else {
-    header = `${line1Parts.join(sepPipe)}\n${line2Parts.join(` ${ANSI.dim}|${ANSI.reset} `)}`;
+    header = `${line1Parts.join(sepPipe)}\n${line2Parts.join(sepPipe)}`;
   }
 
   const detailLines = renderAgentDetailLines(transcriptSummary.agents);

@@ -118,7 +118,7 @@ test('antigravity hud: tracks parallel subagents FIFO and clears on completion o
       'utf8',
     );
     const outRestart = runHud(AGY_HUD, payload, tmpHome);
-    assert.match(outRestart, /agents:0/);
+    assert.doesNotMatch(outRestart, /agents:/);
   } finally {
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
@@ -161,7 +161,7 @@ test('claude hud: avoids false 100% when context_window missing and renders git 
     assert.match(outNoCtx, /\([^)]+\)/); // git branch badge
     assert.doesNotMatch(outNoCtx, /100%/);
     assert.match(outNoCtx, /skill:code-review/);
-    assert.match(outNoCtx, /agents:0/);
+    assert.doesNotMatch(outNoCtx, /agents:/);
     assert.match(outNoCtx, /🔧 2 🤖 1 ⚡ 1/);
 
     // With remaining_percentage -> renders context bar accurately
@@ -294,7 +294,7 @@ test('antigravity hud: renders Tier 1-3 fields, /goal lifecycle + >512KB persist
     assert.match(lines[0], /…\/workspace\/my-cool-repo/);
     assert.match(lines[0], /🎯 GOAL .* #1/);
     assert.match(lines[0], /RG:4-neon-high|RG:neon-high/);
-    assert.match(lines[1], /32% \(400k\/1M\) ⚡75%/);
+    assert.match(lines[1], /32% \(400k\/1M\) 💾 75%/);
     assert.doesNotMatch(lines[1], />200k/);
     assert.match(lines[1], /~\$0\.42 \(sub:\$0\.05\)/);
     assert.match(lines[1], /5h:98%\/2h 7d:45%\/2d/);
@@ -423,11 +423,116 @@ test('claude hud: renders Tier 1-3 fields (cost, lines, rate_limits, cache%, Tod
     assert.match(lines[0], /…\/very-long-folder-name\/claude-demo-app/);
     assert.match(lines[0], /🎯 RALPH #2\/5/);
     assert.match(lines[0], /RG:opus/);
-    assert.match(lines[1], /36% \(60k\/200k\) ⚡67%/);
+    assert.match(lines[1], /36% \(60k\/200k\) 💾 67%/);
     assert.doesNotMatch(lines[1], />200k/);
     assert.match(lines[1], /\$1\.25 \+42\/-7/);
     assert.match(lines[1], /5h:80% 7d:15%/);
     assert.match(lines[1], /☑ 1\/3: Implementing HUD/);
+  } finally {
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+  }
+});
+
+test('hud display fixes: suppresses thinking when idle, uses consistent │, renders low-usage bar, hides agents:0, resets Orchestrator phase', () => {
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'hud-fixes-'));
+  try {
+    const agyDir = path.join(tmpHome, '.gemini', 'antigravity-cli');
+    const logDir = path.join(agyDir, 'brain', 'sess-fix', '.system_generated', 'logs');
+    fs.mkdirSync(logDir, { recursive: true });
+    const transcriptPath = path.join(logDir, 'transcript.jsonl');
+    const nowIso = new Date().toISOString();
+
+    // Prior exec turn followed by a new USER_EXPLICIT turn with recent thinking
+    const entries = [
+      { type: 'SYSTEM_MESSAGE', source: 'SYSTEM', created_at: nowIso, content: 'Plan mode is off: execute' },
+      { type: 'PLANNER_RESPONSE', model: 'gemini-4-hydrogen-high', thinking: 'exec thought', created_at: nowIso },
+      { type: 'USER_INPUT', source: 'USER_EXPLICIT', created_at: nowIso, content: 'new question' },
+    ];
+    fs.writeFileSync(transcriptPath, entries.map((e) => JSON.stringify(e)).join('\n') + '\n', 'utf8');
+
+    const basePayload = {
+      session_id: 'sess-fix',
+      transcript_path: transcriptPath,
+      model: { display_name: 'Orchestrator (Neon)' },
+      workspace: { current_dir: ROOT },
+      context_window: { used_percentage: 9, context_window_size: 1000000, current_usage: { input_tokens: 90000 } },
+    };
+
+    // New USER_EXPLICIT turn resets stale [Exec:hydrogen-high] to [Plan] even in accept-edits mode
+    const outResetPlan = runHud(AGY_HUD, { ...basePayload, cycle_mode: 'accept-edits', agent_state: 'working' }, tmpHome);
+    const resetLines = outResetPlan.split('\n');
+    assert.match(resetLines[0], /Orchestrator \(Neon\) \[Plan\]/);
+    assert.doesNotMatch(resetLines[0], /hydrogen-high|Exec:/);
+    assert.match(resetLines[1], /█░░░░░░░░░ 9%/);
+    assert.match(resetLines[1], /thinking/);
+    assert.doesNotMatch(resetLines[1], /agents:0/);
+    assert.doesNotMatch(resetLines[1], / \| /);
+    assert.match(resetLines[1], / │ /);
+
+    // Once planning model responds in accept-edits mode, shows [Plan:neon-high] (NOT [Exec:neon-high])
+    fs.appendFileSync(
+      transcriptPath,
+      JSON.stringify({ type: 'PLANNER_RESPONSE', model: 'gemini-4-neon-high', thinking: 'planning', created_at: nowIso }) + '\n',
+      'utf8',
+    );
+    const outPlanModel = runHud(AGY_HUD, { ...basePayload, cycle_mode: 'accept-edits', agent_state: 'idle' }, tmpHome);
+    assert.match(outPlanModel, /Orchestrator \(Neon\) \[Plan:neon-high\]/);
+    assert.doesNotMatch(outPlanModel, /Exec:neon-high/);
+    // Idle suppresses stale thinking even within 30s
+    assert.doesNotMatch(outPlanModel, /thinking/);
+
+    // tool_confirmation_pending also suppresses thinking
+    const outWait = runHud(AGY_HUD, { ...basePayload, cycle_mode: 'accept-edits', agent_state: 'working', tool_confirmation_pending: true }, tmpHome);
+    assert.doesNotMatch(outWait, /thinking/);
+
+    // Zero usage renders empty bar
+    const outZero = runHud(
+      AGY_HUD,
+      { ...basePayload, context_window: { used_percentage: 0, context_window_size: 1000000 } },
+      tmpHome,
+    );
+    assert.match(outZero, /░░░░░░░░░░ 0%/);
+
+    // Plan review hand-back resets phase to [Plan] without stale Exec model
+    fs.appendFileSync(
+      transcriptPath,
+      [
+        JSON.stringify({ type: 'SYSTEM_MESSAGE', source: 'SYSTEM', created_at: nowIso, content: 'Plan mode is off: run' }),
+        JSON.stringify({ type: 'PLANNER_RESPONSE', model: 'gemini-4-hydrogen-high', created_at: nowIso }),
+        JSON.stringify({ type: 'SYSTEM_MESSAGE', source: 'SYSTEM', created_at: nowIso, content: '[plan review due]' }),
+      ].join('\n') + '\n',
+      'utf8',
+    );
+    const outReview = runHud(AGY_HUD, { ...basePayload, agent_state: 'working' }, tmpHome);
+    assert.match(outReview, /Orchestrator \(Neon\) \[Plan\]/);
+    assert.doesNotMatch(outReview, /hydrogen-high/);
+
+    // Claude HUD: low usage bar, consistent │, hides agents:0, 0% bar
+    const outClaudeLow = runHud(
+      CLAUDE_HUD,
+      {
+        model: { display_name: 'Claude Sonnet 4.5' },
+        workspace: { current_dir: ROOT },
+        context_window: { remaining_percentage: 93 },
+      },
+      tmpHome,
+    );
+    const claudeLines = outClaudeLow.split('\n');
+    assert.match(claudeLines[1], /█░░░░░░░░░ 8%/);
+    assert.doesNotMatch(claudeLines[1], /agents:0/);
+    assert.doesNotMatch(claudeLines[1], / \| /);
+    assert.match(claudeLines[1], / │ /);
+
+    const outClaudeZero = runHud(
+      CLAUDE_HUD,
+      {
+        model: { display_name: 'Claude Sonnet 4.5' },
+        workspace: { current_dir: ROOT },
+        context_window: { remaining_percentage: 100 },
+      },
+      tmpHome,
+    );
+    assert.match(outClaudeZero, /░░░░░░░░░░ 0%/);
   } finally {
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }
